@@ -253,7 +253,7 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str) -> Starlett
     # the vault (same Vault module the MCP server uses, so git snapshots
     # apply); the model only enters when the session ends and the UI invokes
     # the meeting-capture skill on the finished note.
-    capture: dict = {"path": None}
+    capture: dict = {"path": None, "lines": 0, "created": False}
 
     def _vault():
         from obsidian_mcp.vault import Vault
@@ -266,10 +266,11 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str) -> Starlett
         now = dt.datetime.now()
         title = re.sub(r'[\\/:*?"<>|]', "", (data.get("title") or "").strip()) or now.strftime("%H.%M")
         rel = f"Captures/{now.date().isoformat()} {title}.md"
-        if not v.resolve(rel).exists():
+        created = not v.resolve(rel).exists()
+        if created:
             v.snapshot_before("capture")
             v.write(rel, f"# Capture: {title}\n\n_{now.strftime('%A %Y-%m-%d %H:%M')}_\n\n")
-        capture["path"] = rel
+        capture.update(path=rel, lines=0, created=created)
         return JSONResponse({"path": rel})
 
     async def capture_append(request):
@@ -282,14 +283,21 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str) -> Starlett
             p = v.resolve(capture["path"])
             with open(p, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
+            capture["lines"] += 1
         return JSONResponse({"ok": True, "path": capture["path"]})
 
     async def capture_stop(request):
-        path = capture["path"]
+        path, lines = capture["path"], capture["lines"]
         if path:
-            _vault().snapshot_after(f"capture session {path}")
-        capture["path"] = None
-        return JSONResponse({"path": path})
+            v = _vault()
+            if lines == 0 and capture["created"]:
+                # Nothing captured and we made the note: leave no litter.
+                v.resolve(path).unlink(missing_ok=True)
+                v.snapshot_after(f"discard empty capture {path}")
+            else:
+                v.snapshot_after(f"capture session {path}")
+        capture.update(path=None, lines=0, created=False)
+        return JSONResponse({"path": path, "lines": lines})
 
     async def chats_list(request):
         return JSONResponse({"chats": store.list(), "current": manager.chat_id})

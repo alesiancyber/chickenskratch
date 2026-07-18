@@ -448,7 +448,8 @@ const captureBtn = $("capture");
 async function toggleCapture() {
   if (busy) return;
   if (!capturing) {
-    const title = prompt("Meeting title (optional):") ?? "";
+    const title = prompt("Meeting title (optional):");
+    if (title === null) return;  // Cancel means cancel — no capture starts
     const res = await fetch("/api/capture/start", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({title}),
@@ -461,12 +462,16 @@ async function toggleCapture() {
     add("assistant", "Capture started → " + path + "\nType freely; nothing goes to the model until you stop.");
   } else {
     const res = await fetch("/api/capture/stop", {method: "POST"});
-    const {path} = await res.json();
+    const {path, lines} = await res.json();
     capturing = false;
     captureBtn.classList.remove("on");
     captureBtn.textContent = "● Capture";
     input.placeholder = "Ask about your vault… (Enter to send, Shift+Enter for newline)";
-    if (path) sendMessage("/meeting-capture " + path);
+    if (path && lines > 0) {
+      sendMessage("/meeting-capture " + path);
+    } else {
+      add("assistant", "Capture ended — nothing was captured, so there's nothing to structure.");
+    }
   }
 }
 captureBtn.addEventListener("click", toggleCapture);
