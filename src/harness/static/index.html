@@ -387,9 +387,12 @@ $("approvals").addEventListener("click", () => {
   renderApprovals();
 });
 
+let inflight = null;  // AbortController for the current request
+
 async function sendMessage(text) {
   add("user", text);
   setBusy(true);
+  inflight = new AbortController();
   const thinking = document.createElement("div");
   thinking.className = "thinking";
   thinking.textContent = "thinking";
@@ -400,6 +403,7 @@ async function sendMessage(text) {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({message: text, model: modelSel.value, approvals: approvalsEffective()}),
+      signal: inflight.signal,
     });
     if (!res.ok) throw new Error(await res.text());
     const reader = res.body.getReader();
@@ -448,8 +452,9 @@ async function sendMessage(text) {
       }
     }
   } catch (e) {
-    add("error", "Request failed: " + e.message);
+    if (e.name !== "AbortError") add("error", "Request failed: " + e.message);
   } finally {
+    inflight = null;
     thinking.remove();
     setBusy(false);
     input.focus();
@@ -528,7 +533,10 @@ input.addEventListener("input", () => {
 });
 
 $("new").addEventListener("click", async () => {
-  if (busy) return;
+  // New chat is the escape hatch: abort any in-flight (possibly hung)
+  // request rather than silently ignoring the click.
+  if (inflight) inflight.abort();
+  setBusy(false);
   await fetch("/api/reset", {method: "POST"});
   messages.innerHTML = "";
   input.focus();
