@@ -1,8 +1,11 @@
-# tool-harness
+# tezcat
+
+*Named for Tezcatlipoca's smoking mirror — a scrying mirror of polished
+obsidian. You ask the black mirror questions; it answers.*
 
 A model-agnostic agent harness that drives an Obsidian vault: notes, tasks,
-kanban boards, daily notes, meeting notes. Local models via Ollama today; any
-OpenAI-compatible endpoint tomorrow.
+kanban boards, daily notes, meeting notes. Local models (MLX / Ollama) today;
+any OpenAI-compatible endpoint tomorrow.
 
 ## Architecture
 
@@ -12,7 +15,9 @@ OpenAI-compatible endpoint tomorrow.
 ├─────────────────────────────────────────────┤
 │ Model adapter — config/models.yaml profiles │  ← swap models here
 ├─────────────────────────────────────────────┤
-│ Obsidian MCP server (src/obsidian_mcp)      │  ← usable by ANY MCP client
+│ MCP servers — config/mcp.yaml               │  ← usable by ANY MCP client
+│  obsidian (vault ops) · files (find/grep)   │
+│  ms-learn (remote docs) · atlassian (off)   │
 └─────────────────────────────────────────────┘
 ```
 
@@ -25,7 +30,8 @@ Three rules keep it plug-and-play:
    and the base system prompt never compensate for one model's quirks.
 3. **Every mutation is git-snapshotted.** Manual edits are committed before the
    harness touches anything; each harness change is its own commit. Undo is
-   `git revert`/`git reset` in the vault.
+   one click in the chat UI's **↺ Changes** panel (or `git revert` in the
+   vault, if you prefer the long way).
 
 ## MCP servers & write safety
 
@@ -52,9 +58,22 @@ guarantees apply to write tools:
 ## Setup
 
 ```sh
-brew install uv        # already done on this machine
+brew install uv
 uv sync
+mkdir testvault        # scratch vault the default config points at
+                       # (or set `vault:` in config/models.yaml to your own)
 ```
+
+You also need a model server running. The default profile expects Gemma 4
+via mlx-vlm on port 8080:
+
+```sh
+uv tool install mlx-vlm
+mlx_vlm.server --model mlx-community/gemma-4-12B-it-4bit --port 8080
+```
+
+The qwen profiles expect Ollama (`ollama serve`) with the models pulled.
+Any OpenAI-compatible endpoint works — see "Adding a model."
 
 ## Usage
 
@@ -77,12 +96,26 @@ uv run harness-web -v ~/Vaults/personal -p 9000
 ```
 
 A single-page local chat app (no build step, no external requests —
-marked.js/DOMPurify are vendored). Tool calls stream into the chat live as
-the model works; the model picker switches profiles (starting a fresh
-conversation); "New chat" resets. One conversation at a time by design.
+marked.js/DOMPurify are vendored). In the header:
 
-Point it at a real vault with `-v`, `OBSIDIAN_VAULT_PATH`, or the `vault:` key
-in `config/models.yaml`. The default is the bundled `testvault/`.
+- **model picker** — switch profiles (starts a fresh conversation)
+- **🛡 Approvals** — toggle the write-confirmation gate per session
+  (profile default until overridden; remembered in localStorage)
+- **↺ Changes** — recent vault commits with one-click revert
+- **💬 Chats** — recent conversations, auto-saved after every reply,
+  reopenable, pruned after 3 days (the vault is the archive, chats are scratch)
+- **● Capture** — model-free meeting capture (see Workflows below)
+
+Replies stream token-by-token; tool calls appear as chips as they happen;
+gated writes pause on approve/deny buttons. One active conversation at a
+time by design. Long conversations trim their oldest turns rather than
+silently overflowing the model's context.
+
+Tip: dock it inside Obsidian with the core Web Viewer plugin (drag the tab
+into the right sidebar) for a Copilot-style panel with zero extra code.
+
+Point it at a real vault with `-v`, `OBSIDIAN_VAULT_PATH`, or the `vault:`
+key in `config/models.yaml`.
 
 ## Adding a model
 
@@ -91,13 +124,17 @@ Add an entry to `config/models.yaml` — that's the whole procedure:
 ```yaml
 homelab:
   model: qwen3.5:72b
-  base_url: http://192.168.1.50:8000/v1   # vLLM, llama.cpp, Ollama, anything OpenAI-compatible
+  base_url: http://192.168.1.50:8000/v1   # vLLM, llama.cpp, Ollama, mlx-vlm — anything OpenAI-compatible
   max_iterations: 25
   max_tool_result_chars: 12000
+  confirm_writes: true        # write-approval gate default for this model
+  # servers: [obsidian]       # optionally narrow the tool surface
 ```
 
 Ollama note: its OpenAI endpoint uses the model's default context length.
 Raise it with `OLLAMA_CONTEXT_LENGTH=16384 ollama serve` or a Modelfile.
+Gemma 4 note: the `gemma4_unified` checkpoints load in **mlx-vlm** (not
+mlx-lm), whose server provides full OpenAI-style tool calling.
 
 ## The MCP server standalone
 
@@ -108,10 +145,13 @@ Claude Code, or any MCP client:
 OBSIDIAN_VAULT_PATH=~/Vaults/personal uv run obsidian-mcp
 ```
 
-Tools (15): `list_notes`, `read_note`, `search_vault`, `create_note`,
+Tools (16): `list_notes`, `read_note`, `search_vault`, `create_note`,
 `append_to_note`, `replace_section`, `update_frontmatter`, `list_tasks`,
-`add_task`, `set_task_status`, `read_board`, `add_card`, `move_card`,
-`open_daily_note`, `create_meeting_note`.
+`add_task`, `set_task_status`, `create_board`, `read_board`, `add_card`,
+`move_card`, `open_daily_note`, `create_meeting_note`.
+
+The read-only files server runs standalone the same way:
+`FILES_ROOTS="~" uv run files-mcp` (`find_file`, `search_text`, `list_dir`).
 
 Design intent: semantic tools own format correctness (a model never hand-edits
 kanban markdown), general tools (`search_vault`, `read_note`, `replace_section`)
@@ -137,10 +177,14 @@ template to change the format, no code.
 ## Tests
 
 ```sh
-uv run pytest
+uv run pytest      # 43 tests, ~2s
+uv run ruff check src tests
 ```
 
-Smoke tests run every tool against a temp copy of `testvault/`.
+Tool smoke tests run every vault tool against a temp fixture; guarantee
+tests prove the harness promises (loop guard, write gate, empty-reply
+recovery, streaming assembly, context trimming) against a scripted fake
+model — no model or network required.
 
 ## Evals — measuring model swaps
 
@@ -150,22 +194,31 @@ uv run harness-eval -m qwen3.5-9b      # compare another profile
 uv run harness-eval -k kanban          # subset by name
 ```
 
-21 fixture cases in `evals/cases/*.yaml`, each run against a pristine copy of
+23 fixture cases in `evals/cases/*.yaml`, each run against a pristine copy of
 `evals/vault` (19 open tasks with known type counts; date placeholders like
 `{tomorrow}` resolved at run time so cases never go stale). Scoring checks
 the resulting files and board/task structure — never the model's prose —
 plus regression cases for every observed failure class: duplicate writes,
 spurious mutations on read-only questions, denied-write honesty, multi-turn
-reference resolution. Reports (md + json) land in `evals/reports/`.
+reference resolution. Reports (md + json) land in `evals/reports/`, and a
+comparison dashboard lives at `/evals` in the web UI (model × case matrix,
+click a ✗ for failure details).
+
+Current baselines: gemma4-12B (mlx) 22/23 · qwen3.5-9B (ollama) 16/21.
 
 Run it when you: swap models, edit the system prompt, add or change a tool,
 or change toolset scoping. New model = new profile entry + one eval run =
 a scored answer instead of vibes.
 
-## Roadmap
+## Status & roadmap
 
-- **Phase 2** — eval suite (fixture tasks scored by checking resulting files,
-  so model swaps are measurable); skills-style markdown workflow files
-  (meeting pipeline, weekly review).
-- **Phase 3** — point a profile at the networked 32GB server; scheduled runs
-  (daily-note prep, task rollover).
+Built and verified: everything above. Remaining, in
+[PHASE2.md](PHASE2.md) / [PHASE3.md](PHASE3.md):
+
+- **Cloud escape-hatch profile** (Gemini Flash class) — wiring is one
+  profile entry + an API key; then an eval run to score cloud vs local.
+- **Real-vault onboarding** — `.obsidian/` snapshot hygiene, single
+  auto-committer decision, launchd auto-start.
+- **Jira via Atlassian's remote MCP** (OAuth 2.1) — endpoint already
+  configured but disabled; includes `enable_toolset` dynamic tool loading
+  to keep its ~25 tools out of context until needed.

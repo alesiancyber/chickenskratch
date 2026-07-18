@@ -1,7 +1,7 @@
 [project]
-name = "tool-harness"
+name = "tezcat"
 version = "0.1.0"
-description = "Model-agnostic agent harness with an Obsidian MCP tool server"
+description = "Tezcat: model-agnostic agent harness for Obsidian — ask the black mirror"
 requires-python = ">=3.12"
 dependencies = [
     "mcp>=1.9",
