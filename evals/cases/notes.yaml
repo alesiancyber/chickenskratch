@@ -1,0 +1,32 @@
+# Note creation and anchored edits.
+
+- name: create-meeting-note
+  turns: ["Create a meeting note titled 'Roadmap Review' for today with attendees Alex and Priya"]
+  checks:
+    - file_exists: {path: "Meetings/{today} Roadmap Review.md"}
+    - file_contains: {path: "Meetings/{today} Roadmap Review.md", pattern: "Alex"}
+
+- name: daily-note-append
+  turns: ["Add a note to today's daily note: called the plumber about the leak"]
+  checks:
+    - file_contains: {path: "Daily/{today}.md", pattern: "plumber"}
+
+- name: replace-section
+  turns: ["Update the Status section of the Website Redesign project note to say the launch is delayed to September"]
+  checks:
+    - file_contains: {path: Projects/Website Redesign.md, pattern: "September"}
+    - file_not_contains: {path: Projects/Website Redesign.md, pattern: "Waiting on brand guidelines"}
+    - file_contains: {path: Projects/Website Redesign.md, pattern: "New pricing page"}
+
+- name: set-frontmatter
+  turns: ["Set the frontmatter status of the Website Redesign project note to on-hold"]
+  checks:
+    - file_contains: {path: Projects/Website Redesign.md, pattern: 'status: *[''"]?on-hold', regex: true}
+    - file_contains: {path: Projects/Website Redesign.md, pattern: "New pricing page"}
+
+- name: create-note-with-sections
+  turns: ["Create a research note at Research/Local LLM Serving.md with sections for MLX and vLLM"]
+  checks:
+    - file_exists: {path: Research/Local LLM Serving.md}
+    - file_contains: {path: Research/Local LLM Serving.md, pattern: '#+ *MLX', regex: true}
+    - file_contains: {path: Research/Local LLM Serving.md, pattern: '#+ *vLLM', regex: true}

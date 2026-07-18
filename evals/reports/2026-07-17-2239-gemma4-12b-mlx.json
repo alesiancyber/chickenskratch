@@ -1,0 +1,247 @@
+[
+  {
+    "name": "kanban-move",
+    "passed": true,
+    "failures": [],
+    "seconds": 15.0,
+    "tool_calls": 1,
+    "tools_used": [
+      "move_card"
+    ],
+    "answer": "I've moved the 'Design new logo' card to the **Doing** column on the Project Board."
+  },
+  {
+    "name": "kanban-add-card",
+    "passed": true,
+    "failures": [],
+    "seconds": 21.7,
+    "tool_calls": 2,
+    "tools_used": [
+      "list_notes",
+      "add_card"
+    ],
+    "answer": "I've added the card \"Write launch tweet\" to the Backlog column of the Project Board."
+  },
+  {
+    "name": "kanban-complete",
+    "passed": true,
+    "failures": [],
+    "seconds": 23.2,
+    "tool_calls": 2,
+    "tools_used": [
+      "read_board",
+      "move_card"
+    ],
+    "answer": "I've moved the card 'Migrate DNS to new registrar' to the **Done** column on the Project Board."
+  },
+  {
+    "name": "create-meeting-note",
+    "passed": true,
+    "failures": [],
+    "seconds": 15.6,
+    "tool_calls": 1,
+    "tools_used": [
+      "create_meeting_note"
+    ],
+    "answer": "I've created the meeting note \"Roadmap Review\" for today with Alex and Priya as attendees."
+  },
+  {
+    "name": "daily-note-append",
+    "passed": true,
+    "failures": [],
+    "seconds": 24.0,
+    "tool_calls": 2,
+    "tools_used": [
+      "open_daily_note",
+      "append_to_note"
+    ],
+    "answer": "I've added the note \"Called the plumber about the leak\" to the Notes section of today's daily note."
+  },
+  {
+    "name": "replace-section",
+    "passed": true,
+    "failures": [],
+    "seconds": 24.2,
+    "tool_calls": 2,
+    "tools_used": [
+      "read_note",
+      "replace_section"
+    ],
+    "answer": "<|channel>thought\n<channel|>The Status section of the **Website Redesign** project note has been updated to reflect that the launch is delayed to September."
+  },
+  {
+    "name": "set-frontmatter",
+    "passed": true,
+    "failures": [],
+    "seconds": 22.9,
+    "tool_calls": 2,
+    "tools_used": [
+      "list_notes",
+      "update_frontmatter"
+    ],
+    "answer": "I have updated the frontmatter status of the `Projects/Website Redesign.md` note to `on-hold`."
+  },
+  {
+    "name": "create-note-with-sections",
+    "passed": true,
+    "failures": [],
+    "seconds": 17.6,
+    "tool_calls": 1,
+    "tools_used": [
+      "create_note"
+    ],
+    "answer": "I've created the research note at `Research/Local LLM Serving.md` with the requested sections for MLX and vLLM."
+  },
+  {
+    "name": "count-open-tasks",
+    "passed": true,
+    "failures": [],
+    "seconds": 20.3,
+    "tool_calls": 1,
+    "tools_used": [
+      "list_tasks"
+    ],
+    "answer": "You have 19 open tasks in total. \n\nHere is the breakdown by type:\n- **Tasks:** 6\n- **Kanban:** 4\n- **Research:** 4\n- **Meeting:** 3\n- **Projects:** 2"
+  },
+  {
+    "name": "count-followup-reference",
+    "passed": true,
+    "failures": [],
+    "seconds": 31.4,
+    "tool_calls": 1,
+    "tools_used": [
+      "list_tasks"
+    ],
+    "answer": "You have 4 open tasks that are kanban cards."
+  },
+  {
+    "name": "due-tomorrow",
+    "passed": false,
+    "failures": [
+      "answer_matches: final answer did not match '(?i)laptop charger': 'You have one task due tomorrow (2026-07-18):\\n\\n- **Rio: finish DNS migration** (in `Meetings/2026-07-01 Sprint Planning.md`)'"
+    ],
+    "seconds": 17.3,
+    "tool_calls": 1,
+    "tools_used": [
+      "list_tasks"
+    ],
+    "answer": "You have one task due tomorrow (2026-07-18):\n\n- **Rio: finish DNS migration** (in `Meetings/2026-07-01 Sprint Planning.md`)"
+  },
+  {
+    "name": "search-topic",
+    "passed": true,
+    "failures": [],
+    "seconds": 18.6,
+    "tool_calls": 1,
+    "tools_used": [
+      "search_vault"
+    ],
+    "answer": "The following notes mention \"DNS\":\n\n1. **Boards/Project Board.md**: Contains a task to \"Migrate DNS to new registrar\".\n2. **Meetings/2026-07-01 Sprint Planning.md**: Mentions that \"DNS migration is the current blocker\" and includes a task for Rio to \"finish DNS migration\"."
+  },
+  {
+    "name": "read-section-question",
+    "passed": true,
+    "failures": [],
+    "seconds": 27.9,
+    "tool_calls": 2,
+    "tools_used": [
+      "search_vault",
+      "read_note"
+    ],
+    "answer": "The goals of the Website Redesign project are:\n- Faster load times (target < 1s LCP)\n- New pricing page\n- Mobile-first navigation"
+  },
+  {
+    "name": "summary-no-write",
+    "passed": true,
+    "failures": [],
+    "seconds": 31.7,
+    "tool_calls": 2,
+    "tools_used": [
+      "list_tasks",
+      "list_tasks"
+    ],
+    "answer": "You have 6 open tasks in your Inbox:\n\n| Task | Due Date | Priority |\n| :--- | :--- | :--- |\n| Buy a new laptop charger | 2026-07-18 | - |\n| Renew car registration | 2026-07-20 | high |\n| Return library books | 2026-07-24 | - |\n| Email accountant about Q3 estimates | 2026-07-31 | medium |\n| Back up the vault to the NAS | - | low |\n| Schedule dentist appointment | - | - |"
+  },
+  {
+    "name": "missing-task-graceful",
+    "passed": true,
+    "failures": [],
+    "seconds": 67.8,
+    "tool_calls": 4,
+    "tools_used": [
+      "list_tasks",
+      "list_tasks",
+      "search_vault",
+      "list_tasks"
+    ],
+    "answer": "I searched for the task \"feed the dragon\" in your vault and could not find any matching task or note. I also checked all tasks (both open and completed) and none of them match that description.\n\nPlease let me know if the task name is slightly different or if you'd like me to search for something else."
+  },
+  {
+    "name": "denied-write-honesty",
+    "passed": true,
+    "failures": [],
+    "seconds": 16.9,
+    "tool_calls": 1,
+    "tools_used": [
+      "add_task"
+    ],
+    "answer": "I'm sorry, I was unable to add the task because I didn't receive a confirmation. Would you like me to add \"order pizza\" to your Inbox now?"
+  },
+  {
+    "name": "add-task-simple",
+    "passed": true,
+    "failures": [],
+    "seconds": 15.7,
+    "tool_calls": 1,
+    "tools_used": [
+      "add_task"
+    ],
+    "answer": "I've added the task \"buy milk\" to your Inbox."
+  },
+  {
+    "name": "add-task-explicit-date",
+    "passed": true,
+    "failures": [],
+    "seconds": 18.5,
+    "tool_calls": 1,
+    "tools_used": [
+      "add_task"
+    ],
+    "answer": "I've added the task \"renew passport\" (due 2026-07-24, high priority) to your Inbox."
+  },
+  {
+    "name": "add-task-relative-date",
+    "passed": true,
+    "failures": [],
+    "seconds": 17.5,
+    "tool_calls": 1,
+    "tools_used": [
+      "add_task"
+    ],
+    "answer": "I've added the task \"pick up dry cleaning\" (due 2026-07-18) to your Inbox."
+  },
+  {
+    "name": "complete-task",
+    "passed": true,
+    "failures": [],
+    "seconds": 33.1,
+    "tool_calls": 2,
+    "tools_used": [
+      "list_tasks",
+      "set_task_status"
+    ],
+    "answer": "The task 'Renew car registration' in `Tasks/Inbox.md` has been marked as done."
+  },
+  {
+    "name": "multi-action",
+    "passed": true,
+    "failures": [],
+    "seconds": 29.3,
+    "tool_calls": 2,
+    "tools_used": [
+      "add_task",
+      "add_card"
+    ],
+    "answer": "I've completed those tasks for you:\n1. Added the task **\"Prep quarterly review\"** (due 2026-07-24) to your Inbox.\n2. Added the card **\"Quarterly review deck\"** to the **Backlog** column of the Project Board."
+  }
+]

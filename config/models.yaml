@@ -1,0 +1,51 @@
+# Model profiles — the only place model-specific settings live.
+# Any OpenAI-compatible endpoint works: Ollama today, llama.cpp/vLLM on
+# the network server later — add an entry and pass `-m <name>`.
+#
+# Note: Ollama's OpenAI endpoint uses the model's default context length.
+# Raise it globally with `OLLAMA_CONTEXT_LENGTH=16384 ollama serve`, or
+# bake it into a Modelfile.
+
+default: gemma4-12b-mlx
+vault: ../testvault   # relative to this config file
+
+models:
+  gemma4-12b-mlx:
+    model: mlx-community/gemma-4-12B-it-4bit
+    base_url: http://127.0.0.1:8080/v1   # mlx_vlm.server (mlx-lm can't load gemma4_unified)
+    temperature: 0.2
+    max_iterations: 15
+    max_tool_result_chars: 8000
+    confirm_writes: true
+
+  qwen3.5-9b:
+    model: qwen3.5:9b-q4_K_M
+    base_url: http://localhost:11434/v1
+    temperature: 0.2
+    max_iterations: 15
+    max_tool_result_chars: 6000
+    confirm_writes: true       # gate mutations on approval (spurious-write guard)
+
+  qwen3.5-4b:
+    model: qwen3.5:4b-q4_K_M
+    base_url: http://localhost:11434/v1
+    temperature: 0.2
+    max_iterations: 10
+    max_tool_result_chars: 4000
+    confirm_writes: true
+    servers: [obsidian]        # 4b gets the minimal tool surface
+
+  qwen3-8b:
+    model: qwen3:8b
+    base_url: http://localhost:11434/v1
+    temperature: 0.2
+    max_iterations: 15
+    max_tool_result_chars: 6000
+    confirm_writes: true
+
+  # Example future entry for the 32GB network server:
+  # homelab-70b:
+  #   model: qwen3.5:72b
+  #   base_url: http://192.168.1.50:8000/v1
+  #   max_iterations: 25
+  #   max_tool_result_chars: 12000

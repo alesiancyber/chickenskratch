@@ -1,0 +1,30 @@
+# Task operations. count: 1 doubles as the duplicate-write regression check
+# (qwen once added the same task 7 times in one turn).
+
+- name: add-task-simple
+  turns: ["Add a task to my inbox: buy milk"]
+  checks:
+    - file_contains: {path: Tasks/Inbox.md, pattern: "- [ ] buy milk", count: 1}
+
+- name: add-task-explicit-date
+  turns: ["Add a task to my inbox: renew passport, due {plus7}, high priority"]
+  checks:
+    - file_contains: {path: Tasks/Inbox.md, pattern: '- \[ \] renew passport ⏫ 📅 {plus7}', regex: true, count: 1}
+
+- name: add-task-relative-date
+  turns: ["Add a task to my inbox: pick up dry cleaning, due tomorrow"]
+  checks:
+    - file_contains: {path: Tasks/Inbox.md, pattern: "pick up dry cleaning", count: 1}
+    - file_contains: {path: Tasks/Inbox.md, pattern: 'pick up dry cleaning.*📅 {tomorrow}', regex: true}
+
+- name: complete-task
+  turns: ["Mark the task 'Renew car registration' as done"]
+  checks:
+    - task_done: {path: Tasks/Inbox.md, text: Renew car registration, done: true}
+    - file_contains: {path: Tasks/Inbox.md, pattern: 'Renew car registration.*✅ {today}', regex: true}
+
+- name: multi-action
+  turns: ["Add a task 'Prep quarterly review' to my inbox due {plus7}, and also add a card 'Quarterly review deck' to the Backlog column of the project board"]
+  checks:
+    - file_contains: {path: Tasks/Inbox.md, pattern: 'Prep quarterly review.*📅 {plus7}', regex: true, count: 1}
+    - card_in_column: {board: Boards/Project Board.md, card: Quarterly review deck, column: Backlog}

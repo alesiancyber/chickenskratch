@@ -1,0 +1,13 @@
+[
+  {
+    "name": "add-task-simple",
+    "passed": true,
+    "failures": [],
+    "seconds": 17.4,
+    "tool_calls": 1,
+    "tools_used": [
+      "add_task"
+    ],
+    "answer": "I've added the task \"buy milk\" to your Inbox."
+  }
+]

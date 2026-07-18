@@ -1,0 +1,33 @@
+/* Shared theme for all harness pages. Light by default, dark via
+   prefers-color-scheme. Pages add their own component styles. */
+
+:root {
+  --bg: #f5f4f0;
+  --panel: #ffffff;
+  --text: #1d1d1f;
+  --muted: #71717a;
+  --chip: #eef0f4;
+  --border: #e4e4e7;
+  --accent: #4f46e5;
+  --pass: #3f9d5f;
+  --fail: #c05353;
+  --user: #4f46e5;
+  --user-text: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131316;
+    --panel: #1d1d22;
+    --text: #e7e7ea;
+    --muted: #8e8e96;
+    --chip: #26262d;
+    --border: #2c2c34;
+    --accent: #818cf8;
+    --pass: #4fb87a;
+    --fail: #d47070;
+    --user: #6366f1;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; }

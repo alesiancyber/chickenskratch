@@ -1,0 +1,13 @@
+[
+  {
+    "name": "count-followup-reference",
+    "passed": true,
+    "failures": [],
+    "seconds": 29.4,
+    "tool_calls": 1,
+    "tools_used": [
+      "list_tasks"
+    ],
+    "answer": "You have 4 open tasks that are kanban cards."
+  }
+]

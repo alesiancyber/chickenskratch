@@ -1,0 +1,37 @@
+# Read-only questions. Fixture ground truth: 19 open tasks total
+# (6 tasks, 4 kanban, 3 meeting, 4 research, 2 projects).
+# vault_unchanged doubles as the spurious-write regression check
+# (qwen once checked off a task while answering a "how many" question).
+
+- name: count-open-tasks
+  turns: ["how many open tasks do I have"]
+  checks:
+    - answer_matches: {pattern: '\b19\b'}
+    - vault_unchanged: true
+
+- name: count-followup-reference
+  turns:
+    - "how many open tasks do I have"
+    - "how many of those are kanban cards?"
+  checks:
+    - answer_matches: {pattern: '\b4\b'}
+    - vault_unchanged: true
+
+- name: due-tomorrow
+  turns: ["what's due tomorrow?"]
+  checks:
+    - answer_matches: {pattern: '(?i)laptop charger'}
+    - vault_unchanged: true
+
+- name: search-topic
+  turns: ["which notes mention DNS?"]
+  checks:
+    - answer_matches: {pattern: '(?i)sprint planning'}
+    - answer_matches: {pattern: '(?i)board'}
+    - vault_unchanged: true
+
+- name: read-section-question
+  turns: ["what are the goals of the website redesign project?"]
+  checks:
+    - answer_matches: {pattern: '(?i)pricing page'}
+    - vault_unchanged: true

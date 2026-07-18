@@ -1,0 +1,424 @@
+"""Obsidian vault MCP server.
+
+Exposes semantic tools (tasks, kanban, meeting notes) alongside general
+note tools (search, read, section edits). Any MCP client can use this
+server; the harness in this repo is just one of them. Every mutation is
+bracketed by git snapshots so changes are always revertible.
+
+Run: OBSIDIAN_VAULT_PATH=/path/to/vault obsidian-mcp
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+
+from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
+
+from . import kanban as kb
+from . import markdown as md
+from . import tasks as tk
+from .vault import VaultError, get_vault
+
+READ_ONLY = ToolAnnotations(readOnlyHint=True)
+
+mcp = FastMCP("obsidian-vault")
+
+DAILY_DIR = "Daily"
+MEETINGS_DIR = "Meetings"
+
+
+def _today() -> str:
+    return dt.date.today().isoformat()
+
+
+# --------------- reading & searching ---------------
+
+@mcp.tool(annotations=READ_ONLY)
+def list_notes(folder: str = "", recursive: bool = True) -> dict:
+    """List markdown notes in the vault (or one folder), as vault-relative paths.
+
+    Example: list_notes(folder="Projects") -> {"notes": ["Projects/Website Redesign.md", ...]}
+    """
+    v = get_vault()
+    return {"notes": [v.rel(p) for p in v.iter_notes(folder, recursive)]}
+
+
+@mcp.tool(annotations=READ_ONLY)
+def read_note(path: str, section: str = "") -> dict:
+    """Read a note. Pass `section` (a heading, e.g. "Decisions") to get just that
+    section of a long note. Returns frontmatter, content, and the note's headings.
+
+    Example: read_note(path="Meetings/2026-07-15 Sprint Planning", section="Action items")
+    """
+    v = get_vault()
+    text = v.read(path)
+    fm, body = md.split_frontmatter(text)
+    if section:
+        loc = md.find_section(body, section)
+        if loc is None:
+            raise VaultError(f"Heading {section!r} not found. Headings: {md.list_headings(body)}")
+        start, end, _ = loc
+        body = "\n".join(body.splitlines()[start:end])
+    return {"path": path, "frontmatter": fm, "headings": md.list_headings(body), "content": body}
+
+
+@mcp.tool(annotations=READ_ONLY)
+def search_vault(query: str, folder: str = "", limit: int = 20, offset: int = 0) -> dict:
+    """Search all notes for a case-insensitive substring; also matches note titles.
+    Returns matching lines with note path and line number. Use offset to page.
+
+    Example: search_vault(query="quarterly review") ->
+      {"matches": [{"note": "Daily/2026-07-16.md", "line": 12, "text": "..."}], "total": 3}
+    """
+    v = get_vault()
+    q = query.lower()
+    matches = []
+    for p in v.iter_notes(folder):
+        rel = v.rel(p)
+        if q in p.stem.lower():
+            matches.append({"note": rel, "line": 0, "text": f"(title match: {p.stem})"})
+        for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            if q in line.lower():
+                matches.append({"note": rel, "line": i, "text": line.strip()[:200]})
+    page = matches[offset : offset + limit]
+    result = {"matches": page, "total": len(matches)}
+    if offset + limit < len(matches):
+        result["next_offset"] = offset + limit
+    return result
+
+
+# --------------- writing notes ---------------
+
+@mcp.tool()
+def create_note(path: str, content: str = "") -> dict:
+    """Create a new note. Fails if the note already exists (use append_to_note or
+    replace_section to change existing notes). Folders are created as needed.
+
+    Example: create_note(path="Research/Vector DBs.md", content="# Vector DBs\\n\\n- ...")
+    """
+    v = get_vault()
+    p = v.resolve(path)
+    if p.exists():
+        raise VaultError(f"Note already exists: {v.rel(p)}")
+    v.snapshot_before("create_note")
+    v.write(v.rel(p), content if content.endswith("\n") else content + "\n")
+    v.snapshot_after(f"create note {v.rel(p)}")
+    return {"created": v.rel(p)}
+
+
+@mcp.tool()
+def append_to_note(path: str, content: str, section: str = "") -> dict:
+    """Append markdown to the end of a note, or to the end of one section if
+    `section` (a heading) is given. Creates the note if it doesn't exist.
+
+    Example: append_to_note(path="Daily/2026-07-17", section="Notes", content="- Called the vendor")
+    """
+    v = get_vault()
+    p = v.resolve(path)  # validate before snapshotting
+    v.snapshot_before("append_to_note")
+    if not p.exists():
+        v.write(v.rel(p), content.strip("\n") + "\n")
+        v.snapshot_after(f"create note {v.rel(p)}")
+        return {"created": v.rel(p)}
+    text = v.read(path)
+    fm, body = md.split_frontmatter(text)
+    if section:
+        body = md.append_to_section(body, section, content)
+    else:
+        body = body.rstrip("\n") + "\n\n" + content.strip("\n") + "\n"
+    v.write(v.rel(p), md.join_frontmatter(fm, body))
+    v.snapshot_after(f"append to {v.rel(p)}")
+    return {"updated": v.rel(p)}
+
+
+@mcp.tool()
+def replace_section(path: str, heading: str, content: str) -> dict:
+    """Replace everything under one heading of a note (the heading itself stays).
+    The section's previous content is discarded entirely — do not include it in
+    `content` unless the user asked to keep it. This is the safe way to rewrite
+    part of a note without touching the rest.
+
+    Example: replace_section(path="Projects/Website Redesign", heading="Status",
+                             content="On track. Launch moved to Aug 3.")
+    """
+    v = get_vault()
+    text = v.read(path)
+    fm, body = md.split_frontmatter(text)
+    v.snapshot_before("replace_section")
+    body = md.replace_section_text(body, heading, content)
+    v.write(path, md.join_frontmatter(fm, body))
+    v.snapshot_after(f"replace section {heading!r} in {path}")
+    return {"updated": path, "section": heading}
+
+
+@mcp.tool()
+def update_frontmatter(path: str, key: str, value: str) -> dict:
+    """Set one frontmatter (YAML properties) field on a note. Value is parsed as
+    YAML, so "true", "3", and "[a, b]" become their typed values.
+
+    Example: update_frontmatter(path="Research/Vector DBs", key="status", value="in-progress")
+    """
+    import yaml
+
+    v = get_vault()
+    text = v.read(path)
+    fm, body = md.split_frontmatter(text)
+    v.snapshot_before("update_frontmatter")
+    fm[key] = yaml.safe_load(value)
+    v.write(path, md.join_frontmatter(fm, body))
+    v.snapshot_after(f"set frontmatter {key} on {path}")
+    return {"updated": path, "frontmatter": fm}
+
+
+# --------------- tasks ---------------
+
+def _note_type(fm: dict, rel_path: str) -> str:
+    """Classify a note for task grouping: kanban boards, then the note's own
+    frontmatter `type` (meeting, research, ...), then its top-level folder."""
+    if "kanban-plugin" in fm:
+        return "kanban"
+    if isinstance(fm.get("type"), str) and fm["type"]:
+        return fm["type"].lower()
+    parts = rel_path.split("/")
+    return parts[0].lower() if len(parts) > 1 else "other"
+
+
+@mcp.tool(annotations=READ_ONLY)
+def list_tasks(folder: str = "", status: str = "open", task_type: str = "",
+               due_on: str = "", due_before: str = "", limit: int = 50) -> dict:
+    """List checkbox tasks across the vault, grouped with per-type counts.
+    Every task carries a `type` derived from its note: "kanban" for board
+    cards, the note's frontmatter type (e.g. "meeting", "research"), or its
+    top-level folder (e.g. "tasks", "projects", "daily"). The result leads
+    with `total` and `counts_by_type` — use those to answer "how many"
+    questions. status: "open", "done", or "all". task_type narrows to one
+    type. Date filters (both YYYY-MM-DD): due_on = tasks due exactly that
+    date ("what's due tomorrow?" -> due_on=tomorrow's date); due_before =
+    tasks due strictly before that date (for overdue checks).
+
+    Example: list_tasks(status="open") ->
+      {"filter": {"status": "open"}, "total": 22,
+       "counts_by_type": {"tasks": 7, "kanban": 4, "research": 4, ...},
+       "tasks": [{"note": "Tasks/Inbox.md", "type": "tasks", "text": ..., "due": ...}, ...]}
+    """
+    v = get_vault()
+    if status not in ("open", "done", "all"):
+        raise VaultError('status must be "open", "done", or "all"')
+    found = []
+    counts: dict[str, int] = {}
+    for p in v.iter_notes(folder):
+        text = p.read_text(encoding="utf-8")
+        fm, _ = md.split_frontmatter(text)
+        note_type = _note_type(fm, v.rel(p))
+        for task in tk.iter_tasks(text):
+            if status == "open" and task.done:
+                continue
+            if status == "done" and not task.done:
+                continue
+            if due_before and (task.due is None or task.due >= due_before):
+                continue
+            if due_on and task.due != due_on:
+                continue
+            if task_type and note_type != task_type.lower():
+                continue
+            counts[note_type] = counts.get(note_type, 0) + 1
+            entry = task.to_dict(v.rel(p))
+            entry["type"] = note_type
+            found.append(entry)
+    found.sort(key=lambda t: (t.get("due") or "9999", t["note"]))
+    applied = {"status": status}
+    for key, value in (("folder", folder), ("task_type", task_type),
+                       ("due_on", due_on), ("due_before", due_before)):
+        if value:
+            applied[key] = value
+    return {
+        "filter": applied,
+        "total": len(found),
+        "counts_by_type": dict(sorted(counts.items(), key=lambda kv: -kv[1])),
+        "shown": min(len(found), limit),
+        "tasks": found[:limit],
+    }
+
+
+@mcp.tool()
+def add_task(path: str, text: str, due: str = "", priority: str = "", section: str = "") -> dict:
+    """Add a checkbox task to a note. due is YYYY-MM-DD; priority is one of
+    highest/high/medium/low/lowest. If `section` is given the task is added at
+    the end of that heading's section, otherwise at the end of the note.
+
+    Example: add_task(path="Tasks/Inbox", text="Renew domain", due="2026-07-25", priority="high")
+    """
+    line = tk.format_task(text, due or None, priority or None)
+    return append_to_note(path, line, section)
+
+
+@mcp.tool()
+def set_task_status(path: str, task_text: str, done: bool = True) -> dict:
+    """Mark a task done (or reopen it with done=false). task_text matches the task
+    by exact text or unique substring. Completing stamps today's ✅ done date.
+
+    Example: set_task_status(path="Tasks/Inbox", task_text="Renew domain", done=true)
+    """
+    v = get_vault()
+    text = v.read(path)
+    lines = text.splitlines()
+    needle = task_text.strip().lower()
+    hits = [t for t in tk.iter_tasks(text) if needle == t.text.lower()] or \
+           [t for t in tk.iter_tasks(text) if needle in t.text.lower()]
+    if not hits:
+        raise VaultError(f"No task matching {task_text!r} in {path}")
+    if len(hits) > 1:
+        raise VaultError(f"Ambiguous task text; matches: {[t.text for t in hits[:5]]}")
+    task = hits[0]
+    line = lines[task.line_no]
+    if done:
+        line = line.replace("[ ]", "[x]", 1)
+        if "✅" not in line:
+            line += f" ✅ {_today()}"
+    else:
+        line = tk.DONE_RE.sub("", line.replace("[x]", "[ ]", 1).replace("[X]", "[ ]", 1)).rstrip()
+    v.snapshot_before("set_task_status")
+    lines[task.line_no] = line
+    v.write(path, "\n".join(lines) + "\n")
+    v.snapshot_after(f"{'complete' if done else 'reopen'} task in {path}")
+    return {"updated": path, "task": task.text, "done": done}
+
+
+# --------------- kanban boards ---------------
+
+@mcp.tool()
+def create_board(path: str, columns: str = "Backlog, Doing, Done") -> dict:
+    """Create a new Kanban plugin board. columns is a comma-separated list of
+    column names; a column named Done/Complete becomes the completion column.
+    Fails if the board already exists.
+
+    Example: create_board(path="Boards/Marketing.md", columns="Ideas, Active, Shipped")
+    """
+    v = get_vault()
+    p = v.resolve(path)
+    if p.exists():
+        raise VaultError(f"Board already exists: {v.rel(p)}")
+    names = [c.strip() for c in columns.split(",") if c.strip()]
+    if not names:
+        raise VaultError("At least one column name is required")
+    board = kb.Board(
+        frontmatter={"kanban-plugin": "board"},
+        columns=[
+            kb.Column(name=n, complete_marker=n.lower() in ("done", "complete", "completed"))
+            for n in names
+        ],
+        settings="",
+    )
+    v.snapshot_before("create_board")
+    v.write(v.rel(p), kb.render_board(board))
+    v.snapshot_after(f"create board {v.rel(p)}")
+    return {"created": v.rel(p), "columns": names}
+
+
+@mcp.tool(annotations=READ_ONLY)
+def read_board(path: str) -> dict:
+    """Read a Kanban plugin board as structured columns and cards.
+
+    Example: read_board(path="Boards/Project Board") ->
+      {"columns": [{"name": "Backlog", "cards": [{"text": "...", "done": false}]}, ...]}
+    """
+    v = get_vault()
+    return kb.parse_board(v.read(path)).to_dict()
+
+
+@mcp.tool()
+def add_card(path: str, column: str, text: str) -> dict:
+    """Add a card to a column of a Kanban board.
+
+    Example: add_card(path="Boards/Project Board", column="Backlog", text="Draft pricing page")
+    """
+    v = get_vault()
+    board = kb.parse_board(v.read(path))
+    v.snapshot_before("add_card")
+    board.column(column).cards.append({"text": text.strip(), "done": False})
+    v.write(path, kb.render_board(board))
+    v.snapshot_after(f"add card to {column!r} on {path}")
+    return {"board": path, "column": column, "added": text.strip()}
+
+
+@mcp.tool()
+def move_card(path: str, card: str, to_column: str) -> dict:
+    """Move a card (matched by exact text or unique substring) to another column.
+    Moving into a column named Done/Complete also checks the card off.
+
+    Example: move_card(path="Boards/Project Board", card="Draft pricing page", to_column="Doing")
+    """
+    v = get_vault()
+    board = kb.parse_board(v.read(path))
+    src, found = board.find_card(card)
+    dest = board.column(to_column)
+    v.snapshot_before("move_card")
+    src.cards.remove(found)
+    found["done"] = dest.complete_marker or dest.name.lower() in ("done", "complete", "completed")
+    dest.cards.append(found)
+    v.write(path, kb.render_board(board))
+    v.snapshot_after(f"move card {found['text']!r} to {dest.name!r} on {path}")
+    return {"board": path, "card": found["text"], "from": src.name, "to": dest.name}
+
+
+# --------------- daily & meeting notes ---------------
+
+@mcp.tool()
+def open_daily_note(date: str = "") -> dict:
+    """Get today's daily note (or the given YYYY-MM-DD date's), creating it from a
+    standard skeleton if missing. Returns its path and current content.
+
+    Example: open_daily_note() -> {"path": "Daily/2026-07-17.md", "content": "..."}
+    """
+    v = get_vault()
+    day = date or _today()
+    rel = f"{DAILY_DIR}/{day}.md"
+    created = not v.resolve(rel).exists()
+    if created:
+        v.snapshot_before("open_daily_note")
+        v.write(rel, f"# {day}\n\n## Tasks\n\n## Notes\n")
+        v.snapshot_after(f"create daily note {day}")
+    return {"path": rel, "content": v.read(rel), "created": created}
+
+
+@mcp.tool()
+def create_meeting_note(title: str, date: str = "", attendees: str = "") -> dict:
+    """Create a meeting note under Meetings/ using the vault's meeting template if
+    one exists (Templates/Meeting.md), else a standard skeleton. attendees is a
+    comma-separated list. Returns the new note's path.
+
+    Example: create_meeting_note(title="Sprint Planning", date="2026-07-17", attendees="Sam, Rio")
+    """
+    v = get_vault()
+    day = date or _today()
+    people = [a.strip() for a in attendees.split(",") if a.strip()]
+    rel = f"{MEETINGS_DIR}/{day} {title.strip()}.md"
+    p = v.resolve(rel)
+    if p.exists():
+        raise VaultError(f"Meeting note already exists: {rel}")
+    try:
+        template = md.split_frontmatter(v.read("Templates/Meeting.md"))[1]
+        weekday = dt.date.fromisoformat(day).strftime("%A")
+        body = (template.replace("{{title}}", title.strip())
+                        .replace("{{date}}", day)
+                        .replace("{{day}}", weekday)
+                        .replace("{{time}}", dt.datetime.now().strftime("%H:%M"))
+                        .replace("{{attendees}}", ", ".join(people)))
+    except VaultError:
+        attendee_lines = "".join(f"- {a}\n" for a in people)
+        body = f"# {title.strip()}\n\n## Attendees\n\n{attendee_lines}\n## Agenda\n\n## Notes\n\n## Action items\n"
+    fm = {"date": day, "type": "meeting", "attendees": people}
+    v.snapshot_before("create_meeting_note")
+    v.write(rel, md.join_frontmatter(fm, body))
+    v.snapshot_after(f"create meeting note {rel}")
+    return {"created": rel}
+
+
+def main() -> None:
+    get_vault()  # fail fast if OBSIDIAN_VAULT_PATH is bad
+    mcp.run()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Obsidian Harness</title>
+<link rel="stylesheet" href="/static/theme.css">
+<style>
+  body {
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--text);
+    display: flex; flex-direction: column; height: 100dvh;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header h1 { font-size: 15px; font-weight: 600; margin-right: auto; }
+  header .vault { font-size: 12px; color: var(--muted); max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  select, button {
+    font: inherit; font-size: 13px; color: var(--text);
+    background: var(--chip); border: 1px solid var(--border);
+    border-radius: 8px; padding: 5px 10px; cursor: pointer;
+  }
+  #log { flex: 1; overflow-y: auto; padding: 20px 0; }
+  .inner { max-width: 760px; margin: 0 auto; padding: 0 16px; }
+  .msg { margin: 10px 0; display: flex; }
+  .msg .bubble {
+    max-width: 85%; padding: 9px 13px; border-radius: 14px;
+    white-space: pre-wrap; overflow-wrap: break-word;
+  }
+  .msg.user { justify-content: flex-end; }
+  .msg.user .bubble { background: var(--user); color: var(--user-text); border-bottom-right-radius: 4px; }
+  .msg.assistant .bubble { background: var(--panel); border: 1px solid var(--border); border-bottom-left-radius: 4px; white-space: normal; }
+  .bubble p, .bubble ul, .bubble ol, .bubble table, .bubble pre { margin: 0 0 8px; }
+  .bubble > :last-child { margin-bottom: 0; }
+  .bubble ul, .bubble ol { padding-left: 20px; }
+  .bubble code { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(--chip); padding: 1px 5px; border-radius: 5px; }
+  .bubble pre { background: var(--chip); border-radius: 8px; padding: 10px; overflow-x: auto; }
+  .bubble pre code { background: none; padding: 0; }
+  .bubble table { border-collapse: collapse; display: block; overflow-x: auto; }
+  .bubble th, .bubble td { border: 1px solid var(--border); padding: 4px 9px; text-align: left; font-size: 13.5px; }
+  .bubble th { background: var(--chip); }
+  .msg.error .bubble { border: 1px solid #dc8a8a; color: #c05353; background: var(--panel); }
+  .tool {
+    margin: 6px 0; font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--muted); background: var(--chip); border: 1px solid var(--border);
+    border-radius: 8px; padding: 5px 10px; display: inline-block;
+    max-width: 100%; overflow-wrap: break-word;
+  }
+  .tool b { color: var(--accent); font-weight: 600; }
+  .confirm { display: block; border-color: var(--accent); }
+  .confirm .buttons { margin-top: 6px; display: flex; gap: 6px; }
+  .confirm button { font-size: 12px; padding: 3px 12px; }
+  .confirm button.approve { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .confirm .verdict { font-weight: 600; }
+  .confirm .verdict.ok { color: #3f9d5f; }
+  .confirm .verdict.no { color: #c05353; }
+  .servers { font-size: 11px; color: var(--muted); }
+  #capture.on { background: #b4453a; color: #fff; border-color: #b4453a; }
+  #approvals.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #approvals.off { opacity: .55; }
+  #histpanel, #chatspanel {
+    display: none; max-height: 220px; overflow-y: auto;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  #histpanel.open, #chatspanel.open { display: block; }
+  .hist-row {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 6px 16px; border-bottom: 1px solid var(--border);
+    font-size: 12.5px;
+  }
+  .hist-row:last-child { border-bottom: none; }
+  .hist-when { color: var(--muted); white-space: nowrap; min-width: 70px; }
+  .hist-msg { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hist-files { color: var(--muted); font-size: 11px; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hist-row button { font-size: 11px; padding: 2px 10px; }
+  .cap {
+    font: 13px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--muted); padding: 2px 10px; border-left: 2px solid #b4453a;
+    margin: 2px 0; white-space: pre-wrap;
+  }
+  .thinking { color: var(--muted); font-size: 13px; margin: 10px 0; }
+  .thinking::after { content: "…"; animation: dots 1.2s steps(4) infinite; }
+  @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+  form {
+    display: flex; gap: 8px; padding: 12px 16px 16px; background: var(--panel);
+    border-top: 1px solid var(--border);
+  }
+  form .inner { display: flex; gap: 8px; flex: 1; max-width: 760px; padding: 0; }
+  textarea {
+    flex: 1; font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 12px; padding: 9px 13px;
+    resize: none; max-height: 140px; outline: none;
+  }
+  textarea:focus { border-color: var(--accent); }
+  form button[type=submit] { background: var(--accent); color: #fff; border: none; padding: 0 16px; border-radius: 12px; }
+  button:disabled { opacity: .5; cursor: default; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Obsidian Harness</h1>
+  <span class="vault" id="vault"></span>
+  <span class="servers" id="servers"></span>
+  <a href="/evals" style="font-size:12px;color:var(--accent);text-decoration:none">Evals</a>
+  <button id="chats" title="Recent conversations (kept 3 days)">💬 Chats</button>
+  <button id="changes" title="Recent vault changes — revert any with one click">↺ Changes</button>
+  <button id="approvals" title="Gate write tools on your approval. Git snapshots apply either way.">🛡 Approvals</button>
+  <button id="capture">● Capture</button>
+  <select id="model" title="Switching model starts a new chat"></select>
+  <button id="new">New chat</button>
+</header>
+
+<div id="histpanel"></div>
+<div id="chatspanel"></div>
+<div id="log"><div class="inner" id="messages"></div></div>
+
+<form id="form">
+  <div class="inner">
+    <textarea id="input" rows="1" placeholder="Ask about your vault… (Enter to send, Shift+Enter for newline)" autofocus></textarea>
+    <button type="submit" id="send">Send</button>
+  </div>
+</form>
+
+<script src="/static/marked.min.js"></script>
+<script src="/static/purify.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const messages = $("messages"), log = $("log"), input = $("input"),
+      form = $("form"), send = $("send"), modelSel = $("model");
+let busy = false;
+let approvalsDefaults = {};  // per-model profile defaults from /api/config
+
+function approvalsEffective() {
+  const stored = localStorage.getItem("approvals");
+  if (stored === "on") return true;
+  if (stored === "off") return false;
+  return !!approvalsDefaults[modelSel.value];
+}
+
+function renderApprovals() {
+  const on = approvalsEffective();
+  const btn = $("approvals");
+  btn.classList.toggle("on", on);
+  btn.classList.toggle("off", !on);
+  btn.textContent = on ? "🛡 Approvals: on" : "🛡 Approvals: off";
+}
+
+function add(cls, text) {
+  const row = document.createElement("div");
+  row.className = "msg " + cls;
+  const b = document.createElement("div");
+  b.className = "bubble";
+  if (cls === "assistant") {
+    b.innerHTML = DOMPurify.sanitize(marked.parse(text, {breaks: true}));
+  } else {
+    b.textContent = text;
+  }
+  row.appendChild(b);
+  messages.appendChild(row);
+  log.scrollTop = log.scrollHeight;
+  return b;
+}
+
+function addConfirm(ev) {
+  const el = document.createElement("div");
+  el.className = "tool confirm";
+  el.dataset.confirmId = ev.confirm_id;
+  const b = document.createElement("b");
+  b.textContent = ev.name;
+  const argStr = JSON.stringify(ev.args);
+  el.appendChild(b);
+  el.append(" " + (argStr.length > 200 ? argStr.slice(0, 200) + "…" : argStr));
+  const btns = document.createElement("div");
+  btns.className = "buttons";
+  for (const [label, approve] of [["Approve", true], ["Deny", false]]) {
+    const btn = document.createElement("button");
+    btn.textContent = label;
+    if (approve) btn.className = "approve";
+    btn.onclick = async () => {
+      btns.querySelectorAll("button").forEach(x => x.disabled = true);
+      await fetch("/api/confirm", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({id: ev.confirm_id, approve}),
+      });
+    };
+    btns.appendChild(btn);
+  }
+  el.appendChild(btns);
+  messages.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+}
+
+function resolveConfirm(ev) {
+  const el = messages.querySelector('[data-confirm-id="' + ev.confirm_id + '"]');
+  if (!el) return;
+  const btns = el.querySelector(".buttons");
+  const verdict = document.createElement("span");
+  verdict.className = "verdict " + (ev.approved ? "ok" : "no");
+  verdict.textContent = ev.approved ? "✓ approved" : "✗ denied";
+  btns.replaceWith(verdict);
+}
+
+function addTool(name, args) {
+  const el = document.createElement("div");
+  el.className = "tool";
+  const argStr = JSON.stringify(args);
+  el.innerHTML = "<b></b>";
+  el.querySelector("b").textContent = name;
+  el.append(" " + (argStr.length > 160 ? argStr.slice(0, 160) + "…" : argStr));
+  messages.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+}
+
+function setBusy(v) {
+  busy = v;
+  send.disabled = v;
+  modelSel.disabled = v;
+}
+
+function renderServers(servers) {
+  $("servers").textContent = Object.entries(servers || {})
+    .map(([name, s]) => {
+      const state = s.state === "connected" ? "●" : s.state === "disabled" ? "○" : s.state.startsWith("error") ? "✗" : "◌";
+      return state + " " + name + (s.tools ? " (" + s.tools + ")" : "");
+    }).join("  ");
+}
+
+async function refreshServers() {
+  const cfg = await (await fetch("/api/config")).json();
+  renderServers(cfg.servers);
+}
+
+async function init() {
+  const cfg = await (await fetch("/api/config")).json();
+  $("vault").textContent = cfg.vault;
+  renderServers(cfg.servers);
+  approvalsDefaults = cfg.confirm_writes || {};
+  for (const name of cfg.models) {
+    const opt = new Option(name, name, false, name === (cfg.current || cfg.default));
+    modelSel.add(opt);
+  }
+  renderApprovals();
+  // page reload mid-conversation: re-render the active transcript
+  const current = await (await fetch("/api/chats/current")).json();
+  if (current.transcript && current.transcript.length) {
+    renderTranscript(current.transcript);
+    if (current.model && [...modelSel.options].some(o => o.value === current.model)) {
+      modelSel.value = current.model;
+    }
+  }
+}
+
+function timeAgo(iso) {
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 90) return "just now";
+  if (s < 3600) return Math.round(s / 60) + "m ago";
+  if (s < 86400) return Math.round(s / 3600) + "h ago";
+  return Math.round(s / 86400) + "d ago";
+}
+
+async function renderHistory() {
+  const data = await (await fetch("/api/history")).json();
+  const panel = $("histpanel");
+  panel.innerHTML = "";
+  if (!data.commits.length) {
+    panel.innerHTML = '<div class="hist-row"><span class="hist-msg">No changes yet.</span></div>';
+    return;
+  }
+  for (const c of data.commits) {
+    const row = document.createElement("div");
+    row.className = "hist-row";
+    const when = document.createElement("span");
+    when.className = "hist-when";
+    when.textContent = timeAgo(c.date);
+    const msg = document.createElement("span");
+    msg.className = "hist-msg";
+    msg.textContent = c.message;
+    msg.title = c.message;
+    const files = document.createElement("span");
+    files.className = "hist-files";
+    files.textContent = c.files.join(", ");
+    files.title = c.files.join("\n");
+    const btn = document.createElement("button");
+    btn.textContent = "Revert";
+    btn.onclick = async () => {
+      btn.disabled = true;
+      btn.textContent = "…";
+      const res = await fetch("/api/revert", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({sha: c.sha}),
+      });
+      const result = await res.json();
+      if (!result.ok) {
+        btn.textContent = "Revert";
+        btn.disabled = false;
+        add("error", "Revert failed: " + result.error + " (older changes to the same lines may depend on it — revert newer changes first)");
+      }
+      renderHistory();
+    };
+    row.append(when, msg, files, btn);
+    panel.appendChild(row);
+  }
+}
+
+$("changes").addEventListener("click", () => {
+  $("chatspanel").classList.remove("open");
+  const panel = $("histpanel");
+  panel.classList.toggle("open");
+  if (panel.classList.contains("open")) renderHistory();
+});
+
+function renderTranscript(entries) {
+  messages.innerHTML = "";
+  for (const t of entries) {
+    if (t.role === "user") add("user", t.content);
+    else if (t.role === "assistant") add("assistant", t.content);
+    else if (t.role === "tool") addTool(t.name, t.args);
+  }
+}
+
+async function renderChats() {
+  const data = await (await fetch("/api/chats")).json();
+  const panel = $("chatspanel");
+  panel.innerHTML = "";
+  if (!data.chats.length) {
+    panel.innerHTML = '<div class="hist-row"><span class="hist-msg">No saved chats (kept 3 days).</span></div>';
+    return;
+  }
+  for (const c of data.chats) {
+    const row = document.createElement("div");
+    row.className = "hist-row";
+    const when = document.createElement("span");
+    when.className = "hist-when";
+    when.textContent = timeAgo(c.updated);
+    const msg = document.createElement("span");
+    msg.className = "hist-msg";
+    msg.textContent = c.title + (c.id === data.current ? "  (current)" : "");
+    const model = document.createElement("span");
+    model.className = "hist-files";
+    model.textContent = c.model;
+    const btn = document.createElement("button");
+    btn.textContent = "Open";
+    btn.disabled = c.id === data.current;
+    btn.onclick = async () => {
+      const res = await fetch("/api/chats/open", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({id: c.id}),
+      });
+      if (!res.ok) { add("error", "Could not open that chat."); return; }
+      const opened = await res.json();
+      renderTranscript(opened.transcript);
+      if ([...modelSel.options].some(o => o.value === opened.model)) modelSel.value = opened.model;
+      renderApprovals();
+      $("chatspanel").classList.remove("open");
+    };
+    row.append(when, msg, model, btn);
+    panel.appendChild(row);
+  }
+}
+
+$("chats").addEventListener("click", () => {
+  $("histpanel").classList.remove("open");
+  const panel = $("chatspanel");
+  panel.classList.toggle("open");
+  if (panel.classList.contains("open")) renderChats();
+});
+
+$("approvals").addEventListener("click", () => {
+  localStorage.setItem("approvals", approvalsEffective() ? "off" : "on");
+  renderApprovals();
+});
+
+async function sendMessage(text) {
+  add("user", text);
+  setBusy(true);
+  const thinking = document.createElement("div");
+  thinking.className = "thinking";
+  thinking.textContent = "thinking";
+  messages.appendChild(thinking);
+  log.scrollTop = log.scrollHeight;
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({message: text, model: modelSel.value, approvals: approvalsEffective()}),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let liveBubble = null;
+    const streamInto = text => {
+      if (!liveBubble) {
+        const row = document.createElement("div");
+        row.className = "msg assistant";
+        liveBubble = document.createElement("div");
+        liveBubble.className = "bubble";
+        liveBubble.style.whiteSpace = "pre-wrap";
+        row.appendChild(liveBubble);
+        messages.insertBefore(row, thinking);
+      }
+      liveBubble.textContent += text;
+    };
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const chunk = buf.slice(0, idx); buf = buf.slice(idx + 2);
+        if (!chunk.startsWith("data: ")) continue;
+        const ev = JSON.parse(chunk.slice(6));
+        if (ev.type === "delta") streamInto(ev.text);
+        else if (ev.type === "tool") { addTool(ev.name, ev.args); liveBubble = null; }
+        else if (ev.type === "confirm") addConfirm(ev);
+        else if (ev.type === "confirm_result") resolveConfirm(ev);
+        else if (ev.type === "final") {
+          if (liveBubble) {
+            liveBubble.style.whiteSpace = "";
+            liveBubble.innerHTML = DOMPurify.sanitize(marked.parse(ev.content, {breaks: true}));
+            liveBubble = null;
+          } else {
+            add("assistant", ev.content);
+          }
+          refreshServers();
+          if ($("histpanel").classList.contains("open")) renderHistory();
+        }
+        else if (ev.type === "error") add("error", ev.content);
+        messages.appendChild(thinking);
+        log.scrollTop = log.scrollHeight;
+      }
+    }
+  } catch (e) {
+    add("error", "Request failed: " + e.message);
+  } finally {
+    thinking.remove();
+    setBusy(false);
+    input.focus();
+  }
+}
+
+let capturing = false;
+const captureBtn = $("capture");
+
+async function toggleCapture() {
+  if (busy) return;
+  if (!capturing) {
+    const title = prompt("Meeting title (optional):") ?? "";
+    const res = await fetch("/api/capture/start", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({title}),
+    });
+    const {path} = await res.json();
+    capturing = true;
+    captureBtn.classList.add("on");
+    captureBtn.textContent = "■ Stop capture";
+    input.placeholder = "capturing — every line goes straight to " + path;
+    add("assistant", "Capture started → " + path + "\nType freely; nothing goes to the model until you stop.");
+  } else {
+    const res = await fetch("/api/capture/stop", {method: "POST"});
+    const {path} = await res.json();
+    capturing = false;
+    captureBtn.classList.remove("on");
+    captureBtn.textContent = "● Capture";
+    input.placeholder = "Ask about your vault… (Enter to send, Shift+Enter for newline)";
+    if (path) sendMessage("/meeting-capture " + path);
+  }
+}
+captureBtn.addEventListener("click", toggleCapture);
+
+async function captureLine(text) {
+  const el = document.createElement("div");
+  el.className = "cap";
+  el.textContent = text;
+  messages.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+  await fetch("/api/capture/append", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({text}),
+  });
+}
+
+form.addEventListener("submit", e => {
+  e.preventDefault();
+  const text = input.value.trim();
+  if (!text) return;
+  if (capturing) {
+    input.value = "";
+    input.style.height = "auto";
+    captureLine(text);
+    return;
+  }
+  if (busy) return;
+  input.value = "";
+  input.style.height = "auto";
+  sendMessage(text);
+});
+
+input.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+});
+
+input.addEventListener("input", () => {
+  input.style.height = "auto";
+  input.style.height = Math.min(input.scrollHeight, 140) + "px";
+});
+
+$("new").addEventListener("click", async () => {
+  if (busy) return;
+  await fetch("/api/reset", {method: "POST"});
+  messages.innerHTML = "";
+  input.focus();
+});
+
+modelSel.addEventListener("change", () => {
+  messages.innerHTML = "";
+  add("assistant", "Switched to " + modelSel.value + " — new conversation.");
+  renderApprovals();
+});
+
+init();
+</script>
+</body>
+</html>

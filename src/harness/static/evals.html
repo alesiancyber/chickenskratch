@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evals — Obsidian Harness</title>
+<link rel="stylesheet" href="/static/theme.css">
+<style>
+  body {
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--text); padding-bottom: 40px;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header h1 { font-size: 15px; font-weight: 600; }
+  header a { color: var(--accent); text-decoration: none; font-size: 13px; margin-left: auto; }
+  .wrap { max-width: 900px; margin: 24px auto; padding: 0 16px; }
+  .cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 18px; min-width: 200px;
+  }
+  .card .model { font-weight: 600; font-size: 14px; }
+  .card .score { font-size: 26px; font-weight: 700; margin: 4px 0; }
+  .card .score .pass-n { color: var(--pass); }
+  .card .meta { font-size: 12px; color: var(--muted); }
+  .matrix-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { padding: 7px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: var(--chip); font-weight: 600; position: sticky; top: 0; }
+  td.case { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+  .cell { cursor: default; white-space: nowrap; }
+  .cell .mark { font-weight: 700; }
+  .cell .mark.p { color: var(--pass); }
+  .cell .mark.f { color: var(--fail); }
+  .cell .t { color: var(--muted); font-size: 11px; margin-left: 6px; }
+  .detail {
+    display: none; font: 11.5px/1.5 ui-monospace, Menlo, monospace;
+    color: var(--muted); background: var(--chip); border-radius: 8px;
+    padding: 8px 10px; margin-top: 6px; white-space: pre-wrap; overflow-wrap: break-word;
+  }
+  tr.open .detail { display: block; }
+  td.has-fail { cursor: pointer; }
+  .history { margin-top: 20px; font-size: 12px; color: var(--muted); }
+  .history li { margin: 2px 0; }
+  .empty { color: var(--muted); padding: 40px; text-align: center; }
+  .note { font-size: 12px; color: var(--muted); margin: 10px 2px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Eval results</h1>
+  <a href="/">← back to chat</a>
+</header>
+
+<div class="wrap">
+  <div class="cards" id="cards"></div>
+  <div class="matrix-wrap"><table id="matrix"></table></div>
+  <p class="note">Showing the latest run per model profile. Click a ❌ cell for failure details. Auto-refreshes while eval runs are in progress.</p>
+  <div class="history"><b>All runs</b><ul id="history"></ul></div>
+</div>
+
+<script>
+const esc = s => { const d = document.createElement("span"); d.textContent = s; return d.innerHTML; };
+
+async function render() {
+  const data = await (await fetch("/api/evals")).json();
+  const runs = data.runs || [];
+  if (!runs.length) {
+    document.querySelector(".matrix-wrap").innerHTML = '<div class="empty">No eval reports yet — run <code>uv run harness-eval</code></div>';
+    return;
+  }
+  // latest run per profile (runs are sorted by filename => by stamp)
+  const latest = {};
+  for (const r of runs) latest[r.profile] = r;
+  const profiles = Object.keys(latest);
+
+  document.getElementById("cards").innerHTML = profiles.map(p => {
+    const r = latest[p];
+    const tools = r.results.reduce((a, x) => a + x.tool_calls, 0);
+    return `<div class="card">
+      <div class="model">${esc(p)}</div>
+      <div class="score"><span class="pass-n">${r.passed}</span>/${r.total}</div>
+      <div class="meta">${r.stamp} · ${(r.seconds/60).toFixed(1)} min · ${tools} tool calls</div>
+    </div>`;
+  }).join("");
+
+  const caseNames = [...new Set(profiles.flatMap(p => latest[p].results.map(x => x.name)))];
+  const head = `<tr><th>case</th>${profiles.map(p => `<th>${esc(p)}</th>`).join("")}</tr>`;
+  const rows = caseNames.map(name => {
+    const cells = profiles.map(p => {
+      const r = latest[p].results.find(x => x.name === name);
+      if (!r) return "<td class='cell'>—</td>";
+      const mark = r.passed ? "<span class='mark p'>✓</span>" : "<span class='mark f'>✗</span>";
+      const detail = r.passed ? "" : `<div class="detail">${esc(r.failures.join("\n"))}${r.answer ? "\n\nanswer: " + esc(r.answer.slice(0, 300)) : ""}</div>`;
+      return `<td class="cell ${r.passed ? "" : "has-fail"}" onclick="this.parentElement.classList.toggle('open')">
+        ${mark}<span class="t">${r.seconds}s · ${r.tool_calls}t</span>${detail}</td>`;
+    }).join("");
+    return `<tr><td class="case">${esc(name)}</td>${cells}</tr>`;
+  }).join("");
+  document.getElementById("matrix").innerHTML = head + rows;
+
+  document.getElementById("history").innerHTML = runs.slice().reverse().map(r =>
+    `<li>${esc(r.stamp)} — ${esc(r.profile)} — ${r.passed}/${r.total}</li>`).join("");
+}
+
+render();
+setInterval(render, 15000);
+</script>
+</body>
+</html>

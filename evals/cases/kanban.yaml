@@ -1,0 +1,28 @@
+# Kanban board operations — every case also implicitly verifies the board
+# file survives in Kanban-plugin format (settings footer intact).
+
+- name: kanban-move
+  turns: ["Move the 'Design new logo' card to Doing on the project board"]
+  checks:
+    - card_in_column: {board: Boards/Project Board.md, card: Design new logo, column: Doing}
+    - card_in_column: {board: Boards/Project Board.md, card: Design new logo, column: Backlog, should: false}
+    - file_contains: {path: Boards/Project Board.md, pattern: "kanban:settings"}
+
+- name: kanban-add-card
+  turns: ["Add a card 'Write launch tweet' to the Backlog column of the project board"]
+  checks:
+    - card_in_column: {board: Boards/Project Board.md, card: Write launch tweet, column: Backlog}
+    - file_contains: {path: Boards/Project Board.md, pattern: "kanban-plugin: board"}
+
+- name: kanban-create-board
+  turns: ["Create a new kanban board at Boards/Marketing.md with columns Ideas, Active, and Shipped, then add a card 'Launch teaser' to Ideas"]
+  checks:
+    - file_exists: {path: Boards/Marketing.md}
+    - file_contains: {path: Boards/Marketing.md, pattern: "kanban-plugin: board"}
+    - card_in_column: {board: Boards/Marketing.md, card: Launch teaser, column: Ideas}
+
+- name: kanban-complete
+  turns: ["Move 'Migrate DNS to new registrar' to Done on the project board"]
+  checks:
+    - card_in_column: {board: Boards/Project Board.md, card: Migrate DNS to new registrar, column: Done}
+    - file_contains: {path: Boards/Project Board.md, pattern: "- [x] Migrate DNS to new registrar"}
