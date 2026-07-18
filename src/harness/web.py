@@ -196,6 +196,28 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str) -> Starlett
     store = ChatStore()
     store.prune()
     manager = Manager(config, servers, store)
+    reach_cache: dict = {"ts": 0.0, "map": {}}
+
+    async def endpoint_reachability() -> dict[str, bool]:
+        """Which profiles' endpoints answer right now (cached 30s). Lets the
+        UI mark dead backends instead of letting a chat walk into one."""
+        import time
+
+        import httpx
+
+        if time.monotonic() - reach_cache["ts"] < 30 and reach_cache["map"]:
+            return reach_cache["map"]
+        by_url: dict[str, bool] = {}
+        async with httpx.AsyncClient(timeout=1.5) as http:
+            for url in {p.base_url for p in config.models.values()}:
+                try:
+                    await http.get(url.rstrip("/") + "/models")
+                    by_url[url] = True
+                except httpx.HTTPError:
+                    by_url[url] = False
+        result = {name: by_url[p.base_url] for name, p in config.models.items()}
+        reach_cache.update(ts=time.monotonic(), map=result)
+        return result
 
     async def index(request):
         return FileResponse(STATIC / "index.html")
@@ -215,6 +237,7 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str) -> Starlett
                 "vault": vault,
                 "servers": server_info,
                 "confirm_writes": {name: p.confirm_writes for name, p in config.models.items()},
+                "reachable": await endpoint_reachability(),
             }
         )
 

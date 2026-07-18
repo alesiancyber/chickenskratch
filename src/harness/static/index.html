@@ -231,6 +231,23 @@ function renderServers(servers) {
 async function refreshServers() {
   const cfg = await (await fetch("/api/config")).json();
   renderServers(cfg.servers);
+  renderModels(cfg);
+}
+
+function renderModels(cfg) {
+  const prev = modelSel.value || cfg.current || cfg.default;
+  modelSel.innerHTML = "";
+  for (const name of cfg.models) {
+    const alive = !cfg.reachable || cfg.reachable[name] !== false;
+    const opt = new Option(alive ? name : name + " (offline)", name, false, name === prev);
+    opt.disabled = !alive;
+    modelSel.add(opt);
+  }
+  const selected = modelSel.selectedOptions[0];
+  if (!selected || selected.disabled) {
+    const firstAlive = [...modelSel.options].find(o => !o.disabled);
+    if (firstAlive) modelSel.value = firstAlive.value;
+  }
 }
 
 async function init() {
@@ -238,10 +255,7 @@ async function init() {
   $("vault").textContent = cfg.vault;
   renderServers(cfg.servers);
   approvalsDefaults = cfg.confirm_writes || {};
-  for (const name of cfg.models) {
-    const opt = new Option(name, name, false, name === (cfg.current || cfg.default));
-    modelSel.add(opt);
-  }
+  renderModels(cfg);
   renderApprovals();
   // page reload mid-conversation: re-render the active transcript
   const current = await (await fetch("/api/chats/current")).json();
