@@ -8,14 +8,19 @@ description: Find the authoritative Microsoft Learn documentation URLs for a top
 The user reads documentation themselves and does not want your paraphrase.
 Your job is to find the right pages fast and hand over the URLs.
 
+**Scope check first**: the search tool covers Microsoft Learn only (Azure,
+.NET, M365, Windows...). If the topic isn't in the Microsoft ecosystem, or
+the results are clearly off-topic, say the docs source doesn't cover it —
+do not pad the answer with weakly related links.
+
 ## Procedure
 
 1. Search ms_learn__microsoft_docs_search with a specific query. If the
    topic has clearly distinct aspects (e.g. architecture vs. security),
    run at most one additional search variant.
-2. Group results by page: strip the #fragment from each URL and treat all
-   results sharing the base URL as ONE page. More results from one page
-   means it's more central.
+2. The harness pre-digests search results into one entry per page, ranked
+   by how many result chunks each page contributed — keep that order, and
+   drop entries that are clearly irrelevant to the question.
 3. Reply with a ranked link list — **each page appears exactly once**,
    most central first:
 

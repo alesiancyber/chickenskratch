@@ -20,7 +20,7 @@ from openai import AsyncOpenAI
 
 from .mcp_client import MultiServerClient, ServerSpec
 from .profiles import Profile
-from .skills import Skill, expand_slash, render_skill, skills_prompt_block
+from .skills import Skill, expand_slash, render_skill, skills_prompt_block, unknown_slash
 
 SYSTEM_PROMPT = """\
 You are an assistant that manages the user's Obsidian vault through the provided tools.
@@ -211,6 +211,12 @@ class Agent:
 
     async def run(self, user_message: str) -> str:
         expanded = expand_slash(user_message, self.skills)
+        if expanded is None:
+            miss = unknown_slash(user_message, self.skills)
+            if miss:  # deterministic reply; no model round-trip
+                self.messages.append({"role": "user", "content": user_message})
+                self.messages.append({"role": "assistant", "content": miss})
+                return miss
         self.messages.append({"role": "user", "content": expanded or user_message})
         self._trim_history()
         self._executed_writes: dict[tuple, str] = {}  # loop guard, scoped to this run

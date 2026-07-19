@@ -30,3 +30,16 @@ def test_expand_slash():
 
     assert expand_slash("/not-a-skill hello", skills) is None
     assert expand_slash("plain message", skills) is None
+
+
+def test_unknown_slash_gets_deterministic_reply():
+    from harness.skills import unknown_slash
+
+    skills = load_skills()
+    reply = unknown_slash("/reserch azure stuff", skills)
+    assert reply is not None
+    assert "/research" in reply  # lists real commands
+
+    assert unknown_slash("/meeting-capture Captures/x.md", skills) is None  # valid: no reply
+    assert unknown_slash("/Users/b4ndit/Desktop/file.md", skills) is None   # path, not command
+    assert unknown_slash("plain message", skills) is None

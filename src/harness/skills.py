@@ -58,10 +58,30 @@ def skills_prompt_block(skills: list[Skill]) -> str:
 
 def render_skill(skill: Skill, user_input: str = "") -> str:
     """Level 2: the full skill body, framed for the model to follow now."""
-    text = f'Follow this workflow now.\n\n<workflow name="{skill.name}">\n{skill.body}\n</workflow>'
+    text = (
+        f'Follow this workflow now. (These instructions are already loaded — '
+        f'do not call use_skill for "{skill.name}".)\n\n'
+        f'<workflow name="{skill.name}">\n{skill.body}\n</workflow>'
+    )
     if user_input:
         text += f"\n\nUser input for this workflow: {user_input}"
     return text
+
+
+def unknown_slash(message: str, skills: list[Skill]) -> str | None:
+    """A /command that matches no skill gets a deterministic reply instead of
+    letting the model improvise on the raw text. Paths like /Users/... are
+    left alone (the command name must be the whole first token)."""
+    m = _SLASH_RE.match(message.strip())
+    if not m or not skills:
+        return None
+    if any(s.name == m.group(1) for s in skills):
+        return None
+    rest = m.group(2)
+    if rest.startswith("/"):  # "/Users/foo" — a path, not a command
+        return None
+    available = ", ".join("/" + s.name for s in skills)
+    return f"Unknown command /{m.group(1)}. Available commands: {available}"
 
 
 def expand_slash(message: str, skills: list[Skill]) -> str | None:
