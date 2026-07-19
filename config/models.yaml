@@ -15,7 +15,7 @@ models:
     base_url: http://127.0.0.1:8080/v1   # mlx_vlm.server (mlx-lm can't load gemma4_unified)
     temperature: 0.2
     max_iterations: 15
-    max_tool_result_chars: 8000
+    max_tool_result_chars: 24000   # ms-learn search returns ~23k chars; don't amputate it
     confirm_writes: true
 
   qwen3.5-9b:
