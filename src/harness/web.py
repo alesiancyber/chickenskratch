@@ -243,6 +243,10 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str) -> Starlett
                 "servers": server_info,
                 "confirm_writes": {name: p.confirm_writes for name, p in config.models.items()},
                 "reachable": await endpoint_reachability(),
+                # fresh from disk so skill edits show in the menu immediately
+                "skills": [
+                    {"name": s.name, "description": s.description} for s in load_skills()
+                ],
             }
         )
 

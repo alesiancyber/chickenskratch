@@ -209,7 +209,20 @@ class Agent:
                 break  # a single turn: nothing older to drop
             del self.messages[1 : user_indices[0]]
 
+    def _help_text(self) -> str:
+        lines = ["Available commands:"]
+        for s in self.skills:
+            first_sentence = s.description.split(". ")[0].rstrip(".")
+            lines.append(f"- **/{s.name}** — {first_sentence}")
+        lines.append("- **/help** — this list")
+        return "\n".join(lines)
+
     async def run(self, user_message: str) -> str:
+        if user_message.strip() in ("/help", "/?"):
+            reply = self._help_text()
+            self.messages.append({"role": "user", "content": user_message})
+            self.messages.append({"role": "assistant", "content": reply})
+            return reply
         expanded = expand_slash(user_message, self.skills)
         if expanded is None:
             miss = unknown_slash(user_message, self.skills)

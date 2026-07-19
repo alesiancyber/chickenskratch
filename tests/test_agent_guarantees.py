@@ -325,6 +325,21 @@ def test_use_skill_returns_body_without_touching_mcp():
     assert "THE SECRET PROCEDURE" in tool_msg["content"]
 
 
+def test_help_is_deterministic_no_model_call():
+    skill = Skill(name="test-skill", description="Does test things. Use for tests.", body="B")
+    agent = make_agent([], skills=[skill])  # zero scripted responses: a model call would crash
+    out = run(agent, "/help")
+    assert "/test-skill" in out and "Does test things" in out
+    assert agent.messages[-1]["content"] == out  # recorded in history
+
+
+def test_unknown_slash_is_deterministic_no_model_call():
+    skill = Skill(name="test-skill", description="d", body="B")
+    agent = make_agent([], skills=[skill])
+    out = run(agent, "/tets-skill do it")
+    assert "Unknown command" in out and "/test-skill" in out
+
+
 def test_slash_command_expands_before_model_sees_it():
     skill = Skill(name="test-skill", description="d", body="THE SECRET PROCEDURE")
     agent = make_agent([response(content="ok")], skills=[skill])

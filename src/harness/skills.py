@@ -81,7 +81,7 @@ def unknown_slash(message: str, skills: list[Skill]) -> str | None:
     if rest.startswith("/"):  # "/Users/foo" — a path, not a command
         return None
     available = ", ".join("/" + s.name for s in skills)
-    return f"Unknown command /{m.group(1)}. Available commands: {available}"
+    return f"Unknown command /{m.group(1)}. Available commands: {available} — or /help."
 
 
 def expand_slash(message: str, skills: list[Skill]) -> str | None:
