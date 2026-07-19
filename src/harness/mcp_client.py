@@ -13,6 +13,7 @@ both the model and the user.
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
@@ -24,6 +25,13 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
 PRIMARY_SERVER = "obsidian"
+
+
+def sanitize_tool_name(name: str) -> str:
+    """Models reliably emit snake_case tool names and mangle anything else
+    (a hyphenated prefix like ms-learn__ gets 'corrected' to ms_learn__),
+    so exposed names must contain only [A-Za-z0-9_]."""
+    return re.sub(r"[^A-Za-z0-9_]", "_", name)
 # Kept short: an unreachable remote server (offline laptop) delays the first
 # message by this much before degrading gracefully.
 CONNECT_TIMEOUT = 6
@@ -127,10 +135,11 @@ class MultiServerClient:
         listed = await session.list_tools()
         self._sessions[spec.name] = session
 
+        prefix = sanitize_tool_name(spec.name)
         for tool in listed.tools:
-            qualified = tool.name if spec.name == PRIMARY_SERVER else f"{spec.name}__{tool.name}"
+            qualified = tool.name if spec.name == PRIMARY_SERVER else f"{prefix}__{tool.name}"
             if qualified in self.tools:
-                qualified = f"{spec.name}__{tool.name}"  # collision on primary: prefix anyway
+                qualified = f"{prefix}__{tool.name}"  # collision on primary: prefix anyway
             read_only = spec.assume_read_only or bool(
                 tool.annotations and tool.annotations.readOnlyHint
             )
@@ -153,15 +162,20 @@ class MultiServerClient:
             for t in self.tools.values()
         ]
 
+    def _lookup(self, qualified: str) -> ToolInfo | None:
+        # tolerate model-side hyphen/underscore mangling in either direction
+        return self.tools.get(qualified) or self.tools.get(sanitize_tool_name(qualified))
+
     def is_write(self, qualified: str) -> bool:
-        info = self.tools.get(qualified)
+        info = self._lookup(qualified)
         return info is None or not info.read_only
 
     async def call(self, qualified: str, args: dict) -> tuple[str, bool]:
         """Returns (result text, is_error)."""
-        info = self.tools.get(qualified)
+        info = self._lookup(qualified)
         if info is None:
-            return f"Unknown tool: {qualified}", True
+            known = ", ".join(sorted(self.tools))
+            return f"Unknown tool: {qualified}. Available tools: {known}", True
         result = await self._sessions[info.server].call_tool(info.original, args)
         text = "\n".join(c.text for c in result.content if getattr(c, "text", None)) or "(empty result)"
         return text, bool(result.isError)

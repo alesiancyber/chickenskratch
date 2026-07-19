@@ -58,6 +58,7 @@ class AgentWorker:
         self.on_save = on_save
         self.initial_messages = initial_messages
         self.agent: Agent | None = None
+        self.failed = False
         self.inbox: asyncio.Queue = asyncio.Queue()
         self.pending: dict[str, asyncio.Future] = {}
         self.status: dict = {}
@@ -124,7 +125,11 @@ class AgentWorker:
                     except Exception as e:
                         out.put_nowait({"type": "error", "content": f"{type(e).__name__}: {e}"})
         except Exception as e:
-            while True:  # startup failed: answer every message with the error
+            # Startup failed. Mark it so the manager builds a fresh worker on
+            # the next message (the backend may have come back) instead of
+            # serving this cached error forever.
+            self.failed = True
+            while True:
                 item = await self.inbox.get()
                 if item is None:
                     return
@@ -166,7 +171,7 @@ class Manager:
 
     async def get_worker(self, model_name: str | None) -> AgentWorker:
         name = model_name or (self.worker.model_name if self.worker else self.config.default_model)
-        if self.worker is None or self.worker.model_name != name:
+        if self.worker is None or self.worker.model_name != name or self.worker.failed:
             await self.reset()
             self.chat_id = self.store.new_id()
             self.worker = AgentWorker(self.config, name, self.servers, on_save=self._saver())
