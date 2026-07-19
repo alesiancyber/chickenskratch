@@ -52,7 +52,9 @@ def _resolve_scope(root_arg: str) -> list[Path]:
 
 
 def _walk(scopes: list[Path], deadline: float):
-    """Yield (dirpath, filenames); yields None once if the time budget runs out."""
+    """Yield (dirpath, dirnames, filenames); yields None once if the time
+    budget runs out. dirnames is post-pruning, so matches on it are dirs
+    that would actually be descended into."""
     for scope in scopes:
         for dirpath, dirnames, filenames in os.walk(scope):
             if time.monotonic() > deadline:
@@ -62,7 +64,7 @@ def _walk(scopes: list[Path], deadline: float):
                 d for d in dirnames
                 if not d.startswith(".") and d not in SKIP_NAMES and not d.endswith(SKIP_SUFFIXES)
             ]
-            yield Path(dirpath), filenames
+            yield Path(dirpath), dirnames, filenames
 
 
 def _display(p: Path) -> str:
@@ -84,12 +86,12 @@ def _is_texty(p: Path) -> bool:
 
 @mcp.tool(annotations=READ_ONLY)
 def find_file(name: str, root: str = "", limit: int = 20) -> dict:
-    """Find files by name (case-insensitive, partial names fine) and return
-    their paths. Exact-name matches rank first. Optional `root` narrows the
-    search to one directory.
+    """Find files AND directories by name (case-insensitive, partial names
+    fine) and return their paths — directories carry a trailing "/".
+    Exact-name matches rank first. Optional `root` narrows the search.
 
-    Example: find_file(name="models.yaml") ->
-      {"matches": ["~/Desktop/tool-harness/config/models.yaml"], "truncated": false}
+    Example: find_file(name="rust-whois") ->
+      {"matches": ["~/Desktop/rust-whois/"], "truncated": false}
     """
     needle = name.lower().strip()
     if not needle:
@@ -102,17 +104,21 @@ def find_file(name: str, root: str = "", limit: int = 20) -> dict:
         if item is None:
             truncated = True
             break
-        dirpath, filenames = item
-        for fn in filenames:
-            low = fn.lower()
+        dirpath, dirnames, filenames = item
+        for entry in dirnames + filenames:
+            low = entry.lower()
             if low == needle or low.rsplit(".", 1)[0] == needle:
-                exact.append(dirpath / fn)
+                exact.append(dirpath / entry)
             elif needle in low:
-                partial.append(dirpath / fn)
+                partial.append(dirpath / entry)
         if len(exact) >= limit:
             break
     matches = (exact + partial)[:limit]
-    result = {"query": name, "matches": [_display(p) for p in matches], "truncated": truncated}
+    result = {
+        "query": name,
+        "matches": [_display(p) + ("/" if p.is_dir() else "") for p in matches],
+        "truncated": truncated,
+    }
     if truncated:
         result["note"] = "search hit its time budget — pass a narrower `root` for full coverage"
     return result
@@ -138,7 +144,7 @@ def search_text(text: str, root: str = "", limit: int = 30) -> dict:
         if item is None:
             truncated = True
             break
-        dirpath, filenames = item
+        dirpath, _dirnames, filenames = item
         for fn in filenames:
             p = dirpath / fn
             if not _is_texty(p):

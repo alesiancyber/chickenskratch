@@ -41,6 +41,14 @@ def test_find_file_partial_name(tree):
     assert result["matches"][0].endswith("readme.md")
 
 
+def test_find_file_matches_directories(tree):
+    result = server.find_file("alpha")
+    assert any(m.endswith("projects/alpha/") for m in result["matches"])  # dir, trailing slash
+
+    partial = server.find_file("proj")
+    assert any(m.endswith("projects/") for m in partial["matches"])
+
+
 def test_search_text_skips_binaries(tree):
     result = server.search_text("models.yaml")
     files = [m["file"] for m in result["matches"]]
