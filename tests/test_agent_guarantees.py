@@ -53,6 +53,7 @@ class FakeMCP:
 
     def __init__(self):
         self.calls: list[tuple[str, dict]] = []
+        self.results: dict[str, str] = {}
         self.status = {"fake": {"state": "connected", "tools": 2}}
 
     def openai_tools(self):
@@ -66,7 +67,7 @@ class FakeMCP:
 
     async def call(self, name, args):
         self.calls.append((name, args))
-        return f"result of {name}", False
+        return self.results.get(name, f"result of {name}"), False
 
 
 def make_agent(responses, confirm=None, confirm_writes=False, skills=None):
@@ -219,6 +220,33 @@ def test_double_empty_reply_leaves_no_junk():
     assert run(agent) == "(no response)"
     roles = [m["role"] for m in agent.messages]
     assert roles == ["system", "user"]  # empty replies and failed nudge all removed
+
+
+# --------------- docs sources guarantee ---------------
+
+def test_docs_answer_always_carries_source_urls():
+    agent = make_agent([
+        response(tool_calls=[FakeToolCall("ms_learn__microsoft_docs_search")]),
+        response(content="Here is how it works. No links, sorry."),
+    ])
+    agent.client.results["ms_learn__microsoft_docs_search"] = (
+        "- Thing — https://learn.microsoft.com/azure/thing#section\n  covers: x"
+    )
+    out = run(agent)
+    assert "Sources:" in out
+    assert "https://learn.microsoft.com/azure/thing" in out  # fragment stripped
+
+
+def test_no_sources_appended_when_model_already_linked():
+    agent = make_agent([
+        response(tool_calls=[FakeToolCall("ms_learn__microsoft_docs_search")]),
+        response(content="Read https://learn.microsoft.com/azure/thing yourself."),
+    ])
+    agent.client.results["ms_learn__microsoft_docs_search"] = (
+        "- Thing — https://learn.microsoft.com/azure/thing"
+    )
+    out = run(agent)
+    assert "Sources:" not in out  # model included links; no duplication
 
 
 # --------------- streaming assembly ---------------

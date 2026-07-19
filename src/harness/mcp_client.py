@@ -13,6 +13,7 @@ both the model and the user.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import sys
 from contextlib import AsyncExitStack
@@ -73,6 +74,47 @@ def load_mcp_config(path: str | Path, vault: str) -> list[ServerSpec]:
             )
         )
     return specs
+
+
+def digest_docs_search(text: str) -> str:
+    """Deterministically reshape ms-learn search results into a ranked link
+    digest: one entry per page (fragments grouped as sections), ordered by
+    how many chunks each page contributed. The user wants URLs they can
+    read themselves, not model paraphrase — so the harness makes links the
+    dominant content the model sees, instead of hoping it summarizes less."""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return text
+    results = data if isinstance(data, list) else data.get("results")
+    if not isinstance(results, list):
+        return text
+    pages: dict[str, dict] = {}
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        url = str(r.get("contentUrl") or r.get("url") or "").strip()
+        if not url:
+            continue
+        base, _, fragment = url.partition("#")
+        page = pages.setdefault(
+            base,
+            {"title": str(r.get("title") or base), "sections": [], "count": 0,
+             "excerpt": str(r.get("content") or "")[:200].strip()},
+        )
+        page["count"] += 1
+        if fragment and fragment not in page["sections"]:
+            page["sections"].append(fragment)
+    if not pages:
+        return text
+    lines = ["Documentation pages found, ranked by relevance. Give the user these URLs verbatim:"]
+    for base in sorted(pages, key=lambda b: -pages[b]["count"]):
+        p = pages[base]
+        sections = f" (sections: {', '.join(p['sections'])})" if p["sections"] else ""
+        lines.append(f"- {p['title']} — {base}{sections}")
+        if p["excerpt"]:
+            lines.append(f"  covers: {p['excerpt']}")
+    return "\n".join(lines)
 
 
 @dataclass
@@ -178,4 +220,6 @@ class MultiServerClient:
             return f"Unknown tool: {qualified}. Available tools: {known}", True
         result = await self._sessions[info.server].call_tool(info.original, args)
         text = "\n".join(c.text for c in result.content if getattr(c, "text", None)) or "(empty result)"
+        if info.original == "microsoft_docs_search" and not result.isError:
+            text = digest_docs_search(text)
         return text, bool(result.isError)
