@@ -1,35 +1,39 @@
 ---
 name: research
-description: Research a technical topic properly using the Microsoft Learn docs tools - search for orientation, then fetch the full authoritative page(s) for depth, then synthesize with source links and optionally save to the vault. Use when the user asks for architecture guidance, best practices, how-tos, or documentation on Microsoft/Azure topics.
+description: Find the authoritative Microsoft Learn documentation URLs for a topic and present them as a ranked link list - no summarizing. Use when the user asks for docs, architecture guidance, best practices, or how-tos on Microsoft/Azure topics.
 ---
 
-# Research: search for orientation, fetch for depth
+# Research: deliver links, not summaries
 
-Search results are excerpt chunks (≤500 tokens each) — good for finding the
-right pages, too shallow to answer from alone. Depth lives in the full page.
+The user reads documentation themselves and does not want your paraphrase.
+Your job is to find the right pages fast and hand over the URLs.
 
 ## Procedure
 
-1. **Search**: ms_learn__microsoft_docs_search with a specific query.
-2. **Pick the authoritative page(s)**: look at the result URLs — when several
-   chunks come from the same URL, that page is the canonical source. Choose
-   one or two, at most.
-3. **Fetch them**: ms_learn__microsoft_docs_fetch on each chosen URL for the
-   complete content. Never skip this step — do not answer from chunks alone.
-4. **Synthesize**: answer from the fetched content, structured to the user's
-   question. Every claim traces to the docs; if the docs don't cover
-   something, say so rather than filling from memory.
-5. **Cite**: end with a Sources list of the URLs you fetched.
+1. Search ms_learn__microsoft_docs_search with a specific query. If the
+   topic has clearly distinct aspects (e.g. architecture vs. security),
+   run at most one additional search variant.
+2. Group results by page: strip the #fragment from each URL and treat all
+   results sharing the base URL as ONE page. More results from one page
+   means it's more central.
+3. Reply with a ranked link list — **each page appears exactly once**,
+   most central first:
 
-## Saving to the vault
+   1. **Page title** — https://learn.microsoft.com/... (base URL, no fragment)
+      one factual line on what the page covers (drawn from the result, not
+      your interpretation); if several sections of it matched, list them:
+      *sections: considerations, recommendations, scenario details*
+      — flag the top entry as "start here"
 
-If the user asked to save (or accepts your offer): create
-`Research/<Topic>.md` containing the synthesis, the Sources list, and a
-one-line frontmatter `status: reference`. Offer this; don't do it
-unrequested.
+## Rules
 
-## For code questions
-
-Use ms_learn__microsoft_code_sample_search in addition to docs search when
-the user needs implementation examples; the same fetch-for-depth rule
-applies to the pages the samples come from.
+- URLs are copied **verbatim** from tool results. Never construct,
+  complete, shorten, or guess a URL.
+- No summaries, no "key takeaways", no synthesis. Links + one factual
+  line each.
+- Code questions: also run ms_learn__microsoft_code_sample_search and
+  include those page URLs in the list.
+- If the user asks to save: create `Research/<Topic> links.md` with the
+  list (frontmatter `status: reference`).
+- Fetch a full page (ms_learn__microsoft_docs_fetch) ONLY if the user
+  explicitly asks for content, a summary, or an answer from the docs.
