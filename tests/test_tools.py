@@ -145,6 +145,47 @@ def test_kanban(vault):
     assert "**Complete**" in raw
 
 
+def test_kanban_rewrite_preserves_unmodeled_content(vault):
+    board_path = vault / "Boards/Project Board.md"
+    raw = board_path.read_text()
+    # Enrich the board with everything the harness doesn't model: card
+    # sub-content, indented subtasks, column prose, an archive-ish section.
+    raw = raw.replace(
+        "- [ ] Design new logo",
+        "- [ ] Design new logo\n"
+        "  Brief: keep the old colors\n"
+        "  - [ ] gather references\n"
+        "Column note: groom weekly",
+    )
+    board_path.write_text(raw)
+
+    server.add_card("Boards/Project Board", "Backlog", "Draft pricing page")
+    server.move_card("Boards/Project Board", "Design new logo", to_column="Doing")
+
+    after = board_path.read_text()
+    assert "  Brief: keep the old colors" in after
+    assert "  - [ ] gather references" in after
+    assert "Column note: groom weekly" in after
+    assert "%% kanban:settings" in after and "**Complete**" in after
+    # the sub-content moved with its card
+    doing = after.split("## Doing")[1].split("## Done")[0]
+    assert "Brief: keep the old colors" in doing
+
+    # indented subtasks are card details, never top-level cards
+    board = server.read_board("Boards/Project Board")
+    all_cards = [c["text"] for col in board["columns"] for c in col["cards"]]
+    assert "gather references" not in all_cards
+
+
+def test_set_task_status_handles_nonstandard_marks(vault):
+    inbox = vault / "Tasks/Inbox.md"
+    inbox.write_text(inbox.read_text() + "- [/] Half-finished thing\n")
+    server.set_task_status("Tasks/Inbox", "Half-finished thing", done=True)
+    text = inbox.read_text()
+    assert "- [x] Half-finished thing ✅" in text
+    assert "[/]" not in text
+
+
 def test_daily_and_meeting_notes(vault):
     first = server.open_daily_note("2026-07-17")
     assert first["created"] and first["path"] == "Daily/2026-07-17.md"
@@ -156,6 +197,27 @@ def test_daily_and_meeting_notes(vault):
     assert "**Day:** Friday, 2026-07-17" in note["content"]  # template used, {{day}} filled
     assert "## Topics covered" in note["content"]
     assert "## Action items" in note["content"]
+
+
+def test_bad_dates_rejected_before_becoming_filenames(vault):
+    with pytest.raises(vault_mod.VaultError, match="YYYY-MM-DD"):
+        server.open_daily_note("tomorrow")
+    with pytest.raises(vault_mod.VaultError, match="YYYY-MM-DD"):
+        server.create_meeting_note("Standup", date="next tuesday")
+    with pytest.raises(vault_mod.VaultError, match="YYYY-MM-DD"):
+        server.open_daily_note("2026-02-30")  # well-formed but not a real date
+    assert not (vault / "Daily/tomorrow.md").exists()
+
+
+def test_snapshot_failure_blocks_mutation_and_reports(vault):
+    server.add_task("Tasks/Inbox", "make the repo exist")  # first write inits .git
+    before = (vault / "Tasks/Inbox.md").read_text()
+    (vault / ".git" / "index.lock").touch()   # simulate a stuck/concurrent git
+    (vault / "Manual.md").write_text("uncommitted manual edit\n")
+    with pytest.raises(vault_mod.VaultError, match="snapshot failed"):
+        server.add_task("Tasks/Inbox", "should not land")
+    # snapshot_before couldn't preserve the manual edit, so the write never ran
+    assert (vault / "Tasks/Inbox.md").read_text() == before
 
 
 def test_path_safety(vault):

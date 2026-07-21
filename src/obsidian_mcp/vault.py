@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from pathlib import Path
 
 IGNORED_DIRS = {".git", ".obsidian", ".trash"}
@@ -84,19 +85,40 @@ class Vault:
             self._git("config", "user.name", "harness")
 
     def commit_if_dirty(self, message: str) -> bool:
-        """Commit any pending changes. Returns True if a commit was made."""
+        """Commit any pending changes. Returns True if a commit was made.
+
+        A failed commit raises: a snapshot that silently doesn't happen would
+        void the every-mutation-is-revertible guarantee. Lock contention
+        (another process committing the same repo) is retried briefly.
+        """
         self.ensure_repo()
-        if not self._git("status", "--porcelain").stdout.strip():
-            return False
-        self._git("add", "-A")
-        return self._git("commit", "-q", "-m", message).returncode == 0
+        error = ""
+        for _attempt in range(3):
+            if not self._git("status", "--porcelain").stdout.strip():
+                return False
+            r = self._git("add", "-A")
+            if r.returncode == 0:
+                r = self._git("commit", "-q", "-m", message)
+                if r.returncode == 0:
+                    return True
+            error = (r.stderr or r.stdout).strip() or "unknown git error"
+            if "index.lock" not in error:
+                break
+            time.sleep(0.2)
+        raise VaultError(f"git snapshot failed: {error.splitlines()[0]}")
 
     def snapshot_before(self, tool: str) -> None:
-        """Preserve any manual edits as their own commit before we touch files."""
+        """Preserve any manual edits as their own commit before we touch files.
+        Raises (aborting the mutation) if the snapshot can't be made."""
         self.commit_if_dirty(f"manual edits (before harness: {tool})")
 
     def snapshot_after(self, summary: str) -> None:
-        self.commit_if_dirty(f"harness: {summary}")
+        try:
+            self.commit_if_dirty(f"harness: {summary}")
+        except VaultError as e:
+            # The mutation itself succeeded; be precise so the model doesn't
+            # retry the write. The change will ride in the next snapshot.
+            raise VaultError(f"The change was applied, but its git snapshot failed: {e}") from None
 
     def history(self, limit: int = 15) -> list[dict]:
         """Recent commits, newest first: sha, message, ISO date, files touched."""
@@ -119,7 +141,10 @@ class Vault:
         """Revert one commit as a new commit. On conflict, abort cleanly and
         report — the vault is never left in a half-reverted state."""
         self.ensure_repo()
-        self.commit_if_dirty("manual edits (before revert)")
+        try:
+            self.commit_if_dirty("manual edits (before revert)")
+        except VaultError as e:
+            return False, str(e)
         r = self._git("revert", "--no-edit", sha)
         if r.returncode != 0:
             self._git("revert", "--abort")

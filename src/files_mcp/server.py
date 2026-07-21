@@ -146,6 +146,11 @@ def search_text(text: str, root: str = "", limit: int = 30) -> dict:
             break
         dirpath, _dirnames, filenames = item
         for fn in filenames:
+            # Re-check per file: one directory of large files could otherwise
+            # blow far past the budget between _walk's per-directory checks.
+            if time.monotonic() > deadline:
+                truncated = True
+                break
             p = dirpath / fn
             if not _is_texty(p):
                 continue
@@ -160,7 +165,7 @@ def search_text(text: str, root: str = "", limit: int = 30) -> dict:
                         break
             if len(matches) >= limit:
                 break
-        if len(matches) >= limit:
+        if truncated or len(matches) >= limit:
             break
     result = {"query": text, "matches": matches, "truncated": truncated or len(matches) >= limit}
     if result["truncated"]:

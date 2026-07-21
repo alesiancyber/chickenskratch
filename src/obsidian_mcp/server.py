@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime as dt
 
+import yaml
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
@@ -30,6 +31,17 @@ MEETINGS_DIR = "Meetings"
 
 def _today() -> str:
     return dt.date.today().isoformat()
+
+
+def _valid_date(value: str, field: str = "date") -> str:
+    """Reject non-ISO dates before they become filenames like Daily/tomorrow.md."""
+    try:
+        return dt.date.fromisoformat(value).isoformat()
+    except ValueError:
+        raise VaultError(
+            f"{field} must be a real date in YYYY-MM-DD form, got {value!r}. "
+            f"(Today is {_today()}; resolve words like 'tomorrow' to a date first.)"
+        ) from None
 
 
 # --------------- reading & searching ---------------
@@ -159,8 +171,6 @@ def update_frontmatter(path: str, key: str, value: str) -> dict:
 
     Example: update_frontmatter(path="Research/Vector DBs", key="status", value="in-progress")
     """
-    import yaml
-
     v = get_vault()
     text = v.read(path)
     fm, body = md.split_frontmatter(text)
@@ -272,12 +282,16 @@ def set_task_status(path: str, task_text: str, done: bool = True) -> dict:
         raise VaultError(f"Ambiguous task text; matches: {[t.text for t in hits[:5]]}")
     task = hits[0]
     line = lines[task.line_no]
+    # Rebuild the checkbox from the parsed position: string replacement would
+    # miss nonstandard marks like [/] and touch brackets in the task text.
+    m = tk.TASK_RE.match(line)
+    mark_at = m.start("mark")
+    line = line[:mark_at] + ("x" if done else " ") + line[mark_at + 1 :]
     if done:
-        line = line.replace("[ ]", "[x]", 1)
         if "✅" not in line:
             line += f" ✅ {_today()}"
     else:
-        line = tk.DONE_RE.sub("", line.replace("[x]", "[ ]", 1).replace("[X]", "[ ]", 1)).rstrip()
+        line = tk.DONE_RE.sub("", line).rstrip()
     v.snapshot_before("set_task_status")
     lines[task.line_no] = line
     v.write(path, "\n".join(lines) + "\n")
@@ -372,7 +386,7 @@ def open_daily_note(date: str = "") -> dict:
     Example: open_daily_note() -> {"path": "Daily/2026-07-17.md", "content": "..."}
     """
     v = get_vault()
-    day = date or _today()
+    day = _valid_date(date) if date else _today()
     rel = f"{DAILY_DIR}/{day}.md"
     created = not v.resolve(rel).exists()
     if created:
@@ -391,7 +405,7 @@ def create_meeting_note(title: str, date: str = "", attendees: str = "") -> dict
     Example: create_meeting_note(title="Sprint Planning", date="2026-07-17", attendees="Sam, Rio")
     """
     v = get_vault()
-    day = date or _today()
+    day = _valid_date(date) if date else _today()
     people = [a.strip() for a in attendees.split(",") if a.strip()]
     rel = f"{MEETINGS_DIR}/{day} {title.strip()}.md"
     p = v.resolve(rel)

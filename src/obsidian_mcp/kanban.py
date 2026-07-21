@@ -4,6 +4,12 @@ A board is a markdown file with `kanban-plugin: board` frontmatter,
 one `## Heading` per column, `- [ ]` / `- [x]` lines as cards, and an
 optional `%% kanban:settings ... %%` footer that must be preserved.
 The harness owns format correctness so models never hand-edit boards.
+
+Round-trip safety: only top-level checkbox lines are treated as cards.
+Everything else — indented sub-items, card descriptions, archive
+sections, any prose — is carried verbatim (attached to the preceding
+card or column) and written back on render, so a board rewrite never
+loses content the harness doesn't model.
 """
 
 from __future__ import annotations
@@ -23,6 +29,7 @@ class Column:
     name: str
     complete_marker: bool = False   # the plugin marks its "done" column with **Complete**
     cards: list[dict] = field(default_factory=list)
+    preamble: list[str] = field(default_factory=list)  # verbatim lines before the first card
 
 
 @dataclass
@@ -30,6 +37,7 @@ class Board:
     frontmatter: dict
     columns: list[Column]
     settings: str  # raw settings footer, verbatim
+    preamble: list[str] = field(default_factory=list)  # verbatim lines before the first column
 
     def column(self, name: str) -> Column:
         target = name.strip().lower()
@@ -56,7 +64,17 @@ class Board:
     def to_dict(self) -> dict:
         return {
             "columns": [
-                {"name": c.name, "cards": [{"text": card["text"], "done": card["done"]} for card in c.cards]}
+                {
+                    "name": c.name,
+                    "cards": [
+                        {
+                            "text": card["text"],
+                            "done": card["done"],
+                            **({"details": card["extra"]} if card.get("extra") else {}),
+                        }
+                        for card in c.cards
+                    ],
+                }
                 for c in self.columns
             ]
         }
@@ -70,31 +88,54 @@ def parse_board(content: str) -> Board:
         settings = m.group(0).strip("\n")
         body = body[: m.start()]
 
+    board_preamble: list[str] = []
     columns: list[Column] = []
+    current_card: dict | None = None
     for line in body.splitlines():
         heading = _COLUMN_RE.match(line)
         if heading:
             columns.append(Column(name=heading.group(1)))
+            current_card = None
+            continue
+        if not line.strip():
             continue
         if not columns:
+            board_preamble.append(line)
             continue
+        col = columns[-1]
         task = TASK_RE.match(line)
-        if task:
-            columns[-1].cards.append({"text": task.group("text").strip(), "done": task.group("mark").lower() == "x"})
+        if task and not task.group("indent"):
+            current_card = {"text": task.group("text").strip(), "done": task.group("mark").lower() == "x"}
+            col.cards.append(current_card)
         elif line.strip() == "**Complete**":
-            columns[-1].complete_marker = True
-    return Board(frontmatter=fm or {"kanban-plugin": "board"}, columns=columns, settings=settings)
+            col.complete_marker = True
+        elif current_card is not None:
+            # sub-items, descriptions, indented tasks: they belong to this
+            # card and move with it, byte-for-byte
+            current_card.setdefault("extra", []).append(line)
+        else:
+            col.preamble.append(line)
+    return Board(
+        frontmatter=fm or {"kanban-plugin": "board"},
+        columns=columns,
+        settings=settings,
+        preamble=board_preamble,
+    )
 
 
 def render_board(board: Board) -> str:
     chunks = []
+    if board.preamble:
+        chunks.append("\n".join(board.preamble))
     for col in board.columns:
         lines = [f"## {col.name}", ""]
         if col.complete_marker:
             lines.append("**Complete**")
+        lines.extend(col.preamble)
         for card in col.cards:
             mark = "x" if card["done"] else " "
             lines.append(f"- [{mark}] {card['text']}")
+            lines.extend(card.get("extra", []))
         chunks.append("\n".join(lines))
     body = "\n\n".join(chunks) + "\n"
     if board.settings:
