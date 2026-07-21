@@ -31,7 +31,9 @@ Three rules keep it plug-and-play:
 3. **Every mutation is git-snapshotted.** Manual edits are committed before the
    harness touches anything; each harness change is its own commit. Undo is
    one click in the chat UI's **↺ Changes** panel (or `git revert` in the
-   vault, if you prefer the long way).
+   vault, if you prefer the long way). Snapshots fail loud: if the
+   before-snapshot can't be committed, the mutation is blocked rather than
+   run without a safety net.
 
 ## MCP servers & write safety
 
@@ -54,6 +56,20 @@ guarantees apply to write tools:
 - **Loop guard**: an identical write repeated within one model turn returns
   the previous result instead of executing again (models occasionally loop —
   without this, one request can add the same task several times).
+
+A third guarantee covers documentation servers: marking a server with
+`docs_domain:` in mcp.yaml (ms-learn ships with
+`docs_domain: learn.microsoft.com`) makes its search results arrive as
+ranked link digests, and any answer built on its tools always carries the
+source URLs — appended deterministically if the model omits them. Adding
+another docs source (Python docs, MDN, …) is one config entry, no code.
+
+The same guarantee turns inward for the vault: an answer built on vault
+reads carries a **From your vault** block listing the notes it drew on, as
+clickable `obsidian://` links (with line numbers where known). Notes the
+model already named inline are skipped, so citing never duplicates. Active
+whenever the harness knows the vault path (web + CLI); off in evals so
+answer checks aren't perturbed.
 
 ## Setup
 
@@ -105,14 +121,45 @@ marked.js/DOMPurify are vendored). In the header:
 - **💬 Chats** — recent conversations, auto-saved after every reply,
   reopenable, pruned after 3 days (the vault is the archive, chats are scratch)
 - **● Capture** — model-free meeting capture (see Workflows below)
+- **usage readout** — per-chat context %, input and output tokens, live in
+  the header (`~` marks chars÷4 estimates when the backend doesn't report
+  usage; set `context_tokens` in the profile to your server's real window
+  so the percentage is honest). **Stats** links a per-model totals page
+  (runs, tokens, tool calls across web + CLI; evals excluded by design).
+- **🐞 Report issue** (in the menu) — saves the whole current conversation
+  (your note + every user/assistant turn + tool calls *with results*) to a
+  markdown file under `data/bug_reports/`. Each file is a ready-made example
+  to hand to Claude Code — build a fix list without reconstructing context.
+- **⚡ Servers** — start/stop local model backends (mlx, Ollama) declared
+  under `backends:` in models.yaml, so a 12B model isn't quietly holding
+  7GB while you're not using it. Start only runs the config-declared
+  command; Stop only touches processes the harness itself started —
+  anything launched elsewhere shows as "external" and is left alone.
+  Started backends survive harness restarts (pids are tracked and
+  re-adopted); logs land in `data/logs/<name>.log`. The same panel has the
+  **tool working-set**: per-tool checkboxes grouped by server, one-click
+  presets (`presets:` in mcp.yaml — ships with Checklist and Notes), and
+  select-all/none. Pinning a small set shrinks the tool schemas riding in
+  every request *and* sharpens small-model tool selection (fewer options,
+  fewer wrong picks) — the two together are the real win at 8k context. A
+  server only connects if one of its tools is selected, so deselecting a
+  whole server saves its connection cost too. Changes apply from the next
+  message — the conversation survives via the same rebuild-and-resume path
+  used for crash recovery.
 
 Replies stream token-by-token; tool calls appear as chips as they happen;
 gated writes pause on approve/deny buttons. One active conversation at a
 time by design. Long conversations trim their oldest turns rather than
-silently overflowing the model's context.
+silently overflowing the model's context. If a backend dies mid-chat
+(model server restart, MCP transport drop), the next message rebuilds the
+sessions and resumes the conversation from its last saved reply.
 
 Tip: dock it inside Obsidian with the core Web Viewer plugin (drag the tab
 into the right sidebar) for a Copilot-style panel with zero extra code.
+The layout is panel-aware: under ~700px the header collapses to icons
+(server status becomes a health dot — hover it for details), and under
+~480px the context meter keeps just the bar. Nothing is lost, only shrunk;
+every control keeps a hover tooltip.
 
 Point it at a real vault with `-v`, `OBSIDIAN_VAULT_PATH`, or the `vault:`
 key in `config/models.yaml`.
@@ -157,6 +204,9 @@ Design intent: semantic tools own format correctness (a model never hand-edits
 kanban markdown), general tools (`search_vault`, `read_note`, `replace_section`)
 keep capable models uncaged. Results are paginated/truncated by the harness, and
 whole-file rewrites don't exist — edits are anchored to headings, tasks, cards.
+Board rewrites are round-trip safe: card descriptions, sub-items, and any
+other content the harness doesn't model are preserved verbatim (and move
+with their card).
 
 ## Workflows (skills) & capture mode
 
@@ -177,14 +227,15 @@ template to change the format, no code.
 ## Tests
 
 ```sh
-uv run pytest      # 43 tests, ~2s
+uv run pytest      # 91 tests, ~4s
 uv run ruff check src tests
 ```
 
 Tool smoke tests run every vault tool against a temp fixture; guarantee
 tests prove the harness promises (loop guard, write gate, empty-reply
-recovery, streaming assembly, context trimming) against a scripted fake
-model — no model or network required.
+recovery, streaming assembly, context trimming, docs source URLs, kanban
+round-trip safety, snapshot fail-loud) against a scripted fake model — no
+model or network required.
 
 ## Evals — measuring model swaps
 
