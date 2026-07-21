@@ -19,6 +19,7 @@ from mcp.types import ToolAnnotations
 from . import kanban as kb
 from . import markdown as md
 from . import tasks as tk
+from . import workers as wk
 from .vault import VaultError, get_vault
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True)
@@ -297,6 +298,26 @@ def set_task_status(path: str, task_text: str, done: bool = True) -> dict:
     v.write(path, "\n".join(lines) + "\n")
     v.snapshot_after(f"{'complete' if done else 'reopen'} task in {path}")
     return {"updated": path, "task": task.text, "done": done}
+
+
+@mcp.tool(annotations=READ_ONLY)
+async def extract_tasks(text: str) -> dict:
+    """Pull actionable tasks out of free text (a meeting note, a brain dump,
+    a paragraph) using a small dedicated model — not the model you're
+    talking to. Read-only: returns suggestions, it does not write anything.
+    Call add_task for the ones worth keeping.
+
+    Use this instead of parsing prose yourself when tasks are buried in
+    paragraphs rather than already formatted as checkboxes.
+
+    Example: extract_tasks(text="Rio needs to migrate DNS by Friday, high
+    priority. Also worth revisiting the pricing page at some point.") ->
+      {"tasks": [{"text": "Migrate DNS", "due": "2026-07-24", "priority": "high"},
+                 {"text": "Revisit the pricing page", "due": null, "priority": null}],
+       "count": 2}
+    """
+    tasks = await wk.extract_tasks(text, _today())
+    return {"tasks": tasks, "count": len(tasks)}
 
 
 # --------------- kanban boards ---------------
