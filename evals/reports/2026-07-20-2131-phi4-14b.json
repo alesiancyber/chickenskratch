@@ -1,0 +1,255 @@
+[
+  {
+    "name": "kanban-move",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.4,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "kanban-add-card",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "kanban-create-board",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "kanban-complete",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "create-meeting-note",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "daily-note-append",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "replace-section",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "set-frontmatter",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "create-note-with-sections",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "count-open-tasks",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "count-followup-reference",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "due-tomorrow",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.6,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "search-topic",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "read-section-question",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "summary-no-write",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "missing-task-graceful",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "missing-section-graceful",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "denied-write-honesty",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "add-task-simple",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "add-task-explicit-date",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "add-task-relative-date",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "complete-task",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  },
+  {
+    "name": "multi-action",
+    "passed": false,
+    "failures": [
+      "run error: BadRequestError: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/phi4:14b-q4_K_M does not support tools', 'type': 'invalid_request_error', 'param': None, 'code': None}}"
+    ],
+    "seconds": 0.3,
+    "tool_calls": 0,
+    "tools_used": [],
+    "answer": ""
+  }
+]
