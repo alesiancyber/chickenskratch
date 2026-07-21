@@ -5,9 +5,28 @@
 # Note: Ollama's OpenAI endpoint uses the model's default context length.
 # Raise it globally with `OLLAMA_CONTEXT_LENGTH=16384 ollama serve`, or
 # bake it into a Modelfile.
+#
+# context_tokens: the context window the SERVER actually runs with (default
+# 8192). Only used for the chat UI's ctx% meter — set it to match your
+# server setting or the percentage will lie.
 
 default: gemma4-12b-mlx
 vault: ../testvault   # relative to this config file
+
+# Local model servers the chat UI can start/stop (⚡ Servers panel).
+# Profiles map to a backend by base_url. The harness only ever stops
+# processes it started itself; a backend launched elsewhere shows as
+# "external" and is left alone. Remote endpoints (the future homelab
+# box) just have no entry here.
+backends:
+  mlx:
+    url: http://127.0.0.1:8080/v1
+    command: "uv tool run --from mlx-vlm mlx_vlm.server --model mlx-community/gemma-4-12B-it-4bit --port 8080"
+  ollama:
+    url: http://localhost:11434/v1
+    command: "ollama serve"
+    # env:
+    #   OLLAMA_CONTEXT_LENGTH: "16384"   # if set, match context_tokens in the profiles below
 
 models:
   gemma4-12b-mlx:
@@ -35,17 +54,10 @@ models:
     confirm_writes: true
     servers: [obsidian]        # 4b gets the minimal tool surface
 
-  qwen3-8b:
-    model: qwen3:8b
-    base_url: http://localhost:11434/v1
-    temperature: 0.2
-    max_iterations: 15
-    max_tool_result_chars: 6000
-    confirm_writes: true
-
   # Example future entry for the 32GB network server:
   # homelab-70b:
   #   model: qwen3.5:72b
   #   base_url: http://192.168.1.50:8000/v1
   #   max_iterations: 25
   #   max_tool_result_chars: 12000
+  #   context_tokens: 32768

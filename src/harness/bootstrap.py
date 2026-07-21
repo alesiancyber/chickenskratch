@@ -13,6 +13,10 @@ from pathlib import Path
 from .mcp_client import ServerSpec, load_mcp_config
 from .profiles import Config, load_config
 
+# The harness is a repo-run tool (uv run / editable install): config, skills,
+# chats, and eval reports all live in the checkout, anchored here. A
+# non-editable install would resolve ROOT into site-packages — if that's ever
+# wanted, these anchors must move to config/env instead.
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = ROOT / "config"
 DEFAULT_MODELS = CONFIG_DIR / "models.yaml"

@@ -7,8 +7,38 @@ from harness.mcp_client import (
     MultiServerClient,
     ToolInfo,
     digest_docs_search,
+    load_mcp_presets,
     sanitize_tool_name,
 )
+
+
+def _tool(client, name, server="obsidian", read_only=False):
+    client.tools[name] = ToolInfo(qualified=name, server=server, original=name,
+                                  description="", schema={}, read_only=read_only)
+
+
+def test_tool_filter_narrows_exposed_tools_but_not_catalog():
+    client = MultiServerClient([], tool_filter=["add_task", "list_tasks"])
+    for n in ("add_task", "list_tasks", "delete_everything"):
+        _tool(client, n)
+    exposed = {t["function"]["name"] for t in client.openai_tools()}
+    assert exposed == {"add_task", "list_tasks"}  # third tool hidden from the model
+    # catalog still lists all tools so the picker can offer them
+    assert {t["name"] for t in client.catalog()["obsidian"]} == {"add_task", "list_tasks", "delete_everything"}
+
+
+def test_no_tool_filter_exposes_everything():
+    client = MultiServerClient([])
+    _tool(client, "add_task")
+    assert len(client.openai_tools()) == 1
+
+
+def test_load_mcp_presets(tmp_path):
+    p = tmp_path / "mcp.yaml"
+    p.write_text("servers: {}\npresets:\n  Checklist: [add_task, list_tasks]\n  Notes: [read_note]\n")
+    assert load_mcp_presets(p) == {"Checklist": ["add_task", "list_tasks"], "Notes": ["read_note"]}
+    p.write_text("servers: {}\n")  # no presets key
+    assert load_mcp_presets(p) == {}
 
 
 def test_sanitize_tool_name():

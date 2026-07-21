@@ -63,7 +63,7 @@ class ChatStore:
         safe = re.sub(r"[^\w-]", "", chat_id)
         return self.root / f"{safe}.json"
 
-    def save(self, chat_id: str, model: str, messages: list[dict]) -> None:
+    def save(self, chat_id: str, model: str, messages: list[dict], stats: dict | None = None) -> None:
         title = next(
             (display_user_text(m["content"]) for m in messages if m["role"] == "user"),
             "(untitled)",
@@ -73,6 +73,7 @@ class ChatStore:
             "model": model,
             "title": title[:60],
             "updated": dt.datetime.now().isoformat(timespec="seconds"),
+            "stats": stats or {},
             "messages": messages,
         }
         self._path(chat_id).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")

@@ -6,6 +6,10 @@
 # assume_read_only: treat this server's tools as read-only even if they don't
 #   declare MCP readOnlyHint annotations (external tools without annotations
 #   are otherwise treated as writes and gated by confirm_writes profiles).
+# docs_domain: marks a documentation source. Search results get digested into
+#   ranked link lists, and any answer built on this server's tools is
+#   guaranteed to cite URLs from this domain (appended if the model omits
+#   them). Adding another docs server is just another entry with this key.
 #
 # Profiles in models.yaml can narrow this further with a `servers:` allowlist.
 
@@ -30,8 +34,32 @@ servers:
     url: https://learn.microsoft.com/api/mcp
     enabled: true
     assume_read_only: true   # docs search/fetch only
+    docs_domain: learn.microsoft.com
 
   atlassian:
     transport: http
     url: https://mcp.atlassian.com/v1/mcp/authv2
     enabled: false           # needs OAuth 2.1 — Phase 2 M5
+
+# Named tool working-sets, offered as one-click presets in the ⚡ Servers
+# panel. Fewer exposed tools = smaller prompt + better small-model tool
+# selection. A preset is just a list of tool names; names not currently
+# available (server off) are ignored. Edit freely — no code involved.
+presets:
+  Checklist:            # the everyday task/kanban loop
+    - list_tasks
+    - add_task
+    - set_task_status
+    - read_note
+    - append_to_note
+    - read_board
+    - add_card
+    - move_card
+  Notes:                # reading and writing prose
+    - list_notes
+    - read_note
+    - search_vault
+    - create_note
+    - append_to_note
+    - replace_section
+    - update_frontmatter

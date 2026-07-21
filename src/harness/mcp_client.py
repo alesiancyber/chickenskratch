@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import sys
 from contextlib import AsyncExitStack
@@ -33,6 +34,8 @@ def sanitize_tool_name(name: str) -> str:
     (a hyphenated prefix like ms-learn__ gets 'corrected' to ms_learn__),
     so exposed names must contain only [A-Za-z0-9_]."""
     return re.sub(r"[^A-Za-z0-9_]", "_", name)
+
+
 # Kept short: an unreachable remote server (offline laptop) delays the first
 # message by this much before degrading gracefully.
 CONNECT_TIMEOUT = 6
@@ -48,6 +51,10 @@ class ServerSpec:
     headers: dict = field(default_factory=dict)
     enabled: bool = True
     assume_read_only: bool = False
+    # Marks a documentation source: results are digested into ranked link
+    # lists, and answers built on them must cite URLs from this domain
+    # (the agent enforces both — see mcp.yaml).
+    docs_domain: str = ""
 
 
 def load_mcp_config(path: str | Path, vault: str) -> list[ServerSpec]:
@@ -71,17 +78,28 @@ def load_mcp_config(path: str | Path, vault: str) -> list[ServerSpec]:
                 headers=spec.get("headers") or {},
                 enabled=bool(spec.get("enabled", True)),
                 assume_read_only=bool(spec.get("assume_read_only", False)),
+                docs_domain=str(spec.get("docs_domain", "")),
             )
         )
     return specs
 
 
+def load_mcp_presets(path: str | Path) -> dict[str, list[str]]:
+    """Named tool working-sets from mcp.yaml `presets:` — {name: [tool, ...]}.
+    A preset is just a list of tool names to select in the UI; unknown names
+    are ignored at apply time, so a preset can name tools from disabled servers."""
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    presets = raw.get("presets") or {}
+    return {str(k): [str(t) for t in (v or [])] for k, v in presets.items()}
+
+
 def digest_docs_search(text: str) -> str:
-    """Deterministically reshape ms-learn search results into a ranked link
-    digest: one entry per page (fragments grouped as sections), ordered by
-    how many chunks each page contributed. The user wants URLs they can
-    read themselves, not model paraphrase — so the harness makes links the
-    dominant content the model sees, instead of hoping it summarizes less."""
+    """Deterministically reshape a docs server's JSON search results into a
+    ranked link digest: one entry per page (fragments grouped as sections),
+    ordered by how many chunks each page contributed. The user wants URLs
+    they can read themselves, not model paraphrase — so the harness makes
+    links the dominant content the model sees, instead of hoping it
+    summarizes less. Non-JSON or unrecognized shapes pass through unchanged."""
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
@@ -125,16 +143,26 @@ class ToolInfo:
     description: str
     schema: dict
     read_only: bool
+    docs_domain: str = ""  # inherited from the owning server's spec
 
 
 class MultiServerClient:
-    def __init__(self, specs: list[ServerSpec], server_filter: list[str] | None = None):
+    def __init__(
+        self,
+        specs: list[ServerSpec],
+        server_filter: list[str] | None = None,
+        tool_filter: list[str] | None = None,
+    ):
         if server_filter is not None:
             unknown = set(server_filter) - {s.name for s in specs}
             if unknown:
                 raise ValueError(f"Profile references unknown MCP servers: {sorted(unknown)}")
             specs = [s for s in specs if s.name in server_filter]
         self.specs = specs
+        # None = expose every connected tool; a set narrows what the model
+        # sees (fewer schemas = less context, better small-model selection).
+        # Filters exposure only; tools stay registered so writes still route.
+        self.tool_filter = set(tool_filter) if tool_filter is not None else None
         self.tools: dict[str, ToolInfo] = {}
         self.status: dict[str, dict] = {}
         self._sessions: dict[str, ClientSession] = {}
@@ -159,8 +187,6 @@ class MultiServerClient:
 
     async def _connect(self, spec: ServerSpec) -> None:
         if spec.transport == "stdio":
-            import os
-
             params = StdioServerParameters(
                 command=spec.command[0], args=spec.command[1:], env={**os.environ, **spec.env}
             )
@@ -178,10 +204,16 @@ class MultiServerClient:
         self._sessions[spec.name] = session
 
         prefix = sanitize_tool_name(spec.name)
+        skipped = []
         for tool in listed.tools:
             qualified = tool.name if spec.name == PRIMARY_SERVER else f"{prefix}__{tool.name}"
             if qualified in self.tools:
                 qualified = f"{prefix}__{tool.name}"  # collision on primary: prefix anyway
+            if qualified in self.tools:
+                # Still taken (e.g. two server names that sanitize identically).
+                # Never silently shadow a registered tool — skip and report.
+                skipped.append(tool.name)
+                continue
             read_only = spec.assume_read_only or bool(
                 tool.annotations and tool.annotations.readOnlyHint
             )
@@ -192,8 +224,13 @@ class MultiServerClient:
                 description=tool.description or "",
                 schema=tool.inputSchema,
                 read_only=read_only,
+                docs_domain=spec.docs_domain,
             )
-        self.status[spec.name] = {"state": "connected", "tools": len(listed.tools)}
+        self.status[spec.name] = {
+            "state": "connected",
+            "tools": len(listed.tools) - len(skipped),
+            **({"skipped_name_collisions": skipped} if skipped else {}),
+        }
 
     def openai_tools(self) -> list[dict]:
         return [
@@ -202,7 +239,17 @@ class MultiServerClient:
                 "function": {"name": t.qualified, "description": t.description, "parameters": t.schema},
             }
             for t in self.tools.values()
+            if self.tool_filter is None or t.qualified in self.tool_filter
         ]
+
+    def catalog(self) -> dict[str, list[dict]]:
+        """Every connected tool grouped by server: {server: [{name, read_only}]}.
+        Persisted so the UI can offer per-tool selection before a fresh session
+        has reconnected."""
+        out: dict[str, list[dict]] = {}
+        for t in self.tools.values():
+            out.setdefault(t.server, []).append({"name": t.qualified, "read_only": t.read_only})
+        return out
 
     def _lookup(self, qualified: str) -> ToolInfo | None:
         # tolerate model-side hyphen/underscore mangling in either direction
@@ -212,6 +259,11 @@ class MultiServerClient:
         info = self._lookup(qualified)
         return info is None or not info.read_only
 
+    def docs_domain(self, qualified: str) -> str:
+        """The owning server's docs domain, or "" for non-docs tools."""
+        info = self._lookup(qualified)
+        return info.docs_domain if info else ""
+
     async def call(self, qualified: str, args: dict) -> tuple[str, bool]:
         """Returns (result text, is_error)."""
         info = self._lookup(qualified)
@@ -220,6 +272,6 @@ class MultiServerClient:
             return f"Unknown tool: {qualified}. Available tools: {known}", True
         result = await self._sessions[info.server].call_tool(info.original, args)
         text = "\n".join(c.text for c in result.content if getattr(c, "text", None)) or "(empty result)"
-        if info.original == "microsoft_docs_search" and not result.isError:
+        if info.docs_domain and not result.isError:
             text = digest_docs_search(text)
         return text, bool(result.isError)

@@ -43,3 +43,7 @@ def test_unknown_slash_gets_deterministic_reply():
     assert unknown_slash("/meeting-capture Captures/x.md", skills) is None  # valid: no reply
     assert unknown_slash("/Users/b4ndit/Desktop/file.md", skills) is None   # path, not command
     assert unknown_slash("plain message", skills) is None
+
+    # zero skills installed: still deterministic, never improvised by the model
+    reply = unknown_slash("/anything", [])
+    assert reply is not None and "/help" in reply

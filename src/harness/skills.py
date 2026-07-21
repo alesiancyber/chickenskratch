@@ -73,7 +73,7 @@ def unknown_slash(message: str, skills: list[Skill]) -> str | None:
     letting the model improvise on the raw text. Paths like /Users/... are
     left alone (the command name must be the whole first token)."""
     m = _SLASH_RE.match(message.strip())
-    if not m or not skills:
+    if not m:
         return None
     if any(s.name == m.group(1) for s in skills):
         return None
@@ -81,6 +81,8 @@ def unknown_slash(message: str, skills: list[Skill]) -> str | None:
     if rest.startswith("/"):  # "/Users/foo" — a path, not a command
         return None
     available = ", ".join("/" + s.name for s in skills)
+    if not available:
+        return f"Unknown command /{m.group(1)}. No skills are installed; only /help is available."
     return f"Unknown command /{m.group(1)}. Available commands: {available} — or /help."
 
 

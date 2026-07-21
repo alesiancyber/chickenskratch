@@ -7,31 +7,49 @@
 <link rel="stylesheet" href="/static/theme.css">
 <style>
   body {
-    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font: 14.5px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
     background: var(--bg); color: var(--text);
     display: flex; flex-direction: column; height: 100dvh;
   }
   header {
-    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
-    border-bottom: 1px solid var(--border); background: var(--panel);
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-1);
+    position: relative; z-index: 5;
   }
-  header h1 { font-size: 15px; font-weight: 600; margin-right: auto; }
-  header .vault { font-size: 12px; color: var(--muted); max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header h1 { font-size: 15px; font-weight: 650; letter-spacing: .01em; }
+  #srvdot { width: 9px; height: 9px; border-radius: 50%; background: var(--pass); flex: none; }
+  #srvdot.err { background: var(--fail); }
   select, button {
-    font: inherit; font-size: 13px; color: var(--text);
-    background: var(--chip); border: 1px solid var(--border);
-    border-radius: 8px; padding: 5px 10px; cursor: pointer;
+    font: inherit; font-size: 13px; font-weight: 500; color: var(--text);
+    background: var(--chip); border: 1px solid transparent;
+    border-radius: 10px; padding: 6px 12px; cursor: pointer;
+    transition: background .15s ease, box-shadow .15s ease, transform .06s ease;
   }
+  button:hover:not(:disabled), select:hover { background: var(--chip-hover); }
+  button:active:not(:disabled) { transform: scale(.97); }
+  button:focus-visible, select:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+  button:disabled { opacity: .5; cursor: default; }
+  #chatstats { display: flex; align-items: center; gap: 7px; margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  #ctxbar { display: inline-block; width: 54px; height: 7px; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; background: var(--chip); }
+  #ctxfill { display: block; height: 100%; width: 0%; background: var(--accent); transition: width .3s; }
+  #ctxfill.hot { background: var(--fail); }
+  #modelbtn { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #modelbtn::after { content: " ▾"; color: var(--muted); }
+  #capture.on { background: #b4453a; color: #fff; }
+  #menu { font-size: 16px; line-height: 1; padding: 6px 11px; }
+
   #log { flex: 1; overflow-y: auto; padding: 20px 0; }
   .inner { max-width: 760px; margin: 0 auto; padding: 0 16px; }
-  .msg { margin: 10px 0; display: flex; }
-  .msg .bubble {
-    max-width: 85%; padding: 9px 13px; border-radius: 14px;
-    white-space: pre-wrap; overflow-wrap: break-word;
-  }
+  .msg { margin: 12px 0; display: flex; animation: rise .18s ease both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(4px); } }
+  .msg .bubble { max-width: 85%; padding: 10px 14px; border-radius: 16px; white-space: pre-wrap; overflow-wrap: break-word; }
   .msg.user { justify-content: flex-end; }
-  .msg.user .bubble { background: var(--user); color: var(--user-text); border-bottom-right-radius: 4px; }
-  .msg.assistant .bubble { background: var(--panel); border: 1px solid var(--border); border-bottom-left-radius: 4px; white-space: normal; }
+  .msg.user .bubble { background: var(--user); color: var(--user-text); border-bottom-right-radius: 6px; box-shadow: var(--shadow-1); }
+  .msg.assistant .bubble { background: var(--panel); border: 1px solid var(--border); border-bottom-left-radius: 6px; white-space: normal; box-shadow: var(--shadow-1); }
   .bubble p, .bubble ul, .bubble ol, .bubble table, .bubble pre { margin: 0 0 8px; }
   .bubble > :last-child { margin-bottom: 0; }
   .bubble ul, .bubble ol { padding-left: 20px; }
@@ -43,55 +61,81 @@
   .bubble th { background: var(--chip); }
   .msg.error .bubble { border: 1px solid #dc8a8a; color: #c05353; background: var(--panel); }
   .tool {
-    margin: 6px 0; font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    margin: 6px 0; font: 11.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
     color: var(--muted); background: var(--chip); border: 1px solid var(--border);
-    border-radius: 8px; padding: 5px 10px; display: inline-block;
-    max-width: 100%; overflow-wrap: break-word;
+    border-radius: 999px; padding: 4px 12px; display: inline-block;
+    max-width: 100%; overflow-wrap: break-word; animation: rise .18s ease both;
   }
   .tool b { color: var(--accent); font-weight: 600; }
-  .confirm { display: block; border-color: var(--accent); }
+  .confirm { display: block; border-radius: var(--radius); border-color: var(--accent); box-shadow: var(--shadow-1); }
   .confirm .buttons { margin-top: 6px; display: flex; gap: 6px; }
   .confirm button { font-size: 12px; padding: 3px 12px; }
   .confirm button.approve { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .confirm button.approve:hover:not(:disabled) { background: var(--accent-hover); }
   .confirm .verdict { font-weight: 600; }
   .confirm .verdict.ok { color: #3f9d5f; }
   .confirm .verdict.no { color: #c05353; }
-  .servers { font-size: 11px; color: var(--muted); }
-  #capture.on { background: #b4453a; color: #fff; border-color: #b4453a; }
-  #approvals.on { background: var(--accent); color: #fff; border-color: var(--accent); }
-  #approvals.off { opacity: .55; }
-  #histpanel, #chatspanel {
-    display: none; max-height: 220px; overflow-y: auto;
-    background: var(--panel); border-bottom: 1px solid var(--border);
-  }
-  #histpanel.open, #chatspanel.open { display: block; }
-  .hist-row {
-    display: flex; align-items: baseline; gap: 10px;
-    padding: 6px 16px; border-bottom: 1px solid var(--border);
-    font-size: 12.5px;
-  }
-  .hist-row:last-child { border-bottom: none; }
-  .hist-when { color: var(--muted); white-space: nowrap; min-width: 70px; }
-  .hist-msg { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .hist-files { color: var(--muted); font-size: 11px; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .hist-row button { font-size: 11px; padding: 2px 10px; }
-  .cap {
-    font: 13px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
-    color: var(--muted); padding: 2px 10px; border-left: 2px solid #b4453a;
-    margin: 2px 0; white-space: pre-wrap;
-  }
+  .cap { font: 13px/1.5 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); padding: 2px 10px; border-left: 2px solid #b4453a; margin: 2px 0; white-space: pre-wrap; }
   .thinking { color: var(--muted); font-size: 13px; margin: 10px 0; }
   .thinking::after { content: "…"; animation: dots 1.2s steps(4) infinite; }
   @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
-  form {
-    display: flex; gap: 8px; padding: 12px 16px 16px; background: var(--panel);
-    border-top: 1px solid var(--border);
+
+  /* ---- modal: dimmed backdrop, centered card, fade+scale (never slides,
+         never reflows the page underneath) ---- */
+  #modal {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(12, 14, 22, .48);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; animation: fade .14s ease;
   }
+  #modal[hidden] { display: none; }
+  @keyframes fade { from { opacity: 0; } }
+  .modal-card {
+    background: var(--panel); color: var(--text);
+    width: min(460px, 100%); max-height: min(80vh, 660px);
+    display: flex; flex-direction: column;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow-2); animation: pop .16s ease;
+  }
+  @keyframes pop { from { opacity: 0; transform: scale(.97) translateY(8px); } }
+  .modal-head { display: flex; align-items: center; gap: 6px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .modal-head h2 { font-size: 14px; font-weight: 650; flex: 1; }
+  .modal-head button { background: none; padding: 4px 9px; font-size: 15px; line-height: 1; color: var(--muted); }
+  .modal-head button:hover { background: var(--chip); color: var(--text); }
+  .modal-body { overflow-y: auto; padding: 4px 0; }
+  .msection { padding: 12px 16px 4px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .msection small { display: block; text-transform: none; letter-spacing: 0; font-weight: 400; margin-top: 2px; }
+  .mrow { display: flex; align-items: center; gap: 11px; padding: 10px 16px; cursor: pointer; transition: background .12s ease; }
+  .mrow:hover { background: var(--chip); }
+  .mrow[aria-disabled="true"] { opacity: .5; cursor: default; }
+  .mrow[aria-disabled="true"]:hover { background: none; }
+  .mrow .ico { width: 18px; text-align: center; flex: none; }
+  .mrow .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mrow .grow small { display: block; color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; }
+  .mrow .end { color: var(--muted); font-size: 11.5px; white-space: nowrap; flex: none; }
+  .mrow input[type=checkbox] { accent-color: var(--accent); margin: 0; width: 16px; height: 16px; flex: none; }
+  .mrow .act { font-size: 11px; padding: 3px 11px; flex: none; }
+  .toolbar { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 16px 4px; }
+  .toolbar .act { font-size: 11px; padding: 4px 12px; }
+  .mrow.ghead { background: var(--chip); position: sticky; top: 0; }
+  .mrow.ghead .end { font-variant-numeric: tabular-nums; }
+  .mrow .chev { width: 12px; flex: none; text-align: center; font-size: 10px; color: var(--muted); transition: transform .12s ease; }
+  .mrow.trow { padding-left: 34px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
+  .toolapply { border-top: 1px solid var(--border); position: sticky; bottom: 0; background: var(--panel); }
+  .toolapply .grow { color: var(--muted); font-size: 12px; }
+  .pill { border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 600; }
+  .pill.on { background: var(--accent); color: #fff; }
+  .pill.off { background: var(--chip); color: var(--muted); }
+  .mfoot { padding: 10px 16px; color: var(--muted); font-size: 11px; border-top: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mempty { padding: 26px 16px; text-align: center; color: var(--muted); font-size: 12.5px; }
+  .cur { color: var(--pass); font-weight: 600; }
+
+  form { display: flex; gap: 8px; padding: 12px 16px 16px; background: var(--panel); border-top: 1px solid var(--border); }
   form .inner { display: flex; gap: 8px; flex: 1; max-width: 760px; padding: 0; position: relative; }
   #slashmenu {
     display: none; position: absolute; bottom: 100%; left: 0; right: 0;
     margin-bottom: 8px; background: var(--panel); border: 1px solid var(--border);
-    border-radius: 10px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,.12);
+    border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-2);
   }
   .slash-item { padding: 8px 12px; font-size: 13px; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
   .slash-item b { color: var(--accent); font-family: ui-monospace, Menlo, monospace; white-space: nowrap; }
@@ -99,30 +143,40 @@
   .slash-item.sel { background: var(--chip); }
   textarea {
     flex: 1; font: inherit; color: var(--text); background: var(--bg);
-    border: 1px solid var(--border); border-radius: 12px; padding: 9px 13px;
+    border: 1px solid var(--border); border-radius: 14px; padding: 10px 14px;
     resize: none; max-height: 140px; outline: none;
+    transition: border-color .15s ease, box-shadow .15s ease;
   }
-  textarea:focus { border-color: var(--accent); }
-  form button[type=submit] { background: var(--accent); color: #fff; border: none; padding: 0 16px; border-radius: 12px; }
-  button:disabled { opacity: .5; cursor: default; }
+  textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
+  form button[type=submit] { background: var(--accent); color: #fff; border: none; padding: 0 18px; border-radius: 14px; font-weight: 600; }
+  form button[type=submit]:hover:not(:disabled) { background: var(--accent-hover); }
+
+  @media (max-width: 560px) {
+    header { padding: 8px 10px; gap: 7px; }
+    header h1 { display: none; }
+    #capture .clabel { display: none; }
+    #modelbtn { max-width: 108px; }
+    #modal { padding: 12px; align-items: flex-start; padding-top: 8vh; }
+    .inner { padding: 0 10px; }
+    #log { padding: 12px 0; }
+    form { padding: 8px 10px 12px; }
+    .msg .bubble { max-width: 92%; }
+    #ctxtext { display: none; }
+  }
 </style>
 </head>
 <body>
 <header>
   <h1>Tezcat</h1>
-  <span class="vault" id="vault"></span>
-  <span class="servers" id="servers"></span>
-  <a href="/evals" style="font-size:12px;color:var(--accent);text-decoration:none">Evals</a>
-  <button id="chats" title="Recent conversations (kept 3 days)">💬 Chats</button>
-  <button id="changes" title="Recent vault changes — revert any with one click">↺ Changes</button>
-  <button id="approvals" title="Gate write tools on your approval. Git snapshots apply either way.">🛡 Approvals</button>
-  <button id="capture">● Capture</button>
-  <select id="model" title="Switching model starts a new chat"></select>
-  <button id="new">New chat</button>
+  <span id="srvdot" title=""></span>
+  <span id="chatstats"><span id="ctxbar"><span id="ctxfill"></span></span><span id="ctxtext"></span></span>
+  <button id="capture" title="Meeting capture — model-free notes straight to the vault"><span id="capicon">●</span><span class="clabel"> Capture</span></button>
+  <button id="modelbtn" title="Model — click to change">model</button>
+  <button id="new" title="New chat">＋</button>
+  <button id="menu" title="Menu">☰</button>
+  <select id="model" hidden></select>
 </header>
 
-<div id="histpanel"></div>
-<div id="chatspanel"></div>
 <div id="log"><div class="inner" id="messages"></div></div>
 
 <form id="form">
@@ -133,6 +187,17 @@
   </div>
 </form>
 
+<div id="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <button id="modalback" hidden title="Back">‹</button>
+      <h2 id="modaltitle"></h2>
+      <button id="modalclose" title="Close">✕</button>
+    </div>
+    <div class="modal-body" id="modalbody"></div>
+  </div>
+</div>
+
 <script src="/static/marked.min.js"></script>
 <script src="/static/purify.min.js"></script>
 <script>
@@ -140,7 +205,52 @@ const $ = id => document.getElementById(id);
 const messages = $("messages"), log = $("log"), input = $("input"),
       form = $("form"), send = $("send"), modelSel = $("model");
 let busy = false;
-let approvalsDefaults = {};  // per-model profile defaults from /api/config
+let approvalsDefaults = {};   // per-model profile defaults from /api/config
+let contextWindows = {};      // per-model context_tokens from /api/config
+let vaultPath = "";
+// collapsed tool-server groups, remembered across sessions like Obsidian folders
+let toolCollapsed;
+try { toolCollapsed = new Set(JSON.parse(localStorage.getItem("toolCollapsed") || "[]")); }
+catch { toolCollapsed = new Set(); }
+
+const fmtTokens = n => n >= 10000 ? Math.round(n / 1000) + "k"
+                     : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
+const esc = s => { const d = document.createElement("span"); d.textContent = s ?? ""; return d.innerHTML; };
+
+// DOMPurify's default scheme allowlist drops obsidian:// links; add it so
+// vault citations stay clickable (opens the note in Obsidian). Everything
+// else matches the library default.
+const SAFE_URI = /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|obsidian):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
+const renderMd = text => DOMPurify.sanitize(marked.parse(text, {breaks: true}), {ALLOWED_URI_REGEXP: SAFE_URI});
+
+/* ---------- header status ---------- */
+
+function renderChatStats(stats) {
+  const s = stats || {input_tokens: 0, output_tokens: 0, context_tokens: 0};
+  const w = contextWindows[modelSel.value] || 0;
+  const est = s.estimated ? "~" : "";
+  const pct = w ? Math.min(100, Math.round(100 * (s.context_tokens || 0) / w)) : 0;
+  $("ctxfill").style.width = pct + "%";
+  $("ctxfill").classList.toggle("hot", pct >= 80);
+  $("ctxtext").textContent = "ctx " + est + pct + "% · in " + est + fmtTokens(s.input_tokens || 0) + " · out " + est + fmtTokens(s.output_tokens || 0);
+  $("chatstats").title = "This chat: " + (s.context_tokens || 0) + " of " + (w || "?") + " context tokens in use · " +
+    (s.input_tokens || 0) + " in / " + (s.output_tokens || 0) + " out total" +
+    (s.estimated ? " (~ = estimated; the backend didn't report usage)" : "");
+}
+
+function renderServers(servers) {
+  const entries = Object.entries(servers || {});
+  const text = entries.map(([name, s]) => {
+    const dot = s.state === "connected" ? "●" : s.state === "disabled" ? "○" : (s.state || "").startsWith("error") ? "✗" : "◌";
+    return dot + " " + name + (s.tools ? " (" + s.tools + ")" : "");
+  }).join("   ");
+  $("srvdot").classList.toggle("err", entries.some(([, s]) => (s.state || "").startsWith("error")));
+  $("srvdot").title = text || "server status unknown";
+}
+
+function updateModelBtn() {
+  $("modelbtn").textContent = modelSel.value || "model";
+}
 
 function approvalsEffective() {
   const stored = localStorage.getItem("approvals");
@@ -148,25 +258,337 @@ function approvalsEffective() {
   if (stored === "off") return false;
   return !!approvalsDefaults[modelSel.value];
 }
+// kept for call sites; approvals state now lives in the menu modal
+function renderApprovals() { refreshModalIf("menu"); }
 
-function renderApprovals() {
-  const on = approvalsEffective();
-  const btn = $("approvals");
-  btn.classList.toggle("on", on);
-  btn.classList.toggle("off", !on);
-  btn.textContent = on ? "🛡 Approvals: on" : "🛡 Approvals: off";
+function renderModels(cfg) {
+  const prev = modelSel.value || cfg.current || cfg.default;
+  modelSel.innerHTML = "";
+  for (const name of cfg.models) {
+    const alive = !cfg.reachable || cfg.reachable[name] !== false;
+    const opt = new Option(alive ? name : name + " (offline)", name, false, name === prev);
+    opt.disabled = !alive;
+    modelSel.add(opt);
+  }
+  const selected = modelSel.selectedOptions[0];
+  if (!selected || selected.disabled) {
+    const firstAlive = [...modelSel.options].find(o => !o.disabled);
+    if (firstAlive) modelSel.value = firstAlive.value;
+  }
+  updateModelBtn();
 }
+
+async function refreshServers() {
+  const cfg = await (await fetch("/api/config")).json();
+  renderServers(cfg.servers);
+  renderModels(cfg);
+  refreshModalIf("models");
+}
+
+/* ---------- modal engine ---------- */
+
+const modal = $("modal"), modalBody = $("modalbody"), modalTitle = $("modaltitle"), modalBack = $("modalback");
+let modalStack = [];
+
+const VIEWS = {
+  menu:    { title: "Menu",             render: renderMenuView },
+  models:  { title: "Model",            render: renderModelsView },
+  tools:   { title: "Tools & servers",  render: renderToolsView },
+  chats:   { title: "Chats",            render: renderChatsView },
+  changes: { title: "Changes",          render: renderChangesView },
+};
+
+function openModal(view) { modalStack = [view]; modal.hidden = false; renderModal(); }
+function pushView(view) { modalStack.push(view); renderModal(); }
+function closeModal() { modal.hidden = true; modalStack = []; }
+function modalTop() { return modalStack[modalStack.length - 1]; }
+function refreshModalIf(view) { if (!modal.hidden && modalTop() === view) renderModal(); }
+
+function renderModal() {
+  const v = VIEWS[modalTop()];
+  modalTitle.textContent = v.title;
+  modalBack.hidden = modalStack.length <= 1;
+  modalBody.innerHTML = "";
+  v.render(modalBody);
+}
+
+modalBack.onclick = () => { modalStack.pop(); renderModal(); };
+$("modalclose").onclick = closeModal;
+modal.onclick = e => { if (e.target === modal) closeModal(); };
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !modal.hidden) closeModal(); });
+$("menu").onclick = () => openModal("menu");
+$("modelbtn").onclick = () => { if (!busy) openModal("models"); };
+
+async function reportIssue() {
+  const description = prompt("What went wrong? (a short note — the whole conversation is saved with it)");
+  if (description === null) return;
+  closeModal();
+  const res = await (await fetch("/api/report", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({description})})).json();
+  if (res.ok) add("assistant", "🐞 Saved this conversation for review → `" + res.path + "`");
+  else add("error", "Could not save the report: " + (res.error || "unknown error"));
+}
+
+function row(parent, {ico, label, sub, end, onclick, disabled}) {
+  const r = document.createElement("div");
+  r.className = "mrow";
+  if (disabled) r.setAttribute("aria-disabled", "true");
+  if (ico != null) { const i = document.createElement("span"); i.className = "ico"; i.textContent = ico; r.appendChild(i); }
+  const g = document.createElement("span");
+  g.className = "grow";
+  g.innerHTML = esc(label) + (sub ? "<small>" + esc(sub) + "</small>" : "");
+  r.appendChild(g);
+  if (end !== undefined) {
+    const e = typeof end === "string" ? Object.assign(document.createElement("span"), {className: "end", textContent: end}) : end;
+    r.appendChild(e);
+  }
+  if (onclick && !disabled) r.onclick = onclick;
+  parent.appendChild(r);
+  return r;
+}
+
+function section(parent, text, sub) {
+  const s = document.createElement("div");
+  s.className = "msection";
+  s.innerHTML = esc(text) + (sub ? "<small>" + esc(sub) + "</small>" : "");
+  parent.appendChild(s);
+}
+
+/* ---------- views ---------- */
+
+function renderMenuView(body) {
+  const apPill = document.createElement("span");
+  apPill.className = "pill " + (approvalsEffective() ? "on" : "off");
+  apPill.textContent = approvalsEffective() ? "on" : "off";
+  row(body, {ico: "🛡", label: "Approvals", sub: "gate write tools on your OK", end: apPill,
+    onclick: () => { localStorage.setItem("approvals", approvalsEffective() ? "off" : "on"); renderModal(); }});
+
+  section(body, "Configure");
+  row(body, {ico: "⚡", label: "Tools & servers", sub: "MCP tools · local model backends", end: "›", onclick: () => pushView("tools")});
+  row(body, {ico: "💬", label: "Chats", sub: "reopen a recent conversation", end: "›", onclick: () => pushView("chats")});
+  row(body, {ico: "↺", label: "Changes", sub: "recent vault edits · one-click revert", end: "›", onclick: () => pushView("changes")});
+
+  section(body, "Reports");
+  row(body, {ico: "🐞", label: "Report issue", sub: "save this conversation for later review", onclick: reportIssue});
+  row(body, {ico: "🧪", label: "Evals", sub: "model × case results", end: "↗", onclick: () => location.href = "/evals"});
+  row(body, {ico: "📊", label: "Stats", sub: "usage per model", end: "↗", onclick: () => location.href = "/stats"});
+
+  if (vaultPath) {
+    const f = document.createElement("div");
+    f.className = "mfoot";
+    f.textContent = "vault: " + vaultPath;
+    f.title = vaultPath;
+    body.appendChild(f);
+  }
+}
+
+async function renderModelsView(body) {
+  body.innerHTML = "";
+  const cfg = await (await fetch("/api/config")).json();
+  renderServers(cfg.servers);
+  renderModels(cfg);
+  for (const name of cfg.models) {
+    const alive = !cfg.reachable || cfg.reachable[name] !== false;
+    const isCur = name === modelSel.value;
+    const w = (cfg.context_windows || {})[name];
+    const sub = (w ? Math.round(w / 1000) + "k context" : "") + (alive ? "" : (w ? " · " : "") + "offline");
+    row(body, {
+      ico: isCur ? "✓" : " ",
+      label: name, sub,
+      end: isCur ? Object.assign(document.createElement("span"), {className: "end cur", textContent: "current"}) : undefined,
+      disabled: !alive,
+      onclick: () => {
+        if (name !== modelSel.value) { modelSel.value = name; modelSel.dispatchEvent(new Event("change")); }
+        closeModal();
+      },
+    });
+  }
+  const cur = body.querySelector(".mrow .ico");
+  if (cur) cur.classList.add("cur");
+}
+
+function renderToolPicker(body, mcp) {
+  section(body, "Tool working-set", "fewer tools = smaller prompt + better selection · applies from your next message");
+  const known = [];
+  const selected = new Set();
+  for (const s of mcp.servers) for (const t of s.tools) { known.push(t.name); if (t.selected) selected.add(t.name); }
+  if (!known.length) {
+    const e = document.createElement("div"); e.className = "mempty";
+    e.textContent = "Send a message once to load the tool list, then pick your set here.";
+    body.appendChild(e);
+    return;
+  }
+  const knownSet = new Set(known);
+
+  const bar = document.createElement("div"); bar.className = "toolbar";
+  const chip = (label, title, fn) => {
+    const b = document.createElement("button"); b.className = "act"; b.textContent = label;
+    if (title) b.title = title; b.onclick = fn; bar.appendChild(b);
+  };
+  for (const [name, list] of Object.entries(mcp.presets || {})) {
+    const inSet = list.filter(t => knownSet.has(t));
+    chip(name, "preset: " + inSet.join(", "), () => { selected.clear(); inSet.forEach(t => selected.add(t)); draw(); });
+  }
+  chip("All", "select every available tool", () => { known.forEach(t => selected.add(t)); draw(); });
+  chip("None", "clear the selection", () => { selected.clear(); draw(); });
+  body.appendChild(bar);
+
+  const groups = document.createElement("div"); body.appendChild(groups);
+  const footer = document.createElement("div"); footer.className = "toolapply"; body.appendChild(footer);
+
+  function draw() {
+    groups.innerHTML = "";
+    for (const s of mcp.servers) {
+      if (!s.tools.length) continue;
+      const sel = s.tools.filter(t => selected.has(t.name)).length;
+      const collapsed = toolCollapsed.has(s.name);
+      const head = document.createElement("div"); head.className = "mrow ghead";
+      const chev = document.createElement("span"); chev.className = "chev"; chev.textContent = collapsed ? "▸" : "▾";
+      const gcb = document.createElement("input"); gcb.type = "checkbox";
+      gcb.checked = sel === s.tools.length; gcb.indeterminate = sel > 0 && sel < s.tools.length;
+      gcb.disabled = !s.available;
+      gcb.onchange = () => { s.tools.forEach(t => gcb.checked ? selected.add(t.name) : selected.delete(t.name)); draw(); };
+      const lbl = document.createElement("span"); lbl.className = "grow";
+      lbl.innerHTML = "<b>" + esc(s.name) + "</b>" + (s.available ? "" : " <small>unavailable for this model</small>");
+      const cnt = document.createElement("span"); cnt.className = "end"; cnt.textContent = sel + "/" + s.tools.length;
+      head.append(chev, gcb, lbl, cnt); groups.appendChild(head);
+      head.onclick = e => {
+        if (e.target === gcb) return;   // the checkbox toggles selection, not collapse
+        collapsed ? toolCollapsed.delete(s.name) : toolCollapsed.add(s.name);
+        localStorage.setItem("toolCollapsed", JSON.stringify([...toolCollapsed]));
+        draw();
+      };
+      if (collapsed) continue;   // header only; tools hidden
+      for (const t of s.tools) {
+        const cb = document.createElement("input"); cb.type = "checkbox";
+        cb.checked = selected.has(t.name); cb.disabled = !s.available;
+        cb.onchange = () => { cb.checked ? selected.add(t.name) : selected.delete(t.name); draw(); };
+        const r = row(groups, {label: t.name, end: t.read_only ? "read" : "write"});
+        r.classList.add("trow"); r.style.cursor = "default";
+        r.insertBefore(cb, r.firstChild);
+        r.onclick = e => { if (e.target !== cb && s.available) cb.click(); };
+      }
+    }
+    footer.innerHTML = "";
+    const n = selected.size;
+    const info = document.createElement("span"); info.className = "grow";
+    info.textContent = n + " tool" + (n === 1 ? "" : "s") + " selected";
+    const apply = document.createElement("button"); apply.className = "act"; apply.textContent = "Apply"; apply.disabled = n === 0;
+    apply.onclick = async () => {
+      apply.disabled = true; apply.textContent = "…";
+      const out = await (await fetch("/api/mcp", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({tools: [...selected]})})).json();
+      if (!out.ok) { add("error", out.error || "could not update tools"); refreshModalIf("tools"); return; }
+      refreshServers();
+      closeModal();
+    };
+    const fr = document.createElement("div"); fr.className = "mrow"; fr.style.cursor = "default";
+    fr.append(info, apply); footer.appendChild(fr);
+  }
+  draw();
+}
+
+async function renderToolsView(body) {
+  body.innerHTML = "";
+  const [data, cfg] = await Promise.all([
+    (await fetch("/api/servers")).json(),
+    (await fetch("/api/config")).json(),
+  ]);
+  renderToolPicker(body, cfg.mcp || {servers: [], presets: {}});
+  section(body, "Model backends");
+  if (!data.servers.length) {
+    const e = document.createElement("div"); e.className = "mempty";
+    e.textContent = "No backends configured — add a backends: section to models.yaml.";
+    body.appendChild(e);
+    return;
+  }
+  for (const s of data.servers) {
+    const starting = s.managed && !s.reachable;
+    const stateTxt = s.reachable ? (s.managed ? "running" : "external") : starting ? "starting…" : "stopped";
+    const btn = document.createElement("button");
+    btn.className = "act";
+    if (s.reachable && !s.managed) {
+      btn.textContent = "Stop"; btn.disabled = true;
+      btn.title = "Not started by the harness, so it can't be stopped from here.";
+    } else {
+      const action = (s.reachable || s.managed) ? "stop" : "start";
+      btn.textContent = action === "stop" ? "Stop" : "Start";
+      btn.onclick = async ev => {
+        ev.stopPropagation();
+        btn.disabled = true; btn.textContent = "…";
+        const out = await (await fetch("/api/servers/" + action, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({name: s.name})})).json();
+        if (!out.ok) add("error", s.name + ": " + out.message);
+        refreshModalIf("tools");
+        if (action === "start") pollBackendUp(s.name); else setTimeout(refreshServers, 600);
+      };
+    }
+    const r = row(body, {label: s.name, sub: (s.profiles || []).join(", ") || s.url, end: btn});
+    r.style.cursor = "default";
+    const tag = document.createElement("span");
+    tag.className = "end"; tag.textContent = stateTxt;
+    tag.style.color = s.reachable ? "var(--pass)" : "var(--muted)";
+    r.insertBefore(tag, btn);
+  }
+}
+
+async function renderChatsView(body) {
+  body.innerHTML = "";
+  const data = await (await fetch("/api/chats")).json();
+  if (!data.chats.length) {
+    const e = document.createElement("div"); e.className = "mempty";
+    e.textContent = "No saved chats (kept 3 days).";
+    body.appendChild(e); return;
+  }
+  for (const c of data.chats) {
+    const isCur = c.id === data.current;
+    const open = document.createElement("button");
+    open.className = "act"; open.textContent = "Open"; open.disabled = isCur;
+    open.onclick = async ev => {
+      ev.stopPropagation();
+      const res = await fetch("/api/chats/open", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({id: c.id})});
+      if (!res.ok) { add("error", "Could not open that chat."); return; }
+      const opened = await res.json();
+      renderTranscript(opened.transcript);
+      renderChatStats(opened.stats);
+      if ([...modelSel.options].some(o => o.value === opened.model)) { modelSel.value = opened.model; updateModelBtn(); }
+      closeModal();
+    };
+    const r = row(body, {label: c.title + (isCur ? "  (current)" : ""), sub: c.model + " · " + timeAgo(c.updated), end: open});
+    r.style.cursor = "default";
+  }
+}
+
+async function renderChangesView(body) {
+  body.innerHTML = "";
+  const data = await (await fetch("/api/history")).json();
+  if (!data.commits.length) {
+    const e = document.createElement("div"); e.className = "mempty";
+    e.textContent = "No changes yet.";
+    body.appendChild(e); return;
+  }
+  for (const c of data.commits) {
+    const btn = document.createElement("button");
+    btn.className = "act"; btn.textContent = "Revert";
+    btn.onclick = async ev => {
+      ev.stopPropagation();
+      btn.disabled = true; btn.textContent = "…";
+      const result = await (await fetch("/api/revert", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({sha: c.sha})})).json();
+      if (!result.ok) add("error", "Revert failed: " + result.error + " (older changes to the same lines may depend on it — revert newer changes first)");
+      refreshModalIf("changes");
+    };
+    const r = row(body, {label: c.message, sub: (c.files || []).join(", ") + " · " + timeAgo(c.date), end: btn});
+    r.style.cursor = "default";
+    r.title = c.message;
+  }
+}
+
+/* ---------- transcript + streaming ---------- */
 
 function add(cls, text) {
   const row = document.createElement("div");
   row.className = "msg " + cls;
   const b = document.createElement("div");
   b.className = "bubble";
-  if (cls === "assistant") {
-    b.innerHTML = DOMPurify.sanitize(marked.parse(text, {breaks: true}));
-  } else {
-    b.textContent = text;
-  }
+  if (cls === "assistant") b.innerHTML = renderMd(text);
+  else b.textContent = text;
   row.appendChild(b);
   messages.appendChild(row);
   log.scrollTop = log.scrollHeight;
@@ -190,11 +612,7 @@ function addConfirm(ev) {
     if (approve) btn.className = "approve";
     btn.onclick = async () => {
       btns.querySelectorAll("button").forEach(x => x.disabled = true);
-      await fetch("/api/confirm", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({id: ev.confirm_id, approve}),
-      });
+      await fetch("/api/confirm", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({id: ev.confirm_id, approve})});
     };
     btns.appendChild(btn);
   }
@@ -224,58 +642,20 @@ function addTool(name, args) {
   log.scrollTop = log.scrollHeight;
 }
 
+function renderTranscript(entries) {
+  messages.innerHTML = "";
+  for (const t of entries) {
+    if (t.role === "user") add("user", t.content);
+    else if (t.role === "assistant") add("assistant", t.content);
+    else if (t.role === "tool") addTool(t.name, t.args);
+  }
+}
+
 function setBusy(v) {
   busy = v;
   send.disabled = v;
-  modelSel.disabled = v;
-}
-
-function renderServers(servers) {
-  $("servers").textContent = Object.entries(servers || {})
-    .map(([name, s]) => {
-      const state = s.state === "connected" ? "●" : s.state === "disabled" ? "○" : s.state.startsWith("error") ? "✗" : "◌";
-      return state + " " + name + (s.tools ? " (" + s.tools + ")" : "");
-    }).join("  ");
-}
-
-async function refreshServers() {
-  const cfg = await (await fetch("/api/config")).json();
-  renderServers(cfg.servers);
-  renderModels(cfg);
-}
-
-function renderModels(cfg) {
-  const prev = modelSel.value || cfg.current || cfg.default;
-  modelSel.innerHTML = "";
-  for (const name of cfg.models) {
-    const alive = !cfg.reachable || cfg.reachable[name] !== false;
-    const opt = new Option(alive ? name : name + " (offline)", name, false, name === prev);
-    opt.disabled = !alive;
-    modelSel.add(opt);
-  }
-  const selected = modelSel.selectedOptions[0];
-  if (!selected || selected.disabled) {
-    const firstAlive = [...modelSel.options].find(o => !o.disabled);
-    if (firstAlive) modelSel.value = firstAlive.value;
-  }
-}
-
-async function init() {
-  const cfg = await (await fetch("/api/config")).json();
-  $("vault").textContent = cfg.vault;
-  renderServers(cfg.servers);
-  approvalsDefaults = cfg.confirm_writes || {};
-  slashSkills = (cfg.skills || []).concat([{name: "help", description: "List available commands"}]);
-  renderModels(cfg);
-  renderApprovals();
-  // page reload mid-conversation: re-render the active transcript
-  const current = await (await fetch("/api/chats/current")).json();
-  if (current.transcript && current.transcript.length) {
-    renderTranscript(current.transcript);
-    if (current.model && [...modelSel.options].some(o => o.value === current.model)) {
-      modelSel.value = current.model;
-    }
-  }
+  $("modelbtn").disabled = v;
+  $("capture").disabled = v;
 }
 
 function timeAgo(iso) {
@@ -286,119 +666,27 @@ function timeAgo(iso) {
   return Math.round(s / 86400) + "d ago";
 }
 
-async function renderHistory() {
-  const data = await (await fetch("/api/history")).json();
-  const panel = $("histpanel");
-  panel.innerHTML = "";
-  if (!data.commits.length) {
-    panel.innerHTML = '<div class="hist-row"><span class="hist-msg">No changes yet.</span></div>';
-    return;
-  }
-  for (const c of data.commits) {
-    const row = document.createElement("div");
-    row.className = "hist-row";
-    const when = document.createElement("span");
-    when.className = "hist-when";
-    when.textContent = timeAgo(c.date);
-    const msg = document.createElement("span");
-    msg.className = "hist-msg";
-    msg.textContent = c.message;
-    msg.title = c.message;
-    const files = document.createElement("span");
-    files.className = "hist-files";
-    files.textContent = c.files.join(", ");
-    files.title = c.files.join("\n");
-    const btn = document.createElement("button");
-    btn.textContent = "Revert";
-    btn.onclick = async () => {
-      btn.disabled = true;
-      btn.textContent = "…";
-      const res = await fetch("/api/revert", {
-        method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({sha: c.sha}),
-      });
-      const result = await res.json();
-      if (!result.ok) {
-        btn.textContent = "Revert";
-        btn.disabled = false;
-        add("error", "Revert failed: " + result.error + " (older changes to the same lines may depend on it — revert newer changes first)");
-      }
-      renderHistory();
-    };
-    row.append(when, msg, files, btn);
-    panel.appendChild(row);
+const srvPolling = new Set();
+async function pollBackendUp(name) {
+  // Model servers can take 30s+ to load weights before the port answers.
+  // Poll until reachable (or ~2 min) so the picker un-grays without a reload.
+  if (srvPolling.has(name)) return;
+  srvPolling.add(name);
+  try {
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const data = await (await fetch("/api/servers")).json();
+      const s = (data.servers || []).find(x => x.name === name);
+      refreshModalIf("tools");
+      if (!s || s.reachable || !s.managed) break;  // up, gone, or crashed
+    }
+  } finally {
+    srvPolling.delete(name);
+    refreshServers();
   }
 }
 
-$("changes").addEventListener("click", () => {
-  $("chatspanel").classList.remove("open");
-  const panel = $("histpanel");
-  panel.classList.toggle("open");
-  if (panel.classList.contains("open")) renderHistory();
-});
-
-function renderTranscript(entries) {
-  messages.innerHTML = "";
-  for (const t of entries) {
-    if (t.role === "user") add("user", t.content);
-    else if (t.role === "assistant") add("assistant", t.content);
-    else if (t.role === "tool") addTool(t.name, t.args);
-  }
-}
-
-async function renderChats() {
-  const data = await (await fetch("/api/chats")).json();
-  const panel = $("chatspanel");
-  panel.innerHTML = "";
-  if (!data.chats.length) {
-    panel.innerHTML = '<div class="hist-row"><span class="hist-msg">No saved chats (kept 3 days).</span></div>';
-    return;
-  }
-  for (const c of data.chats) {
-    const row = document.createElement("div");
-    row.className = "hist-row";
-    const when = document.createElement("span");
-    when.className = "hist-when";
-    when.textContent = timeAgo(c.updated);
-    const msg = document.createElement("span");
-    msg.className = "hist-msg";
-    msg.textContent = c.title + (c.id === data.current ? "  (current)" : "");
-    const model = document.createElement("span");
-    model.className = "hist-files";
-    model.textContent = c.model;
-    const btn = document.createElement("button");
-    btn.textContent = "Open";
-    btn.disabled = c.id === data.current;
-    btn.onclick = async () => {
-      const res = await fetch("/api/chats/open", {
-        method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({id: c.id}),
-      });
-      if (!res.ok) { add("error", "Could not open that chat."); return; }
-      const opened = await res.json();
-      renderTranscript(opened.transcript);
-      if ([...modelSel.options].some(o => o.value === opened.model)) modelSel.value = opened.model;
-      renderApprovals();
-      $("chatspanel").classList.remove("open");
-    };
-    row.append(when, msg, model, btn);
-    panel.appendChild(row);
-  }
-}
-
-$("chats").addEventListener("click", () => {
-  $("histpanel").classList.remove("open");
-  const panel = $("chatspanel");
-  panel.classList.toggle("open");
-  if (panel.classList.contains("open")) renderChats();
-});
-
-$("approvals").addEventListener("click", () => {
-  localStorage.setItem("approvals", approvalsEffective() ? "off" : "on");
-  renderApprovals();
-});
-
-let inflight = null;  // AbortController for the current request
+let inflight = null;
 
 async function sendMessage(text) {
   add("user", text);
@@ -411,8 +699,7 @@ async function sendMessage(text) {
   log.scrollTop = log.scrollHeight;
   try {
     const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
+      method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({message: text, model: modelSel.value, approvals: approvalsEffective()}),
       signal: inflight.signal,
     });
@@ -449,14 +736,15 @@ async function sendMessage(text) {
         else if (ev.type === "final") {
           if (liveBubble) {
             liveBubble.style.whiteSpace = "";
-            liveBubble.innerHTML = DOMPurify.sanitize(marked.parse(ev.content, {breaks: true}));
+            liveBubble.innerHTML = renderMd(ev.content);
             liveBubble = null;
           } else {
             add("assistant", ev.content);
           }
           refreshServers();
-          if ($("histpanel").classList.contains("open")) renderHistory();
+          refreshModalIf("changes");
         }
+        else if (ev.type === "stats") renderChatStats(ev.chat);
         else if (ev.type === "error") add("error", ev.content);
         messages.appendChild(thinking);
         log.scrollTop = log.scrollHeight;
@@ -472,39 +760,38 @@ async function sendMessage(text) {
   }
 }
 
+/* ---------- capture ---------- */
+
 let capturing = false;
-const captureBtn = $("capture");
+
+function updateCaptureUI(path) {
+  const btn = $("capture");
+  btn.classList.toggle("on", capturing);
+  $("capicon").textContent = capturing ? "■" : "●";
+  btn.querySelector(".clabel").textContent = capturing ? " Stop" : " Capture";
+  input.placeholder = capturing
+    ? "capturing — every line goes straight to " + (path || "the note")
+    : "Ask about your vault… (/ for commands, Enter to send)";
+}
 
 async function toggleCapture() {
   if (busy) return;
   if (!capturing) {
     const title = prompt("Meeting title (optional):");
     if (title === null) return;  // Cancel means cancel — no capture starts
-    const res = await fetch("/api/capture/start", {
-      method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({title}),
-    });
-    const {path} = await res.json();
+    const {path} = await (await fetch("/api/capture/start", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({title})})).json();
     capturing = true;
-    captureBtn.classList.add("on");
-    captureBtn.textContent = "■ Stop capture";
-    input.placeholder = "capturing — every line goes straight to " + path;
+    updateCaptureUI(path);
     add("assistant", "Capture started → " + path + "\nType freely; nothing goes to the model until you stop.");
   } else {
-    const res = await fetch("/api/capture/stop", {method: "POST"});
-    const {path, lines} = await res.json();
+    const {path, lines} = await (await fetch("/api/capture/stop", {method: "POST"})).json();
     capturing = false;
-    captureBtn.classList.remove("on");
-    captureBtn.textContent = "● Capture";
-    input.placeholder = "Ask about your vault… (Enter to send, Shift+Enter for newline)";
-    if (path && lines > 0) {
-      sendMessage("/meeting-capture " + path);
-    } else {
-      add("assistant", "Capture ended — nothing was captured, so there's nothing to structure.");
-    }
+    updateCaptureUI();
+    if (path && lines > 0) sendMessage("/meeting-capture " + path);
+    else add("assistant", "Capture ended — nothing was captured, so there's nothing to structure.");
   }
 }
-captureBtn.addEventListener("click", toggleCapture);
+$("capture").onclick = toggleCapture;
 
 async function captureLine(text) {
   const el = document.createElement("div");
@@ -512,30 +799,22 @@ async function captureLine(text) {
   el.textContent = text;
   messages.appendChild(el);
   log.scrollTop = log.scrollHeight;
-  await fetch("/api/capture/append", {
-    method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({text}),
-  });
+  await fetch("/api/capture/append", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text})});
 }
+
+/* ---------- input + slash menu ---------- */
 
 form.addEventListener("submit", e => {
   e.preventDefault();
   const text = input.value.trim();
   if (!text) return;
-  if (capturing) {
-    input.value = "";
-    input.style.height = "auto";
-    captureLine(text);
-    return;
-  }
+  if (capturing) { input.value = ""; input.style.height = "auto"; captureLine(text); return; }
   if (busy) return;
-  input.value = "";
-  input.style.height = "auto";
+  input.value = ""; input.style.height = "auto";
   sendMessage(text);
 });
 
-// --- slash-command autocomplete ---
-let slashSkills = [];   // filled from /api/config
+let slashSkills = [];
 let slashSel = 0;
 const slashMenu = $("slashmenu");
 let slashItems = [];
@@ -589,22 +868,45 @@ input.addEventListener("input", () => {
 input.addEventListener("blur", () => setTimeout(() => { slashMenu.style.display = "none"; }, 150));
 
 $("new").addEventListener("click", async () => {
-  // New chat is the escape hatch: abort any in-flight (possibly hung)
-  // request rather than silently ignoring the click.
+  // New chat is the escape hatch: abort any in-flight (possibly hung) request.
   if (inflight) inflight.abort();
   setBusy(false);
   await fetch("/api/reset", {method: "POST"});
   messages.innerHTML = "";
+  renderChatStats(null);
   input.focus();
 });
 
 modelSel.addEventListener("change", () => {
   messages.innerHTML = "";
+  updateModelBtn();
   add("assistant", "Switched to " + modelSel.value + " — new conversation.");
-  renderApprovals();
+  renderChatStats(null);
 });
 
+/* ---------- init ---------- */
+
+async function init() {
+  const cfg = await (await fetch("/api/config")).json();
+  vaultPath = cfg.vault || "";
+  renderServers(cfg.servers);
+  approvalsDefaults = cfg.confirm_writes || {};
+  contextWindows = cfg.context_windows || {};
+  slashSkills = (cfg.skills || []).concat([{name: "help", description: "List available commands"}]);
+  renderModels(cfg);
+  renderChatStats(null);
+  const current = await (await fetch("/api/chats/current")).json();
+  if (current.transcript && current.transcript.length) {
+    renderTranscript(current.transcript);
+    if (current.model && [...modelSel.options].some(o => o.value === current.model)) { modelSel.value = current.model; updateModelBtn(); }
+    renderChatStats(current.stats);
+  }
+}
+
 init();
+// self-heal: backends coming up/down (from the modal or outside) re-gray or
+// un-gray the picker, and refresh the models view if it's open, without a reload
+setInterval(() => { if (!busy) refreshServers(); }, 30000);
 </script>
 </body>
 </html>

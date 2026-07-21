@@ -15,6 +15,7 @@ import json
 from .agent import Agent
 from .bootstrap import DEFAULT_MCP, DEFAULT_MODELS, load_runtime
 from .skills import load_skills
+from .stats import record_run
 
 
 async def _confirm(name: str, args: dict) -> bool:
@@ -35,22 +36,33 @@ def main() -> None:
     args = parser.parse_args()
 
     config, vault, servers = load_runtime(args.config, args.mcp_config, args.vault)
-    profile = config.profile(args.model)
+    try:
+        profile = config.profile(args.model)
+    except KeyError as e:
+        parser.error(e.args[0])
 
     if not args.interactive and not args.prompt:
         parser.error("give a prompt, or use -i for interactive mode")
 
     print(f"model: {profile.model} @ {profile.base_url}   vault: {vault}")
-    asyncio.run(_run(profile, servers, " ".join(args.prompt), args.interactive, args.yes))
+    asyncio.run(_run(profile, servers, " ".join(args.prompt), args.interactive, args.yes, vault))
 
 
-async def _run(profile, servers, prompt: str, interactive: bool, auto_yes: bool) -> None:
+async def _run(profile, servers, prompt: str, interactive: bool, auto_yes: bool, vault: str = "") -> None:
     confirm = None if auto_yes else _confirm
-    async with Agent(profile, servers, confirm=confirm, skills=load_skills()) as agent:
+
+    async def run_once(agent, text: str) -> None:
+        print(await agent.run(text))
+        try:
+            record_run(profile.name, agent.last_run_stats)
+        except OSError:
+            pass  # totals are cosmetic; never fail a run over them
+
+    async with Agent(profile, servers, confirm=confirm, skills=load_skills(), vault=vault) as agent:
         for name, info in agent.client.status.items():
             print(f"  [{name}] {info['state']}, {info['tools']} tools")
         if prompt:
-            print(await agent.run(prompt))
+            await run_once(agent, prompt)
         if interactive:
             print("interactive mode — empty line or Ctrl-D to quit")
             while True:
@@ -60,7 +72,7 @@ async def _run(profile, servers, prompt: str, interactive: bool, auto_yes: bool)
                     break
                 if not line:
                     break
-                print(await agent.run(line))
+                await run_once(agent, line)
 
 
 if __name__ == "__main__":

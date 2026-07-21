@@ -10,30 +10,60 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import datetime as dt
 import json
 import re
+import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 import uvicorn
 from starlette.applications import Starlette
 from starlette.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
+from obsidian_mcp.vault import Vault, VaultError
+
 from .agent import Agent
+from .backends import BackendManager
 from .bootstrap import DEFAULT_MCP, DEFAULT_MODELS, ROOT, load_runtime
+from .bugreports import save_report
 from .chats import ChatStore, transcript
-from .mcp_client import ServerSpec
+from .mcp_client import ServerSpec, load_mcp_presets
 from .profiles import Config
 from .skills import load_skills
+from .stats import record_run, totals
 
 STATIC = Path(__file__).parent / "static"
 REPORTS_DIR = ROOT / "evals" / "reports"
+CATALOG_PATH = ROOT / "data" / "tool_catalog.json"
 
 CONFIRM_TIMEOUT = 600  # seconds before an unanswered approval is treated as deny
+
+
+def load_catalog() -> dict:
+    """Tool catalog {server: [{name, read_only}]} discovered on past connects.
+    Lets the UI offer per-tool selection before this session has reconnected."""
+    try:
+        data = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_catalog(seen: dict) -> None:
+    """Merge freshly-connected servers into the catalog, keeping entries for
+    servers this (possibly narrowed) session didn't connect."""
+    if not seen:
+        return
+    cat = load_catalog()
+    cat.update(seen)
+    CATALOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CATALOG_PATH.write_text(json.dumps(cat, indent=2), encoding="utf-8")
 
 
 class AgentWorker:
@@ -51,12 +81,25 @@ class AgentWorker:
         servers: list[ServerSpec],
         on_save=None,
         initial_messages: list[dict] | None = None,
+        initial_stats: dict | None = None,
+        server_filter: list[str] | None = None,
+        tool_filter: list[str] | None = None,
+        vault: str = "",
     ):
         self.model_name = model_name
-        self.profile = config.profile(model_name)
+        self.server_filter = server_filter
+        self.tool_filter = tool_filter
+        self.vault = vault
+        profile = config.profile(model_name)
+        if server_filter is not None:
+            # session override from the UI: connect only these MCP servers,
+            # shrinking the tool schemas the model carries every request
+            profile = dataclasses.replace(profile, servers=server_filter)
+        self.profile = profile
         self.servers = servers
         self.on_save = on_save
         self.initial_messages = initial_messages
+        self.initial_stats = initial_stats
         self.agent: Agent | None = None
         self.failed = False
         self.inbox: asyncio.Queue = asyncio.Queue()
@@ -72,6 +115,13 @@ class AgentWorker:
     def _emit_delta(self, text: str) -> None:
         if self._out is not None:
             self._out.put_nowait({"type": "delta", "text": text})
+
+    def _stats_event(self, agent: Agent) -> dict:
+        return {
+            "type": "stats",
+            "chat": agent.stats,
+            "context_window": self.profile.context_tokens,
+        }
 
     async def _confirm(self, name: str, args: dict) -> bool:
         confirm_id = uuid.uuid4().hex[:12]
@@ -102,14 +152,18 @@ class AgentWorker:
         try:
             async with Agent(
                 self.profile, self.servers, log=self._emit_tool, confirm=self._confirm,
-                skills=load_skills(), on_delta=self._emit_delta,
+                skills=load_skills(), on_delta=self._emit_delta, vault=self.vault,
+                tool_filter=self.tool_filter,
             ) as agent:
                 self.status = agent.client.status
                 self.agent = agent
+                save_catalog(agent.client.catalog())  # remember tools for the picker
                 if self.initial_messages:
                     # resume a saved chat, but with a freshly built system
                     # prompt (dates and skills may have changed since)
                     agent.messages = [agent.messages[0], *self.initial_messages[1:]]
+                if self.initial_stats:
+                    agent.stats.update(self.initial_stats)
                 while True:
                     item = await self.inbox.get()
                     if item is None:
@@ -119,10 +173,20 @@ class AgentWorker:
                     agent.confirm_writes_override = approvals
                     try:
                         final = await agent.run(message)
+                        out.put_nowait(self._stats_event(agent))
                         out.put_nowait({"type": "final", "content": final})
                         if self.on_save:
-                            self.on_save(agent.messages)
+                            self.on_save(agent.messages, agent.stats)
+                        try:
+                            record_run(self.model_name, agent.last_run_stats)
+                        except OSError:
+                            pass  # totals are cosmetic; never fail a chat over them
                     except Exception as e:
+                        # A failed run may have killed the MCP sessions (stdio
+                        # transports don't survive some cancellations). Mark the
+                        # worker so the manager rebuilds it — resuming this chat
+                        # from its last save — instead of serving a broken agent.
+                        self.failed = True
                         out.put_nowait({"type": "error", "content": f"{type(e).__name__}: {e}"})
         except Exception as e:
             # Startup failed. Mark it so the manager builds a fresh worker on
@@ -152,29 +216,70 @@ class AgentWorker:
 class Manager:
     """One active conversation at a time; saved chats can be reopened."""
 
-    def __init__(self, config: Config, servers: list[ServerSpec], store: ChatStore):
+    def __init__(self, config: Config, servers: list[ServerSpec], store: ChatStore, vault: str = ""):
         self.config = config
         self.servers = servers
         self.store = store
+        self.vault = vault
         self.worker: AgentWorker | None = None
         self.chat_id: str | None = None
+        # UI-chosen tool working-set (qualified tool names); None = defaults.
+        # Sticky until changed — survives new chats and model switches.
+        self.tool_override: list[str] | None = None
         self.lock = asyncio.Lock()
+
+    def effective_filters(self, model_name: str | None) -> tuple[list[str] | None, list[str] | None]:
+        """Resolve the sticky tool selection into (server_filter, tool_filter):
+        connect only servers that own a selected tool, expose only those tools.
+        None/None means profile defaults (connect all, expose all)."""
+        prof = self.config.profile(model_name)
+        enabled = [s.name for s in self.servers if s.enabled]
+        default_servers = [n for n in enabled if prof.servers is None or n in prof.servers]
+        if self.tool_override is None:
+            return None, None
+        catalog = load_catalog()
+        owner = {t["name"]: srv for srv, tools in catalog.items() for t in tools}
+        sel = [t for t in self.tool_override if owner.get(t) in default_servers]
+        if not sel:  # selection stranded by a model switch — fall back to defaults
+            return None, None
+        return sorted({owner[t] for t in sel}), sel
 
     def _saver(self):
         chat_id = self.chat_id
 
-        def save(messages: list[dict]) -> None:
+        def save(messages: list[dict], stats: dict | None = None) -> None:
             model = self.worker.model_name if self.worker else ""
-            self.store.save(chat_id, model, messages)
+            self.store.save(chat_id, model, messages, stats)
 
         return save
 
     async def get_worker(self, model_name: str | None) -> AgentWorker:
         name = model_name or (self.worker.model_name if self.worker else self.config.default_model)
-        if self.worker is None or self.worker.model_name != name or self.worker.failed:
+        server_filter, tool_filter = self.effective_filters(name)
+        tools_changed = self.worker is not None and (
+            self.worker.server_filter != server_filter or self.worker.tool_filter != tool_filter
+        )
+        if self.worker is None or self.worker.model_name != name or self.worker.failed or tools_changed:
+            # Rebuild with fresh MCP sessions. A mid-conversation rebuild
+            # (failure or tool-selection change) resumes the same chat from
+            # its last saved state instead of dropping the conversation.
+            resume, resume_stats, chat_id = None, None, None
+            if (
+                self.worker is not None
+                and (self.worker.failed or tools_changed)
+                and self.worker.model_name == name
+                and self.chat_id
+            ):
+                data = self.store.load(self.chat_id)
+                if data:
+                    resume, resume_stats, chat_id = data["messages"], data.get("stats"), self.chat_id
             await self.reset()
-            self.chat_id = self.store.new_id()
-            self.worker = AgentWorker(self.config, name, self.servers, on_save=self._saver())
+            self.chat_id = chat_id or self.store.new_id()
+            self.worker = AgentWorker(
+                self.config, name, self.servers, on_save=self._saver(),
+                initial_messages=resume, initial_stats=resume_stats,
+                server_filter=server_filter, tool_filter=tool_filter, vault=self.vault,
+            )
         return self.worker
 
     async def open_chat(self, chat_id: str) -> dict | None:
@@ -184,11 +289,19 @@ class Manager:
         await self.reset()
         self.chat_id = chat_id
         model = data["model"] if data["model"] in self.config.models else self.config.default_model
+        server_filter, tool_filter = self.effective_filters(model)
         self.worker = AgentWorker(
             self.config, model, self.servers,
             on_save=self._saver(), initial_messages=data["messages"],
+            initial_stats=data.get("stats"), server_filter=server_filter,
+            tool_filter=tool_filter, vault=self.vault,
         )
-        return {"id": chat_id, "model": model, "transcript": transcript(data["messages"])}
+        return {
+            "id": chat_id,
+            "model": model,
+            "transcript": transcript(data["messages"]),
+            "stats": data.get("stats") or {},
+        }
 
     async def reset(self) -> None:
         if self.worker is not None:
@@ -197,19 +310,17 @@ class Manager:
         self.chat_id = None
 
 
-def build_app(config: Config, servers: list[ServerSpec], vault: str) -> Starlette:
+def build_app(config: Config, servers: list[ServerSpec], vault: str, presets: dict | None = None) -> Starlette:
     store = ChatStore()
     store.prune()
-    manager = Manager(config, servers, store)
+    manager = Manager(config, servers, store, vault)
+    backend_mgr = BackendManager(config.backends)
+    presets = presets or {}
     reach_cache: dict = {"ts": 0.0, "map": {}}
 
     async def endpoint_reachability() -> dict[str, bool]:
         """Which profiles' endpoints answer right now (cached 30s). Lets the
         UI mark dead backends instead of letting a chat walk into one."""
-        import time
-
-        import httpx
-
         if time.monotonic() - reach_cache["ts"] < 30 and reach_cache["map"]:
             return reach_cache["map"]
         by_url: dict[str, bool] = {}
@@ -227,6 +338,31 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str) -> Starlett
     async def index(request):
         return FileResponse(STATIC / "index.html")
 
+    def _mcp_info() -> dict:
+        """Per-tool selection state grouped by server, plus presets — the UI's
+        whole picture for the tool working-set. Tools come from the on-disk
+        catalog so selection works before this session reconnects."""
+        prof = config.profile(manager.worker.model_name if manager.worker else None)
+        enabled = [s.name for s in servers if s.enabled]
+        default_servers = [n for n in enabled if prof.servers is None or n in prof.servers]
+        catalog = load_catalog()
+        live = manager.worker.status if manager.worker and manager.worker.status else {}
+        override = set(manager.tool_override) if manager.tool_override is not None else None
+        rows = []
+        for s in servers:
+            tools = []
+            for t in sorted(catalog.get(s.name, []), key=lambda t: t["name"]):
+                selected = t["name"] in override if override is not None else s.name in default_servers
+                tools.append({"name": t["name"], "read_only": t.get("read_only", False), "selected": selected})
+            rows.append({
+                "name": s.name,
+                "config_enabled": s.enabled,
+                "available": s.name in default_servers,
+                "connected": (live.get(s.name) or {}).get("state") == "connected",
+                "tools": tools,
+            })
+        return {"servers": rows, "presets": presets, "has_catalog": bool(catalog)}
+
     async def get_config(request):
         if manager.worker and manager.worker.status:
             server_info = manager.worker.status
@@ -242,6 +378,8 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str) -> Starlett
                 "vault": vault,
                 "servers": server_info,
                 "confirm_writes": {name: p.confirm_writes for name, p in config.models.items()},
+                "context_windows": {name: p.context_tokens for name, p in config.models.items()},
+                "mcp": _mcp_info(),
                 "reachable": await endpoint_reachability(),
                 # fresh from disk so skill edits show in the menu immediately
                 "skills": [
@@ -256,15 +394,30 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str) -> Starlett
         if not message:
             return JSONResponse({"error": "empty message"}, status_code=400)
 
+        model = data.get("model")
+        if model and model not in config.models:
+            # Reject before the SSE stream opens: an exception mid-stream
+            # would just drop the connection with no error the UI can show.
+            return JSONResponse(
+                {"error": f"unknown model {model!r}. Available: {', '.join(config.models)}"},
+                status_code=400,
+            )
+
         approvals = data.get("approvals")
         if not isinstance(approvals, bool):
             approvals = None  # use the profile default
 
         async def stream():
-            async with manager.lock:
-                worker = await manager.get_worker(data.get("model"))
-                async for event in worker.ask(message, approvals):
-                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            try:
+                async with manager.lock:
+                    worker = await manager.get_worker(model)
+                    async for event in worker.ask(message, approvals):
+                        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                # Last-resort net: surface the failure as an event instead of
+                # severing the stream with no explanation.
+                err = {"type": "error", "content": f"{type(e).__name__}: {e}"}
+                yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -288,8 +441,6 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str) -> Starlett
     capture: dict = {"path": None, "lines": 0, "created": False}
 
     def _vault():
-        from obsidian_mcp.vault import Vault
-
         return Vault(vault)
 
     async def capture_start(request):
@@ -300,7 +451,10 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str) -> Starlett
         rel = f"Captures/{now.date().isoformat()} {title}.md"
         created = not v.resolve(rel).exists()
         if created:
-            v.snapshot_before("capture")
+            try:
+                v.snapshot_before("capture")
+            except VaultError as e:
+                return JSONResponse({"error": str(e)}, status_code=500)
             v.write(rel, f"# Capture: {title}\n\n_{now.strftime('%A %Y-%m-%d %H:%M')}_\n\n")
         capture.update(path=rel, lines=0, created=created)
         return JSONResponse({"path": rel})
@@ -320,16 +474,20 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str) -> Starlett
 
     async def capture_stop(request):
         path, lines = capture["path"], capture["lines"]
+        error = ""
         if path:
             v = _vault()
-            if lines == 0 and capture["created"]:
-                # Nothing captured and we made the note: leave no litter.
-                v.resolve(path).unlink(missing_ok=True)
-                v.snapshot_after(f"discard empty capture {path}")
-            else:
-                v.snapshot_after(f"capture session {path}")
+            try:
+                if lines == 0 and capture["created"]:
+                    # Nothing captured and we made the note: leave no litter.
+                    v.resolve(path).unlink(missing_ok=True)
+                    v.snapshot_after(f"discard empty capture {path}")
+                else:
+                    v.snapshot_after(f"capture session {path}")
+            except VaultError as e:
+                error = str(e)  # captured text is on disk; only the snapshot failed
         capture.update(path=None, lines=0, created=False)
-        return JSONResponse({"path": path, "lines": lines})
+        return JSONResponse({"path": path, "lines": lines, **({"error": error} if error else {})})
 
     async def chats_list(request):
         return JSONResponse({"chats": store.list(), "current": manager.chat_id})
@@ -343,6 +501,7 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str) -> Starlett
                 "id": manager.chat_id,
                 "model": worker.model_name,
                 "transcript": transcript(worker.agent.messages),
+                "stats": worker.agent.stats,
             }
         )
 
@@ -367,6 +526,93 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str) -> Starlett
 
     async def evals_page(request):
         return FileResponse(STATIC / "evals.html")
+
+    async def stats_page(request):
+        return FileResponse(STATIC / "stats.html")
+
+    async def get_stats(request):
+        return JSONResponse({"models": totals()})
+
+    async def report_issue(request):
+        """Save the current conversation as a bug report for later review."""
+        data = await request.json()
+        worker = manager.worker
+        agent = worker.agent if worker else None
+        messages = agent.messages if agent else []
+        try:
+            path = save_report(
+                description=str(data.get("description") or ""),
+                model=worker.model_name if worker else "",
+                messages=messages,
+                stats=agent.stats if agent else None,
+                servers=worker.status if worker else None,
+            )
+        except OSError as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        try:
+            shown = str(path.relative_to(ROOT))
+        except ValueError:
+            shown = str(path)
+        return JSONResponse({"ok": True, "path": shown})
+
+    async def mcp_select(request):
+        """Choose the tool working-set the agent exposes (context + selection
+        control). Applies from the next message via a rebuild that resumes the
+        chat. `tools: null` resets to profile defaults."""
+        data = await request.json()
+        tools = data.get("tools")
+        if tools is None:
+            manager.tool_override = None
+            return JSONResponse({"ok": True, "mcp": _mcp_info()})
+        if not isinstance(tools, list) or not tools:
+            return JSONResponse({"ok": False, "error": "select at least one tool"}, status_code=400)
+        catalog = load_catalog()
+        known = {t["name"] for row in catalog.values() for t in row}
+        unknown = [t for t in tools if t not in known]
+        if known and unknown:
+            return JSONResponse({"ok": False, "error": f"unknown tools: {unknown}"}, status_code=400)
+        manager.tool_override = sorted(dict.fromkeys(tools))  # dedupe, stable order
+        return JSONResponse({"ok": True, "mcp": _mcp_info()})
+
+    # --- local model-backend control (config-declared commands only) ---
+
+    async def servers_list(request):
+        out = []
+        async with httpx.AsyncClient(timeout=1.5) as http:
+            for name, spec in config.backends.items():
+                try:
+                    await http.get(spec.url + "/models")
+                    reachable = True
+                except httpx.HTTPError:
+                    reachable = False
+                pid = backend_mgr.managed_pid(name)
+                out.append({
+                    "name": name, "url": spec.url, "reachable": reachable,
+                    "managed": pid is not None, "pid": pid,
+                    # which profiles ride on this backend, for the UI
+                    "profiles": [n for n, p in config.models.items()
+                                 if p.base_url.rstrip("/") == spec.url],
+                })
+        return JSONResponse({"servers": out})
+
+    async def servers_start(request):
+        data = await request.json()
+        name = str(data.get("name") or "")
+        if name not in config.backends:
+            return JSONResponse({"ok": False, "message": f"unknown backend {name!r}"}, status_code=404)
+        ok, message = backend_mgr.start(name)
+        reach_cache["ts"] = 0  # model picker re-probes immediately
+        return JSONResponse({"ok": ok, "message": message}, status_code=200 if ok else 409)
+
+    async def servers_stop(request):
+        data = await request.json()
+        name = str(data.get("name") or "")
+        if name not in config.backends:
+            return JSONResponse({"ok": False, "message": f"unknown backend {name!r}"}, status_code=404)
+        # stop() blocks up to its kill grace period; keep the event loop free
+        ok, message = await asyncio.to_thread(backend_mgr.stop, name)
+        reach_cache["ts"] = 0
+        return JSONResponse({"ok": ok, "message": message}, status_code=200 if ok else 409)
 
     async def get_evals(request):
         runs = []
@@ -402,6 +648,13 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str) -> Starlett
             Route("/api/reset", reset, methods=["POST"]),
             Route("/evals", evals_page),
             Route("/api/evals", get_evals),
+            Route("/stats", stats_page),
+            Route("/api/stats", get_stats),
+            Route("/api/report", report_issue, methods=["POST"]),
+            Route("/api/servers", servers_list),
+            Route("/api/servers/start", servers_start, methods=["POST"]),
+            Route("/api/servers/stop", servers_stop, methods=["POST"]),
+            Route("/api/mcp", mcp_select, methods=["POST"]),
             Route("/api/chats", chats_list),
             Route("/api/chats/current", chats_current),
             Route("/api/chats/open", chats_open, methods=["POST"]),
@@ -426,11 +679,12 @@ def main() -> None:
     args = parser.parse_args()
 
     config, vault, servers = load_runtime(args.config, args.mcp_config, args.vault)
+    presets = load_mcp_presets(args.mcp_config)
 
     print(f"vault: {vault}")
     print(f"servers: {', '.join(s.name + ('' if s.enabled else ' (disabled)') for s in servers)}")
     print(f"chat UI: http://{args.host}:{args.port}")
-    uvicorn.run(build_app(config, servers, vault), host=args.host, port=args.port, log_level="warning")
+    uvicorn.run(build_app(config, servers, vault, presets), host=args.host, port=args.port, log_level="warning")
 
 
 if __name__ == "__main__":
