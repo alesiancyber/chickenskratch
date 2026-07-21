@@ -63,7 +63,11 @@ def copy_fixture(src: Path, dst: Path, subs: dict[str, str]) -> None:
             continue
         target = dst / p.relative_to(src)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(fill(p.read_text(encoding="utf-8"), subs), encoding="utf-8")
+        try:
+            target.write_text(fill(p.read_text(encoding="utf-8"), subs), encoding="utf-8")
+        except UnicodeDecodeError:
+            # binary attachment (image, PDF): copy as-is, no placeholders
+            shutil.copy2(p, target)
 
 
 def snapshot(vault: Path) -> dict[str, str]:
@@ -282,7 +286,10 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(DEFAULT_MODELS)
-    profile = config.profile(args.model)
+    try:
+        profile = config.profile(args.model)
+    except KeyError as e:
+        raise SystemExit(e.args[0]) from None
     cases = load_cases(EVALS / "cases")
     if args.filter:
         cases = [c for c in cases if args.filter in c["name"]]
