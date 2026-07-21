@@ -2,11 +2,13 @@
 
 Send messages + tool schemas to any OpenAI-compatible endpoint, execute
 returned tool calls against the connected MCP servers, feed results
-back, repeat. All domain knowledge lives in the MCP servers; all model
-knowledge lives in the profile. The one policy this layer owns is the
-write gate: when a profile sets confirm_writes, mutating tool calls
-wait for the user's approval — a harness guarantee, like git snapshots,
-not a model-quality workaround.
+back, repeat. All domain knowledge lives in the MCP servers (which
+servers count as docs sources is their config, not code here); all model
+knowledge lives in the profile. What this layer owns is the harness
+guarantees — deterministic policies, not model-quality workarounds:
+the write gate (confirm_writes profiles wait for user approval), the
+duplicate-write loop guard, and the docs-sources rule (answers built on
+a docs server always carry its URLs).
 """
 
 from __future__ import annotations
@@ -14,8 +16,11 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
+import urllib.parse
+from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 from openai import AsyncOpenAI
 
 from .mcp_client import MultiServerClient, ServerSpec
@@ -53,6 +58,15 @@ def _print_tool_call(name: str, args: dict) -> None:
     print(f"  → {name}({json.dumps(args, ensure_ascii=False)})")
 
 
+def _usage_dict(response) -> dict | None:
+    """Normalize an OpenAI-style usage block to {"input", "output"}, or None
+    when the backend didn't report one (callers then estimate)."""
+    usage = getattr(response, "usage", None)
+    if usage is None or getattr(usage, "prompt_tokens", None) is None:
+        return None
+    return {"input": usage.prompt_tokens or 0, "output": usage.completion_tokens or 0}
+
+
 class _AssembledToolCall:
     """Tool call reassembled from streaming deltas; mirrors the OpenAI type's
     surface (.id, .function.name/.arguments, .model_dump())."""
@@ -85,25 +99,38 @@ class Agent:
         confirm=None,
         skills: list[Skill] | None = None,
         on_delta=None,
+        vault: str = "",
+        tool_filter: list[str] | None = None,
     ):
         self.profile = profile
         self.log = log
         self.confirm = confirm
         self.skills = skills or []
+        # Absolute vault path, if known. Enables vault citations (clickable
+        # obsidian:// links back to the notes an answer drew on). Empty in
+        # evals, where appending citations would perturb answer checks.
+        self.vault = vault
         # When set, completions stream and each content fragment is passed
         # to on_delta(text) as it generates (the web UI's live rendering).
         self.on_delta = on_delta
         # Per-session approvals override: None = use profile.confirm_writes.
         self.confirm_writes_override: bool | None = None
-        system = SYSTEM_PROMPT.format(today=dt.date.today().isoformat()) + skills_prompt_block(self.skills)
-        self.messages: list[dict] = [{"role": "system", "content": system}]
-        self.client = MultiServerClient(servers, server_filter=profile.servers)
+        # Chat-cumulative token stats. input/output accumulate across requests;
+        # context_tokens is the LAST request's footprint (≈ current context
+        # occupancy); estimated flips when any count is a chars/4 estimate
+        # because the backend didn't report usage.
+        self.stats: dict = {"input_tokens": 0, "output_tokens": 0, "context_tokens": 0, "estimated": False}
+        self.last_run_stats: dict = {"input_tokens": 0, "output_tokens": 0, "tool_calls": 0, "estimated": False}
+        self._stream_usage = True  # ask streaming requests to report usage, until refused
+        self.messages: list[dict] = [{"role": "system", "content": self._system_content()}]
+        self.client = MultiServerClient(servers, server_filter=profile.servers, tool_filter=tool_filter)
         self._openai = AsyncOpenAI(base_url=profile.base_url, api_key=profile.api_key)
         self._tools: list[dict] = []
 
-    async def _check_endpoint(self) -> None:
-        import httpx
+    def _system_content(self) -> str:
+        return SYSTEM_PROMPT.format(today=dt.date.today().isoformat()) + skills_prompt_block(self.skills)
 
+    async def _check_endpoint(self) -> None:
         url = self.profile.base_url.rstrip("/") + "/models"
         try:
             async with httpx.AsyncClient(timeout=3) as http:
@@ -146,9 +173,11 @@ class Agent:
     async def __aexit__(self, *exc) -> None:
         await self.client.__aexit__(*exc)
 
-    async def _complete(self) -> tuple[str, list]:
-        """One model request. Returns (content, tool_calls); streams when
-        on_delta is set, assembling tool-call deltas by index."""
+    async def _complete(self) -> tuple[str, list, dict | None]:
+        """One model request. Returns (content, tool_calls, usage); usage is
+        {"input", "output"} token counts when the backend reports them, else
+        None. Streams when on_delta is set, assembling tool-call deltas by
+        index."""
         kwargs = dict(
             model=self.profile.model,
             messages=self.messages,
@@ -158,12 +187,28 @@ class Agent:
         if self.on_delta is None:
             response = await self._openai.chat.completions.create(**kwargs)
             msg = response.choices[0].message
-            return msg.content or "", list(msg.tool_calls or [])
+            return msg.content or "", list(msg.tool_calls or []), _usage_dict(response)
 
+        try:
+            return await self._stream(kwargs, include_usage=self._stream_usage)
+        except Exception:
+            if not self._stream_usage:
+                raise
+            # Some servers reject stream_options. Completions have no side
+            # effects, so retry once without it and stop asking this session
+            # (token counts degrade to estimates).
+            self._stream_usage = False
+            return await self._stream(kwargs, include_usage=False)
+
+    async def _stream(self, kwargs: dict, include_usage: bool) -> tuple[str, list, dict | None]:
+        if include_usage:
+            kwargs = dict(kwargs, stream_options={"include_usage": True})
         parts: list[str] = []
         slots: dict[int, dict] = {}
+        usage = None
         stream = await self._openai.chat.completions.create(stream=True, **kwargs)
         async for chunk in stream:
+            usage = _usage_dict(chunk) or usage  # rides the final chunk
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
@@ -183,25 +228,24 @@ class Agent:
             _AssembledToolCall(s["id"] or f"call_{i}", s["name"], s["arguments"])
             for i, s in sorted(slots.items())
         ]
-        return "".join(parts), calls
+        return "".join(parts), calls, usage
+
+    def _history_chars(self) -> int:
+        # tool_calls arguments can dwarf content (e.g. replace_section
+        # bodies), so they count too
+        return sum(
+            len(m.get("content") or "")
+            + (len(json.dumps(m["tool_calls"])) if m.get("tool_calls") else 0)
+            + 100
+            for m in self.messages
+        )
 
     def _trim_history(self) -> None:
         """Drop the oldest whole turns once history exceeds the profile budget,
         so long conversations degrade explicitly instead of silently blowing
         the model's context window. The system prompt and the newest turn
         always survive."""
-
-        def size() -> int:
-            # tool_calls arguments can dwarf content (e.g. replace_section
-            # bodies), so they count too
-            return sum(
-                len(m.get("content") or "")
-                + (len(json.dumps(m["tool_calls"])) if m.get("tool_calls") else 0)
-                + 100
-                for m in self.messages
-            )
-
-        while size() > self.profile.max_history_chars:
+        while self._history_chars() > self.profile.max_history_chars:
             user_indices = [
                 i for i, m in enumerate(self.messages) if m["role"] == "user" and i > 1
             ]
@@ -218,6 +262,9 @@ class Agent:
         return "\n".join(lines)
 
     async def run(self, user_message: str) -> str:
+        # Rebuild the system prompt each run: a session that lives past
+        # midnight must not keep telling the model yesterday's date.
+        self.messages[0] = {"role": "system", "content": self._system_content()}
         if user_message.strip() in ("/help", "/?"):
             reply = self._help_text()
             self.messages.append({"role": "user", "content": user_message})
@@ -234,9 +281,18 @@ class Agent:
         self._trim_history()
         self._executed_writes: dict[tuple, str] = {}  # loop guard, scoped to this run
         self._doc_urls: list[str] = []  # docs URLs seen this run, for _with_sources
+        self._doc_domains: set[str] = set()  # the docs domains those URLs came from
+        self._cited: dict[str, set] = {}  # vault notes this run drew on -> line numbers
+        self.last_run_stats = {"input_tokens": 0, "output_tokens": 0, "tool_calls": 0, "estimated": False}
         nudged = False
         for _ in range(self.profile.max_iterations):
-            content, tool_calls = await self._complete()
+            content, tool_calls, usage = await self._complete()
+            self._count_usage(content, tool_calls, usage)
+            if not tool_calls and content:
+                # Attach sources before the message enters history, so the
+                # saved chat and the model's later context match what the
+                # user was shown.
+                content = self._with_sources(content)
             msg = SimpleNamespace(content=content, tool_calls=tool_calls or None)
             self.messages.append(
                 {
@@ -251,7 +307,7 @@ class Agent:
             )
             if not msg.tool_calls:
                 if msg.content:
-                    return self._with_sources(msg.content)
+                    return msg.content
                 # Thinking models (e.g. qwen3.5 via Ollama) sometimes spend
                 # the whole reply in the `reasoning` field, leaving content
                 # empty. Drop the empty turn — a persisted empty assistant
@@ -263,6 +319,7 @@ class Agent:
                     continue
                 self.messages.pop()  # the failed nudge, too
                 return "(no response)"
+            self.last_run_stats["tool_calls"] += len(msg.tool_calls)
             for call in msg.tool_calls:
                 result_text = await self._execute(call)
                 self.messages.append(
@@ -272,13 +329,78 @@ class Agent:
         self.messages.append({"role": "assistant", "content": STOPPED_TEXT})
         return STOPPED_TEXT
 
+    def _count_usage(self, content: str, tool_calls: list, usage: dict | None) -> None:
+        """Fold one request's token usage into the chat and run stats. Called
+        right after _complete, before the reply is appended to history — so a
+        chars/4 estimate of the prompt sees exactly what was sent."""
+        if usage is None:
+            usage = {
+                "input": self._history_chars() // 4,
+                "output": (len(content) + sum(len(c.function.arguments or "") for c in tool_calls)) // 4,
+            }
+            self.stats["estimated"] = True
+            self.last_run_stats["estimated"] = True
+        self.stats["input_tokens"] += usage["input"]
+        self.stats["output_tokens"] += usage["output"]
+        self.stats["context_tokens"] = usage["input"] + usage["output"]
+        self.last_run_stats["input_tokens"] += usage["input"]
+        self.last_run_stats["output_tokens"] += usage["output"]
+
     def _with_sources(self, content: str) -> str:
         """Deterministic guarantee: an answer that used docs tools always
         carries the source URLs, even when the model omits them (the user
-        reads docs themselves and never wants an unlinked paraphrase)."""
-        if self._doc_urls and "learn.microsoft.com" not in content:
+        reads docs themselves and never wants an unlinked paraphrase).
+        Which servers count as docs sources is config: ServerSpec.docs_domain."""
+        if self._doc_urls and not any(domain in content for domain in self._doc_domains):
             content += "\n\nSources:\n" + "\n".join(f"- {u}" for u in self._doc_urls[:8])
-        return content
+        return self._with_vault_citations(content)
+
+    def _with_vault_citations(self, content: str) -> str:
+        """Same guarantee, turned inward: an answer built on vault reads carries
+        the notes it came from, as clickable obsidian:// links. Notes the model
+        already named inline are skipped, so citing never duplicates."""
+        if not self.vault or not self._cited:
+            return content
+        lines = []
+        for note in list(self._cited)[:8]:
+            if note in content:  # the model already referenced it
+                continue
+            nums = sorted(self._cited[note])
+            where = f" (line {nums[0]})" if len(nums) == 1 else (
+                f" (lines {', '.join(str(n) for n in nums[:5])})" if nums else "")
+            href = "obsidian://open?path=" + urllib.parse.quote(str(Path(self.vault) / note))
+            lines.append(f"- [{note}{where}]({href})")
+        return content + "\n\nFrom your vault:\n" + "\n".join(lines) if lines else content
+
+    def _collect_citations(self, name: str, args: dict, text: str) -> None:
+        """Record which notes a read/search tool surfaced, so the answer can
+        cite them. Path-based reads cite their argument; search/list tools cite
+        the notes (and line numbers) in their results."""
+        if not self.vault:
+            return
+
+        def add(note, line=None):
+            if not note:
+                return
+            note = str(note)
+            if not note.endswith(".md"):
+                note += ".md"
+            self._cited.setdefault(note, set())
+            if line:
+                self._cited[note].add(int(line))
+
+        if name in ("read_note", "read_board"):
+            add(args.get("path"))
+        elif name in ("search_vault", "list_tasks"):
+            try:
+                data = json.loads(text)
+            except (json.JSONDecodeError, TypeError):
+                return
+            rows = data.get("matches") if isinstance(data, dict) else None
+            rows = rows if rows is not None else (data.get("tasks") if isinstance(data, dict) else None)
+            for r in rows or []:
+                if isinstance(r, dict):
+                    add(r.get("note"), r.get("line"))
 
     async def _execute(self, call) -> str:
         name = call.function.name
@@ -319,11 +441,15 @@ class Agent:
             text, is_error = await self.client.call(name, args)
         except Exception as e:
             return f"Error calling tool: {e}"
-        if name.startswith("ms_learn"):
-            for url in re.findall(r"https://learn\.microsoft\.com[^\s)\"'<>\]]+", text):
+        domain = self.client.docs_domain(name)
+        if domain:
+            self._doc_domains.add(domain)
+            for url in re.findall(rf"https://{re.escape(domain)}[^\s)\"'<>\]]+", text):
                 base = url.split("#")[0].rstrip(".,;")
                 if base not in self._doc_urls:
                     self._doc_urls.append(base)
+        if not is_error:
+            self._collect_citations(name, args, text)  # untruncated result
         limit = self.profile.max_tool_result_chars
         if len(text) > limit:
             text = text[:limit] + f"\n…(truncated at {limit} chars; use offset/limit or a section to page)"

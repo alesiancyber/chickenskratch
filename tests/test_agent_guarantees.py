@@ -9,6 +9,7 @@ fake MCP client: no network, no model, no vault.
 from __future__ import annotations
 
 import asyncio
+import json
 from types import SimpleNamespace
 
 from harness.agent import Agent
@@ -30,9 +31,13 @@ class FakeToolCall:
         }
 
 
-def response(content=None, tool_calls=None):
+def response(content=None, tool_calls=None, usage=None):
     msg = SimpleNamespace(content=content, tool_calls=tool_calls)
-    return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+    return SimpleNamespace(choices=[SimpleNamespace(message=msg)], usage=usage)
+
+
+def usage(input_tokens, output_tokens):
+    return SimpleNamespace(prompt_tokens=input_tokens, completion_tokens=output_tokens)
 
 
 class FakeOpenAI:
@@ -49,11 +54,13 @@ class FakeOpenAI:
 
 
 class FakeMCP:
-    """Stands in for MultiServerClient: write_* tools are writes."""
+    """Stands in for MultiServerClient: write_* tools are writes, and tools
+    prefixed with a name in docs_domains belong to a docs server."""
 
     def __init__(self):
         self.calls: list[tuple[str, dict]] = []
         self.results: dict[str, str] = {}
+        self.docs_domains: dict[str, str] = {"ms_learn": "learn.microsoft.com"}
         self.status = {"fake": {"state": "connected", "tools": 2}}
 
     def openai_tools(self):
@@ -64,6 +71,10 @@ class FakeMCP:
 
     def is_write(self, name):
         return not name.startswith("read")
+
+    def docs_domain(self, name):
+        prefix = name.split("__")[0]
+        return self.docs_domains.get(prefix, "")
 
     async def call(self, name, args):
         self.calls.append((name, args))
@@ -235,6 +246,84 @@ def test_docs_answer_always_carries_source_urls():
     out = run(agent)
     assert "Sources:" in out
     assert "https://learn.microsoft.com/azure/thing" in out  # fragment stripped
+    # the guarantee must be persisted, not bolted onto the return value:
+    # reopened chats and the model's own context see the same answer
+    assert agent.messages[-1]["content"] == out
+
+
+def test_docs_guarantee_is_config_not_hardcoded():
+    # A different docs server (from ServerSpec.docs_domain) gets the same
+    # guarantee — nothing in the agent may assume ms-learn specifically.
+    agent = make_agent([
+        response(tool_calls=[FakeToolCall("py_docs__search")]),
+        response(content="Asyncio has tasks and futures."),
+    ])
+    agent.client.docs_domains = {"py_docs": "docs.python.org"}
+    agent.client.results["py_docs__search"] = (
+        "- asyncio — https://docs.python.org/3/library/asyncio.html"
+    )
+    out = run(agent)
+    assert "Sources:" in out
+    assert "https://docs.python.org/3/library/asyncio.html" in out
+
+
+def test_system_prompt_rebuilt_each_run():
+    # A session living past midnight must not keep yesterday's date: the
+    # system prompt is rebuilt at the start of every run.
+    agent = make_agent([response(content="hi")])
+    agent.messages[0] = {"role": "system", "content": "stale prompt from yesterday"}
+    run(agent)
+    assert agent.messages[0]["content"] != "stale prompt from yesterday"
+    assert "Today is" in agent.messages[0]["content"]
+
+
+def test_vault_citations_appended_from_reads():
+    agent = make_agent([
+        response(tool_calls=[FakeToolCall("read_note", '{"path": "Projects/Website Redesign"}')]),
+        response(content="The launch moved to Aug 3."),
+    ])
+    agent.vault = "/vault"
+    out = run(agent)
+    assert "From your vault:" in out
+    assert "Projects/Website Redesign.md" in out
+    assert "obsidian://open?path=/vault/Projects/Website%20Redesign.md" in out
+    # persisted, not just returned
+    assert agent.messages[-1]["content"] == out
+
+
+def test_vault_citations_include_line_from_search():
+    agent = make_agent([
+        response(tool_calls=[FakeToolCall("search_vault", '{"query": "dns"}')]),
+        response(content="Found a mention of DNS."),
+    ])
+    agent.vault = "/vault"
+    agent.client.results["search_vault"] = json.dumps(
+        {"matches": [{"note": "Tasks/Inbox.md", "line": 3, "text": "migrate DNS"}], "total": 1}
+    )
+    out = run(agent)
+    assert "Tasks/Inbox.md (line 3)" in out
+
+
+def test_no_citations_without_vault():
+    # evals construct the Agent without a vault: citations must stay off so
+    # answer checks aren't perturbed
+    agent = make_agent([
+        response(tool_calls=[FakeToolCall("read_note", '{"path": "Projects/X"}')]),
+        response(content="done"),
+    ])
+    assert agent.vault == ""
+    out = run(agent)
+    assert "From your vault:" not in out
+
+
+def test_citation_skipped_when_model_already_named_the_note():
+    agent = make_agent([
+        response(tool_calls=[FakeToolCall("read_note", '{"path": "Tasks/Inbox.md"}')]),
+        response(content="See Tasks/Inbox.md — 8 open tasks."),
+    ])
+    agent.vault = "/vault"
+    out = run(agent)
+    assert "From your vault:" not in out  # note already referenced inline
 
 
 def test_no_sources_appended_when_model_already_linked():
@@ -251,9 +340,9 @@ def test_no_sources_appended_when_model_already_linked():
 
 # --------------- streaming assembly ---------------
 
-def chunk(content=None, tool_deltas=None):
+def chunk(content=None, tool_deltas=None, usage=None):
     delta = SimpleNamespace(content=content, tool_calls=tool_deltas)
-    return SimpleNamespace(choices=[SimpleNamespace(delta=delta)])
+    return SimpleNamespace(choices=[SimpleNamespace(delta=delta)], usage=usage)
 
 
 def tool_delta(index=0, call_id=None, name=None, arguments=None):
@@ -306,6 +395,53 @@ def test_streaming_tool_call_assembled_across_deltas():
     dumped = next(m for m in agent.messages if m.get("tool_calls"))["tool_calls"][0]
     assert dumped["id"] == "c9"
     assert dumped["function"]["arguments"] == '{"a": 1}'
+
+
+# --------------- token stats ---------------
+
+def test_reported_usage_accumulates_exactly():
+    agent = make_agent([
+        response(tool_calls=[FakeToolCall("read_thing")], usage=usage(100, 10)),
+        response(content="done", usage=usage(150, 5)),
+    ])
+    run(agent)
+    # input/output accumulate across requests; context is the LAST request
+    assert agent.stats == {
+        "input_tokens": 250, "output_tokens": 15, "context_tokens": 155, "estimated": False,
+    }
+    assert agent.last_run_stats == {
+        "input_tokens": 250, "output_tokens": 15, "tool_calls": 1, "estimated": False,
+    }
+
+
+def test_missing_usage_falls_back_to_estimates_and_is_flagged():
+    agent = make_agent([response(content="a short reply about the vault")])
+    run(agent)
+    assert agent.stats["estimated"] is True
+    assert agent.stats["input_tokens"] > 0   # chars/4 of what was sent
+    assert agent.stats["output_tokens"] > 0
+
+
+def test_run_stats_are_per_run_but_chat_stats_accumulate():
+    agent = make_agent([
+        response(content="one", usage=usage(50, 5)),
+        response(content="two", usage=usage(80, 6)),
+    ])
+    run(agent)
+    run(agent, "again")
+    assert agent.stats["input_tokens"] == 130
+    assert agent.stats["context_tokens"] == 86     # last request's footprint
+    assert agent.last_run_stats["input_tokens"] == 80  # second run only
+
+
+def test_streaming_usage_captured_from_final_chunk():
+    agent = make_agent([])
+    agent.on_delta = lambda t: None
+    agent._openai = FakeStreamOpenAI([[chunk("hi"), chunk(usage=usage(40, 2))]])
+    assert run(agent) == "hi"
+    assert agent.stats == {
+        "input_tokens": 40, "output_tokens": 2, "context_tokens": 42, "estimated": False,
+    }
 
 
 # --------------- skills ---------------
