@@ -15,13 +15,15 @@ any OpenAI-compatible endpoint tomorrow.
 ├─────────────────────────────────────────────┤
 │ Model adapter — config/models.yaml profiles │  ← swap models here
 ├─────────────────────────────────────────────┤
+│ Vault spec — config/vault.yaml + schemas/   │  ← entity types, exclusions
+├─────────────────────────────────────────────┤
 │ MCP servers — config/mcp.yaml               │  ← usable by ANY MCP client
 │  obsidian (vault ops) · files (find/grep)   │
 │  ms-learn (remote docs) · atlassian (off)   │
 └─────────────────────────────────────────────┘
 ```
 
-Three rules keep it plug-and-play:
+Four rules keep it plug-and-play:
 
 1. **The vault is the API.** Tools read/write markdown directly (Kanban plugin
    format, Tasks plugin emoji syntax). Works with Obsidian closed; Obsidian
@@ -34,6 +36,11 @@ Three rules keep it plug-and-play:
    vault, if you prefer the long way). Snapshots fail loud: if the
    before-snapshot can't be committed, the mutation is blocked rather than
    run without a safety net.
+4. **The vault is also the UI** ([DESIGN-vault.md](DESIGN-vault.md)).
+   Anything Obsidian can render ships as a note the harness writes, not as
+   web-UI development — the review dashboard is `Harness/Review.md`,
+   approvals are checkboxes. The web app keeps only what a note can't be:
+   streaming chat, live write-confirms, server process control.
 
 ## MCP servers & write safety
 
@@ -71,6 +78,72 @@ model already named inline are skipped, so citing never duplicates. Active
 whenever the harness knows the vault path (web + CLI); off in evals so
 answer checks aren't perturbed.
 
+## Vault spec: entity types, ids, and Private/
+
+`config/vault.yaml` declares what the vault *is*: which top-level folder
+holds which entity type (`Tasks/`→task, `Deliverables/`→deliverable,
+`Meetings/`, `Research/`, `Boards/`, `Daily/`), where the harness's
+rendered surfaces live (`Harness/`), and which folders are excluded from
+model context. Each entity type has a jsonschema in `config/schemas/`
+([DESIGN-vault-schema.md](DESIGN-vault-schema.md)):
+
+- **Ids are review watermarks.** Everything the harness creates is born
+  stamped — meetings/boards get a frontmatter `id`, tasks and cards get an
+  Obsidian block ref (`^t-…`/`^c-…`, linkable via `[[Note#^id]]`). Hand-made
+  entities have no id, which is the point: *no id = never reviewed*. The
+  read-only `validate_schema` tool reports nonconformance, unreviewed
+  entities first (an id proves past review, not current conformance — the
+  vault is hand-edited, so stamped entities are still re-checked).
+- **A deliverable is a task with accountability made mechanical**: same
+  checkbox line plus a required `[for:: Name]` inline field and a required
+  due date. Missing either is flagged; the identical line is a fine plain
+  task. If the distinction stops earning its keep, delete
+  `deliverable.yaml` and the type folds back into task.
+- **`Private/` never enters model context.** Enforced at the vault layer,
+  not by prompt convention: reads, searches, task listings, writes, and
+  even fuzzy did-you-mean suggestions are structurally blind to it.
+  (Secrets still don't belong in the vault at all — it's git-history'd and
+  model-context'd; keep credentials in a real secret manager.)
+- The vault's own `.gitignore` keeps `Scripts/**/.venv/` out of snapshots —
+  a venv in vault git would bloat every commit and wreck revert granularity.
+
+## Review dashboard: `Harness/Review.md`
+
+The watcher ([DESIGN-review-dashboard.md](DESIGN-review-dashboard.md)) is
+a pipeline, not a daemon: scan (deterministic, the `validate_schema`
+implementation), draft (a bounded worker-LLM call per finding, capped at 5
+per pass), render. Proposed fixes land as sections in `Harness/Review.md` —
+title, summary, a ` ```diff ` preview, and two checkboxes:
+
+```
+- [ ] approve p-a1b2c3d4e5f6
+- [ ] reject p-a1b2c3d4e5f6
+```
+
+Check a box in Obsidian; the next pass acts on it. Approving executes the
+plan through the same snapshot-gated vault operations a chat uses (the
+checkbox *is* the confirm; the commit shows in ↺ Changes). A note that was
+hand-edited between draft and approval is detected (vault-SHA fast path,
+content-hash slow path) and the proposal goes stale instead of
+blind-applying — the next scan re-drafts it against current content.
+Drafters never touch the vault: proposals are data under `data/proposals/`,
+schema-validated so junk never enters the queue.
+
+Triggers: `uv run harness-watch` (one pass, cron-able), or just run
+`harness-web` — it stats Review.md every 5s and runs a pass when the file
+changes. An unchanged vault makes a pass free (git-SHA memo).
+
+## Training corpus
+
+Every human judgment flowing through the harness is captured permanently to
+`data/corpus/YYYY-MM.jsonl` ([DESIGN-training-corpus.md](DESIGN-training-corpus.md)):
+write approvals/denials (with the deny-vs-600s-timeout distinction), bug
+reports, git reverts (attributed to their chat via a `Chat-Id:` commit
+trailer), and dashboard decisions. Rows are self-contained — full
+trajectory inlined, because chats prune after 3 days — so when a
+fine-tune-worthy open model lands, the labeled data already exists.
+Capture only; no training pipeline yet, by design.
+
 ## Setup
 
 ```sh
@@ -101,7 +174,7 @@ uv run harness "add a task to renew the domain by next friday"
 uv run harness -i
 
 # different model profile / different vault
-uv run harness -m qwen3-8b -v ~/Vaults/personal "what's due today?"
+uv run harness -m qwen3.5-9b -v ~/Vaults/personal "what's due today?"
 ```
 
 ### Chat UI
@@ -192,10 +265,18 @@ Claude Code, or any MCP client:
 OBSIDIAN_VAULT_PATH=~/Vaults/personal uv run obsidian-mcp
 ```
 
-Tools (16): `list_notes`, `read_note`, `search_vault`, `create_note`,
+Tools (18): `list_notes`, `read_note`, `search_vault`, `create_note`,
 `append_to_note`, `replace_section`, `update_frontmatter`, `list_tasks`,
-`add_task`, `set_task_status`, `create_board`, `read_board`, `add_card`,
-`move_card`, `open_daily_note`, `create_meeting_note`.
+`add_task`, `set_task_status`, `extract_tasks`, `validate_schema`,
+`create_board`, `read_board`, `add_card`, `move_card`, `open_daily_note`,
+`create_meeting_note`.
+
+`extract_tasks` runs on a small dedicated worker model, not the chat
+model — workers are a registry of bounded LLM calls
+(`src/obsidian_mcp/workers.py`: prompt + jsonschema-validated reply +
+timeout, one retry, fail-loud). Workers are read-only by contract; the
+review-dashboard drafter uses the same registry. A/B a worker candidate
+with `uv run harness-worker-eval -m <model>`.
 
 The read-only files server runs standalone the same way:
 `FILES_ROOTS="~" uv run files-mcp` (`find_file`, `search_text`, `list_dir`).
@@ -227,15 +308,23 @@ template to change the format, no code.
 ## Tests
 
 ```sh
-uv run pytest      # 91 tests, ~4s
+uv run pytest      # 157 tests, ~8s
 uv run ruff check src tests
 ```
+
+Fixtures live in `tests/fixture_vault/` (tracked, like `evals/vault`);
+the top-level `testvault/` is your gitignored scratch playground and is
+never required by the suite.
 
 Tool smoke tests run every vault tool against a temp fixture; guarantee
 tests prove the harness promises (loop guard, write gate, empty-reply
 recovery, streaming assembly, context trimming, docs source URLs, kanban
-round-trip safety, snapshot fail-loud) against a scripted fake model — no
-model or network required.
+round-trip safety, snapshot fail-loud, Private/ invisibility, corpus
+capture on confirm/report/revert) against a scripted fake model — no
+model or network required. The dashboard pipeline is tested end-to-end
+the same way: scan → draft (scripted fake drafter) → Review.md render →
+checkbox → apply/stale, including the never-act-twice and
+unchanged-vault-is-free properties.
 
 ## Evals — measuring model swaps
 
@@ -263,11 +352,24 @@ a scored answer instead of vibes.
 
 ## Status & roadmap
 
-Built and verified: everything above. Remaining, in
-[PHASE2.md](PHASE2.md) / [PHASE3.md](PHASE3.md):
+Built and verified: everything above ([DEVPLAN.md](DEVPLAN.md) Phases 0–4,
+including the vault spec, entity schemas, review dashboard, and training
+corpus; the cloud escape hatch exists as the `gemini-3.5-flash-lite`
+profile, off unless explicitly picked). Remaining:
 
-- **Cloud escape-hatch profile** (Gemini Flash class) — wiring is one
-  profile entry + an API key; then an eval run to score cloud vs local.
+- **Dashboard usage gates** — the machinery is built and tested; the
+  D0/D1 gates in [DESIGN-review-dashboard.md](DESIGN-review-dashboard.md)
+  want ~10 real proposals reviewed in Obsidian and one real stale
+  occurrence before anything is layered on top.
+- **`Harness/Capture.md` + `Harness/Changes.md`** — capture-as-a-note and
+  a rendered recent-commits view ([DESIGN-vault.md](DESIGN-vault.md) §5);
+  gated behind the dashboard being dialed.
+- **Grouping** — organize a brain-dump list (G1), then cross-note
+  duplicate consolidation (G2); scope-limited by entity boundaries,
+  gated per [DESIGN-review-dashboard.md](DESIGN-review-dashboard.md) §3.
+- **Mixed-model routing / b70 orchestrator** — proposed, not approved:
+  [DESIGN-mixed-models.md](DESIGN-mixed-models.md) (its worker-contract
+  piece is the part that already shipped).
 - **Real-vault onboarding** — `.obsidian/` snapshot hygiene, single
   auto-committer decision, launchd auto-start.
 - **Jira via Atlassian's remote MCP** (OAuth 2.1) — endpoint already
