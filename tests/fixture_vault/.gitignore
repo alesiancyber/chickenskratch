@@ -1,0 +1,6 @@
+# Vault-side ignore rules (DESIGN-vault.md §6): virtualenvs and build
+# junk must never ride in git snapshots — they'd bloat every commit and
+# wreck revert granularity.
+Scripts/**/.venv/
+**/__pycache__/
+*.egg-info/

@@ -1,0 +1,33 @@
+# Vault spec (DESIGN-vault.md) — the one source of folder→entity-type
+# mapping, harness surface paths, and model-context exclusions.
+#
+# folders: maps a top-level vault folder to the entity type of the notes
+# and task lines inside it. A note's own signals still win: kanban-plugin
+# frontmatter => kanban, then frontmatter `type:`, then this map, then
+# the bare folder name lowercased.
+folders:
+  Tasks: task
+  Deliverables: deliverable
+  Meetings: meeting
+  Research: research
+  Boards: kanban
+  Daily: daily
+  Scripts: script
+
+# Entity schema files live in config/schemas/<type>.yaml (relative to
+# this file's directory).
+schemas_dir: schemas
+
+# Machine-rendered surfaces the harness owns inside the vault. The
+# watcher never scans these and ignores its own writes to them.
+surfaces:
+  review: Harness/Review.md
+  capture: Harness/Capture.md
+
+# Top-level folders that never enter model context. Enforced at the
+# vault layer (resolve/iter_notes), not by prompt convention: reads,
+# searches, task listings, and writes are all structurally blind to
+# these. Secrets still don't belong in the vault at all — this is for
+# sensitive *content*, not credentials.
+exclude:
+  - Private

@@ -1,0 +1,16 @@
+# Line entity: a checkbox task anywhere outside a kanban board.
+# Instances are built from parsed task lines by schemas.validate_line.
+type: object
+required: [id, text]
+properties:
+  id:
+    type: string
+    pattern: "^t-[0-9a-f]{12}$"
+  text:
+    type: string
+    minLength: 1
+  due:
+    type: ["string", "null"]
+    pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+  priority:
+    enum: [highest, high, medium, low, lowest, null]

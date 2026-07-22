@@ -345,10 +345,11 @@ def chunk(content=None, tool_deltas=None, usage=None):
     return SimpleNamespace(choices=[SimpleNamespace(delta=delta)], usage=usage)
 
 
-def tool_delta(index=0, call_id=None, name=None, arguments=None):
+def tool_delta(index=0, call_id=None, name=None, arguments=None, extra_content=None):
     return SimpleNamespace(
         index=index, id=call_id,
         function=SimpleNamespace(name=name, arguments=arguments),
+        extra_content=extra_content,
     )
 
 
@@ -395,6 +396,40 @@ def test_streaming_tool_call_assembled_across_deltas():
     dumped = next(m for m in agent.messages if m.get("tool_calls"))["tool_calls"][0]
     assert dumped["id"] == "c9"
     assert dumped["function"]["arguments"] == '{"a": 1}'
+    assert "extra_content" not in dumped  # absent unless the backend sent one
+
+
+def test_streaming_preserves_gemini_thought_signature():
+    # Gemini 3.x signs each function call via extra_content and 400s the
+    # next request if the signature is missing from history
+    sig = {"google": {"thought_signature": "EjQKMg=="}}
+    agent = make_agent([])
+    agent.on_delta = lambda t: None
+    agent._openai = FakeStreamOpenAI([
+        [chunk(tool_deltas=[tool_delta(
+            index=None, call_id="g1", name="read_thing", arguments="{}", extra_content=sig,
+        )])],
+        [chunk("done")],
+    ])
+    assert run(agent) == "done"
+    dumped = next(m for m in agent.messages if m.get("tool_calls"))["tool_calls"][0]
+    assert dumped["extra_content"] == sig
+
+
+def test_streaming_indexless_deltas_form_separate_calls():
+    # Gemini's compat layer streams whole tool calls with index=None: each
+    # delta bearing an id must become its own call, not overwrite slot None
+    agent = make_agent([])
+    agent.on_delta = lambda t: None
+    agent._openai = FakeStreamOpenAI([
+        [
+            chunk(tool_deltas=[tool_delta(index=None, call_id="g1", name="read_thing", arguments='{"a": 1}')]),
+            chunk(tool_deltas=[tool_delta(index=None, call_id="g2", name="read_thing", arguments='{"a": 2}')]),
+        ],
+        [chunk("done")],
+    ])
+    assert run(agent) == "done"
+    assert agent.client.calls == [("read_thing", {"a": 1}), ("read_thing", {"a": 2})]
 
 
 # --------------- token stats ---------------

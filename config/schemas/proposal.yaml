@@ -1,0 +1,56 @@
+# Not a vault entity: the shape of a review-dashboard proposal file
+# (data/proposals/*.json, DESIGN-review-dashboard.md §2) — validated by
+# the same jsonschema machinery as everything else. A proposal is data
+# describing gated tool calls; approving it executes them through the
+# normal snapshot-guaranteed vault operations.
+type: object
+required: [schema_version, id, kind, status, created, drafted_against, title, summary, apply]
+properties:
+  schema_version:
+    const: 1
+  id:
+    type: string
+    pattern: "^p-[0-9a-f]{12}$"
+  kind:
+    enum: [schema_fix, grouping]
+  status:
+    enum: [pending, approved, rejected, stale]
+  created:
+    type: string
+  drafted_against:
+    type: object
+    required: [vault_sha, note, content_hash]
+    properties:
+      vault_sha:
+        type: string
+      note:
+        type: string
+      content_hash:
+        type: string
+      entity_ids:
+        type: array
+        items:
+          type: string
+  title:
+    type: string
+    minLength: 1
+  summary:
+    type: string
+  issues:
+    type: array
+    items:
+      type: string
+  apply:
+    type: array
+    minItems: 1
+    items:
+      type: object
+      required: [tool, args]
+      properties:
+        tool:
+          enum: [update_frontmatter, replace_section, append_to_note,
+                 add_task, set_task_status, add_card, move_card, create_note]
+        args:
+          type: object
+  resolved:
+    type: ["object", "null"]

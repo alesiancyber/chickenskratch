@@ -1,0 +1,10 @@
+# Line entity: a kanban card (top-level checkbox line on a board).
+type: object
+required: [id, text]
+properties:
+  id:
+    type: string
+    pattern: "^c-[0-9a-f]{12}$"
+  text:
+    type: string
+    minLength: 1

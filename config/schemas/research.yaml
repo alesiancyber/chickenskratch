@@ -1,0 +1,17 @@
+# Note entity: a research note's frontmatter. The required "## Sources"
+# section (ranked links, never paraphrase) is checked separately by
+# schemas.validate_research_body — jsonschema can't see the body.
+type: object
+required: [id, type, status]
+properties:
+  id:
+    type: string
+    pattern: "^r-[0-9a-f]{12}$"
+  type:
+    const: research
+  status:
+    enum: [open, active, parked, done]
+  tags:
+    type: array
+    items:
+      type: string

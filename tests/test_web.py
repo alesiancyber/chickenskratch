@@ -1,8 +1,10 @@
 """Web-layer reliability: failed workers resume their chat, bad model
-names are rejected before the SSE stream opens."""
+names are rejected before the SSE stream opens, and human judgments
+(confirm/report/revert) land in the training corpus."""
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 import pytest
 from starlette.testclient import TestClient
@@ -10,7 +12,8 @@ from starlette.testclient import TestClient
 from harness.chats import ChatStore
 from harness.mcp_client import ServerSpec
 from harness.profiles import Config, Profile
-from harness.web import Manager, build_app
+from harness.web import AgentWorker, Manager, build_app
+from obsidian_mcp.vault import Vault
 
 
 def make_config(vault: str = "") -> Config:
@@ -28,8 +31,9 @@ class FakeWorker:
 
     def __init__(self, config, model_name, servers, on_save=None,
                  initial_messages=None, initial_stats=None, server_filter=None,
-                 tool_filter=None, vault=""):
+                 tool_filter=None, vault="", chat_id=""):
         self.model_name = model_name
+        self.chat_id = chat_id
         self.failed = False
         self.initial_messages = initial_messages
         self.initial_stats = initial_stats
@@ -165,6 +169,102 @@ def test_report_issue_saves_conversation(tmp_path, monkeypatch):
         saved = list((tmp_path / "reports").glob("*.md"))
         assert len(saved) == 1
         assert "streaming stalled" in saved[0].read_text()
+
+
+def _bare_confirm_worker(chat_id="chat-1", messages=None):
+    """AgentWorker with only the attributes _confirm touches — skips
+    __init__ (which would spawn the agent task)."""
+    w = object.__new__(AgentWorker)
+    w.chat_id = chat_id
+    w.model_name = "fake"
+    w.pending = {}
+    w.agent = SimpleNamespace(messages=messages or [{"role": "user", "content": "hi"}])
+    w._out = asyncio.Queue()
+    return w
+
+
+def test_confirm_approve_and_deny_record_corpus_labels(monkeypatch):
+    captured = []
+    monkeypatch.setattr("harness.web.record_confirm", lambda *a, **k: captured.append((a, k)))
+    w = _bare_confirm_worker()
+
+    async def scenario(approve):
+        task = asyncio.create_task(w._confirm("add_task", {"text": "x"}))
+        await asyncio.sleep(0)
+        assert w.resolve(next(iter(w.pending)), approve)
+        return await task
+
+    assert asyncio.run(scenario(True)) is True
+    assert asyncio.run(scenario(False)) is False
+    (a1, k1), (a2, k2) = captured
+    assert a1[0] == "chat-1" and a1[3] == "add_task" and a1[4] == {"text": "x"}
+    assert a1[5] is True and k1["timed_out"] is False
+    assert a2[5] is False and k2["timed_out"] is False
+
+
+def test_confirm_timeout_records_timed_out(monkeypatch):
+    captured = []
+    monkeypatch.setattr("harness.web.record_confirm", lambda *a, **k: captured.append((a, k)))
+    monkeypatch.setattr("harness.web.CONFIRM_TIMEOUT", 0.01)
+    w = _bare_confirm_worker()
+    assert asyncio.run(w._confirm("add_task", {})) is False
+    (a, k) = captured[0]
+    assert a[5] is False and k["timed_out"] is True
+
+
+def test_report_issue_records_corpus_label(tmp_path, monkeypatch):
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    monkeypatch.setattr("harness.bugreports.REPORTS_DIR", tmp_path / "reports")
+    captured = []
+    monkeypatch.setattr("harness.web.record_bug_report", lambda *a, **k: captured.append(a))
+    app = build_app(make_config(str(vault)), servers=[], vault=str(vault))
+    with TestClient(app) as tc:
+        assert tc.post("/api/report", json={"description": "wrong counts"}).json()["ok"]
+    # no active conversation: called with an empty trajectory, which the
+    # corpus layer no-ops on (test_corpus covers that guard)
+    assert captured[0][2] == [] and captured[0][3] == "wrong counts"
+
+
+def _vault_with_commit(root, chat_id=""):
+    root.mkdir()
+    v = Vault(root, chat_id=chat_id)
+    (root / "note.md").write_text("content\n")
+    v.snapshot_after("create note note.md")
+    return v.history()[0]["sha"]
+
+
+def test_revert_records_corpus_label_via_trailer(tmp_path, monkeypatch):
+    sha = _vault_with_commit(tmp_path / "vault", chat_id="chat-777")
+    monkeypatch.setattr("harness.web.ChatStore", lambda: ChatStore(tmp_path / "chats"))
+    captured = []
+    monkeypatch.setattr("harness.web.record_revert", lambda *a, **k: captured.append(a))
+    ChatStore(tmp_path / "chats").save(
+        "chat-777", "fake",
+        [{"role": "system", "content": "s"}, {"role": "user", "content": "hi"}],
+    )
+    app = build_app(make_config(str(tmp_path / "vault")), servers=[], vault=str(tmp_path / "vault"))
+    with TestClient(app) as tc:
+        assert tc.post("/api/revert", json={"sha": sha}).json()["ok"]
+    (call,) = captured
+    assert call[0] == "chat-777" and call[1] == "fake" and call[3] == sha
+    assert "Chat-Id: chat-777" in call[4]
+
+
+def test_revert_skips_pruned_chat_and_untrailered_commits(tmp_path, monkeypatch):
+    sha = _vault_with_commit(tmp_path / "vault", chat_id="chat-gone")  # chat never saved
+    monkeypatch.setattr("harness.web.ChatStore", lambda: ChatStore(tmp_path / "chats"))
+    captured = []
+    monkeypatch.setattr("harness.web.record_revert", lambda *a, **k: captured.append(a))
+    app = build_app(make_config(str(tmp_path / "vault")), servers=[], vault=str(tmp_path / "vault"))
+    with TestClient(app) as tc:
+        assert tc.post("/api/revert", json={"sha": sha}).json()["ok"]  # pruned: revert still works
+        v = Vault(tmp_path / "vault")  # no chat_id: an untrailered commit
+        (tmp_path / "vault" / "plain.md").write_text("x\n")
+        v.snapshot_after("create note plain.md")
+        plain_sha = v.history()[0]["sha"]
+        assert tc.post("/api/revert", json={"sha": plain_sha}).json()["ok"]
+    assert captured == []  # neither case produced a corpus row
 
 
 def test_server_endpoints_refuse_unknown_backends(tmp_path, monkeypatch):

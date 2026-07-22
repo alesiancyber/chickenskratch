@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .ids import split_block_ref
+
 TASK_RE = re.compile(r"^(?P<indent>\s*)[-*] \[(?P<mark>.)\]\s+(?P<text>.*)$")
 DUE_RE = re.compile(r"📅\s*(\d{4}-\d{2}-\d{2})")
 DONE_RE = re.compile(r"✅\s*(\d{4}-\d{2}-\d{2})")
@@ -27,6 +29,7 @@ class Task:
     due: str | None
     priority: str | None
     done_date: str | None
+    block_id: str | None = None   # trailing ^ref — the entity-id watermark
 
     def to_dict(self, path: str) -> dict:
         d = {"note": path, "line": self.line_no + 1, "text": self.text, "done": self.done}
@@ -36,6 +39,8 @@ class Task:
             d["priority"] = self.priority
         if self.done_date:
             d["completed_on"] = self.done_date
+        if self.block_id:
+            d["id"] = self.block_id
         return d
 
 
@@ -43,7 +48,8 @@ def parse_task_line(line: str, line_no: int = 0) -> Task | None:
     m = TASK_RE.match(line)
     if not m:
         return None
-    body = m.group("text")
+    # Strip a trailing block ref first so text and metadata never see it.
+    body, block_id = split_block_ref(m.group("text"))
     due = _first(DUE_RE, body)
     done_date = _first(DONE_RE, body)
     priority = next((name for mark, name in PRIORITY_MARKS.items() if mark in body), None)
@@ -59,6 +65,7 @@ def parse_task_line(line: str, line_no: int = 0) -> Task | None:
         due=due,
         priority=priority,
         done_date=done_date,
+        block_id=block_id,
     )
 
 
@@ -67,7 +74,9 @@ def _first(pattern: re.Pattern, s: str) -> str | None:
     return m.group(1) if m else None
 
 
-def format_task(text: str, due: str | None = None, priority: str | None = None) -> str:
+def format_task(
+    text: str, due: str | None = None, priority: str | None = None, block_id: str | None = None
+) -> str:
     parts = [f"- [ ] {text.strip()}"]
     if priority:
         emoji = PRIORITY_EMOJI.get(priority.lower())
@@ -78,6 +87,8 @@ def format_task(text: str, due: str | None = None, priority: str | None = None) 
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", due):
             raise ValueError(f"Due date must be YYYY-MM-DD, got {due!r}")
         parts.append(f"📅 {due}")
+    if block_id:
+        parts.append(f"^{block_id}")   # block refs must be the last token
     return " ".join(parts)
 
 

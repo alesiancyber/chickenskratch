@@ -320,9 +320,9 @@ $("menu").onclick = () => openModal("menu");
 $("modelbtn").onclick = () => { if (!busy) openModal("models"); };
 
 async function reportIssue() {
-  const description = prompt("What went wrong? (a short note — the whole conversation is saved with it)");
+  closeModal();  // the inline prompt lives in the transcript, behind the modal
+  const description = await askInline("What went wrong?", "a short note — the whole conversation is saved with it");
   if (description === null) return;
-  closeModal();
   const res = await (await fetch("/api/report", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({description})})).json();
   if (res.ok) add("assistant", "🐞 Saved this conversation for review → `" + res.path + "`");
   else add("error", "Could not save the report: " + (res.error || "unknown error"));
@@ -621,6 +621,42 @@ function addConfirm(ev) {
   log.scrollTop = log.scrollHeight;
 }
 
+function askInline(label, placeholder = "") {
+  // window.prompt is blocked in embedded webviews (returns null instantly),
+  // which made Capture and Report issue look dead there — ask in-page instead.
+  // Resolves with the entered string, or null on Cancel/Escape.
+  return new Promise(resolve => {
+    const el = document.createElement("div");
+    el.className = "tool confirm";
+    const b = document.createElement("b");
+    b.textContent = label;
+    el.appendChild(b);
+    const inp = document.createElement("input");
+    inp.type = "text";
+    inp.placeholder = placeholder;
+    inp.style.cssText = "display:block;width:100%;margin:6px 0;box-sizing:border-box;";
+    el.appendChild(inp);
+    const btns = document.createElement("div");
+    btns.className = "buttons";
+    const done = val => { el.remove(); resolve(val); };
+    for (const [text, ok] of [["OK", true], ["Cancel", false]]) {
+      const btn = document.createElement("button");
+      btn.textContent = text;
+      if (ok) btn.className = "approve";
+      btn.onclick = () => done(ok ? inp.value : null);
+      btns.appendChild(btn);
+    }
+    el.appendChild(btns);
+    inp.onkeydown = e => {
+      if (e.key === "Enter") done(inp.value);
+      else if (e.key === "Escape") done(null);
+    };
+    messages.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+    inp.focus();
+  });
+}
+
 function resolveConfirm(ev) {
   const el = messages.querySelector('[data-confirm-id="' + ev.confirm_id + '"]');
   if (!el) return;
@@ -777,7 +813,7 @@ function updateCaptureUI(path) {
 async function toggleCapture() {
   if (busy) return;
   if (!capturing) {
-    const title = prompt("Meeting title (optional):");
+    const title = await askInline("Meeting title (optional):");
     if (title === null) return;  // Cancel means cancel — no capture starts
     const {path} = await (await fetch("/api/capture/start", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({title})})).json();
     capturing = true;

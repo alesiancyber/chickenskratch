@@ -33,6 +33,7 @@ from .backends import BackendManager
 from .bootstrap import DEFAULT_MCP, DEFAULT_MODELS, ROOT, load_runtime
 from .bugreports import save_report
 from .chats import ChatStore, transcript
+from .corpus import record_bug_report, record_confirm, record_revert
 from .mcp_client import ServerSpec, load_mcp_presets
 from .profiles import Config
 from .skills import load_skills
@@ -85,8 +86,10 @@ class AgentWorker:
         server_filter: list[str] | None = None,
         tool_filter: list[str] | None = None,
         vault: str = "",
+        chat_id: str = "",
     ):
         self.model_name = model_name
+        self.chat_id = chat_id
         self.server_filter = server_filter
         self.tool_filter = tool_filter
         self.vault = vault
@@ -130,15 +133,24 @@ class AgentWorker:
         self._out.put_nowait(
             {"type": "confirm", "confirm_id": confirm_id, "name": name, "args": args}
         )
+        timed_out = False
         try:
             approved = await asyncio.wait_for(future, timeout=CONFIRM_TIMEOUT)
         except TimeoutError:
-            approved = False
+            approved, timed_out = False, True
         finally:
             self.pending.pop(confirm_id, None)
         self._out.put_nowait(
             {"type": "confirm_result", "confirm_id": confirm_id, "approved": approved}
         )
+        try:
+            record_confirm(
+                self.chat_id, self.model_name,
+                self.agent.messages if self.agent else [],
+                name, args, approved, timed_out=timed_out,
+            )
+        except OSError:
+            pass  # corpus capture never breaks a live chat
         return approved
 
     def resolve(self, confirm_id: str, approve: bool) -> bool:
@@ -153,7 +165,7 @@ class AgentWorker:
             async with Agent(
                 self.profile, self.servers, log=self._emit_tool, confirm=self._confirm,
                 skills=load_skills(), on_delta=self._emit_delta, vault=self.vault,
-                tool_filter=self.tool_filter,
+                tool_filter=self.tool_filter, chat_id=self.chat_id,
             ) as agent:
                 self.status = agent.client.status
                 self.agent = agent
@@ -279,6 +291,7 @@ class Manager:
                 self.config, name, self.servers, on_save=self._saver(),
                 initial_messages=resume, initial_stats=resume_stats,
                 server_filter=server_filter, tool_filter=tool_filter, vault=self.vault,
+                chat_id=self.chat_id,
             )
         return self.worker
 
@@ -294,7 +307,7 @@ class Manager:
             self.config, model, self.servers,
             on_save=self._saver(), initial_messages=data["messages"],
             initial_stats=data.get("stats"), server_filter=server_filter,
-            tool_filter=tool_filter, vault=self.vault,
+            tool_filter=tool_filter, vault=self.vault, chat_id=chat_id,
         )
         return {
             "id": chat_id,
@@ -310,7 +323,13 @@ class Manager:
         self.chat_id = None
 
 
-def build_app(config: Config, servers: list[ServerSpec], vault: str, presets: dict | None = None) -> Starlette:
+def build_app(
+    config: Config,
+    servers: list[ServerSpec],
+    vault: str,
+    presets: dict | None = None,
+    watch: bool = False,
+) -> Starlette:
     store = ChatStore()
     store.prune()
     manager = Manager(config, servers, store, vault)
@@ -335,8 +354,15 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str, presets: di
         reach_cache.update(ts=time.monotonic(), map=result)
         return result
 
+    def _page(name: str) -> FileResponse:
+        # no-cache = revalidate every load (cheap 304s via ETag). Without it
+        # browsers heuristically cache the app shell, and a stale copy keeps
+        # running old JS long after a fix lands (e.g. the sanitizer change
+        # that un-broke obsidian:// citation links).
+        return FileResponse(STATIC / name, headers={"Cache-Control": "no-cache"})
+
     async def index(request):
-        return FileResponse(STATIC / "index.html")
+        return _page("index.html")
 
     def _mcp_info() -> dict:
         """Per-tool selection state grouped by server, plus presets — the UI's
@@ -521,14 +547,28 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str, presets: di
         sha = str(data.get("sha") or "")
         if not re.fullmatch(r"[0-9a-f]{7,40}", sha):
             return JSONResponse({"ok": False, "error": "invalid sha"}, status_code=400)
-        ok, error = _vault().revert(sha)
+        v = _vault()
+        commit_message = v.commit_message(sha)
+        ok, error = v.revert(sha)
+        if ok:
+            # A revert is a negative label on the chat that made the commit,
+            # found via its Chat-Id trailer. Chat already pruned (or commit
+            # untrailered: manual edit, pre-feature) => nothing to train on,
+            # skip silently — the accepted gap in DESIGN-training-corpus.md.
+            m = re.search(r"^Chat-Id: (\S+)$", commit_message, re.M)
+            chat = store.load(m.group(1)) if m else None
+            if chat:
+                try:
+                    record_revert(chat["id"], chat["model"], chat["messages"], sha, commit_message)
+                except OSError:
+                    pass
         return JSONResponse({"ok": ok, "error": error}, status_code=200 if ok else 409)
 
     async def evals_page(request):
-        return FileResponse(STATIC / "evals.html")
+        return _page("evals.html")
 
     async def stats_page(request):
-        return FileResponse(STATIC / "stats.html")
+        return _page("stats.html")
 
     async def get_stats(request):
         return JSONResponse({"models": totals()})
@@ -549,6 +589,13 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str, presets: di
             )
         except OSError as e:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        try:
+            record_bug_report(
+                manager.chat_id or "", worker.model_name if worker else "",
+                messages, str(data.get("description") or ""), str(path),
+            )
+        except OSError:
+            pass
         try:
             shown = str(path.relative_to(ROOT))
         except ValueError:
@@ -634,9 +681,33 @@ def build_app(config: Config, servers: list[ServerSpec], vault: str, presets: di
             )
         return JSONResponse({"runs": runs})
 
+    async def _watch_loop():
+        # Review.md is the dashboard (DESIGN-vault.md §5): a checked box is
+        # the approval, and this poll is what notices it while the server
+        # runs. One cheap stat per tick; a full pass only when the file
+        # changed. `harness-watch` covers the server-not-running case.
+        from .watcher import Watcher
+
+        w = Watcher(vault)
+        review = Path(vault) / w.review_rel
+        last = None
+        while True:
+            try:
+                mtime = review.stat().st_mtime if review.exists() else None
+                if last is None or mtime != last:
+                    await w.run_once()
+                    mtime = review.stat().st_mtime if review.exists() else None
+                last = mtime
+            except Exception:
+                pass  # the watcher must never take the chat server down
+            await asyncio.sleep(5)
+
     @asynccontextmanager
     async def lifespan(app):
+        watch_task = asyncio.create_task(_watch_loop()) if watch else None
         yield
+        if watch_task:
+            watch_task.cancel()
         await manager.reset()
 
     return Starlette(
@@ -684,7 +755,10 @@ def main() -> None:
     print(f"vault: {vault}")
     print(f"servers: {', '.join(s.name + ('' if s.enabled else ' (disabled)') for s in servers)}")
     print(f"chat UI: http://{args.host}:{args.port}")
-    uvicorn.run(build_app(config, servers, vault, presets), host=args.host, port=args.port, log_level="warning")
+    uvicorn.run(
+        build_app(config, servers, vault, presets, watch=True),
+        host=args.host, port=args.port, log_level="warning",
+    )
 
 
 if __name__ == "__main__":

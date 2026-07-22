@@ -1,0 +1,16 @@
+# Note entity: a kanban board's frontmatter. project/client are the
+# optional boundary metadata grouping uses (two projects on one vault
+# must never have their tasks mixed — the boundary is structural, not
+# inferred from text).
+type: object
+required: [id, kanban-plugin]
+properties:
+  id:
+    type: string
+    pattern: "^b-[0-9a-f]{12}$"
+  kanban-plugin:
+    type: string
+  project:
+    type: string
+  client:
+    type: string

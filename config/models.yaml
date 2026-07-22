@@ -27,6 +27,14 @@ backends:
     command: "ollama serve"
     # env:
     #   OLLAMA_CONTEXT_LENGTH: "16384"   # if set, match context_tokens in the profiles below
+  mlx-worker:
+    # Dedicated worker model (task extraction — src/obsidian_mcp/workers.py).
+    # --chat-template-args disables Qwen3.5's default thinking mode: with it
+    # on, every reply hides in `reasoning` and the worker fails loud.
+    # A/B vs gemma4:e2b (2026-07-20, evals/reports/workers/): 7/8 vs 6/8,
+    # ~7x faster; qwen errs by inventing (visible), gemma by dropping (not).
+    url: http://127.0.0.1:8081/v1
+    command: "uv tool run --from mlx-lm mlx_lm.server --model mlx-community/Qwen3.5-4B-MLX-4bit --port 8081 --chat-template-args '{\"enable_thinking\": false}'"
 
 models:
   gemma4-12b-mlx:
@@ -53,6 +61,21 @@ models:
     max_tool_result_chars: 4000
     confirm_writes: true
     servers: [obsidian]        # 4b gets the minimal tool surface
+
+  # Cloud escape hatch (DESIGN-mixed-models.md §5 Tier 4) — off by default,
+  # only reached via explicit `-m gemini-3.5-flash-lite` / model picker.
+  # Requires GEMINI_API_KEY exported in your shell; the harness never
+  # stores the key. gemini-2.5-flash-lite (2026-07) is no longer available
+  # to new users (live 404) — this is the current cheapest non-deprecated
+  # tier per ai.google.dev/gemini-api/docs/models.
+  gemini-3.5-flash-lite:
+    model: gemini-3.5-flash-lite
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    api_key_env: GEMINI_API_KEY
+    temperature: 0.2
+    max_iterations: 15
+    confirm_writes: true
+    context_tokens: 1048576   # TODO verify: unconfirmed for this model, carried over from 2.5 Pro's window
 
   # Example future entry for the 32GB network server:
   # homelab-70b:

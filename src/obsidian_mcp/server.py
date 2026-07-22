@@ -16,9 +16,12 @@ import yaml
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
+from . import ids
 from . import kanban as kb
 from . import markdown as md
+from . import schemas as sc
 from . import tasks as tk
+from . import vaultconfig as vc
 from . import workers as wk
 from .vault import VaultError, get_vault
 
@@ -185,14 +188,17 @@ def update_frontmatter(path: str, key: str, value: str) -> dict:
 # --------------- tasks ---------------
 
 def _note_type(fm: dict, rel_path: str) -> str:
-    """Classify a note for task grouping: kanban boards, then the note's own
-    frontmatter `type` (meeting, research, ...), then its top-level folder."""
+    """Classify a note as an entity type: kanban boards by content, then the
+    note's own frontmatter `type`, then the vault spec's folder→type map
+    (config/vault.yaml — the one typing source), then the bare folder name."""
     if "kanban-plugin" in fm:
         return "kanban"
     if isinstance(fm.get("type"), str) and fm["type"]:
         return fm["type"].lower()
     parts = rel_path.split("/")
-    return parts[0].lower() if len(parts) > 1 else "other"
+    if len(parts) < 2:
+        return "other"
+    return vc.get_config().folder_types.get(parts[0], parts[0].lower())
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -200,8 +206,9 @@ def list_tasks(folder: str = "", status: str = "open", task_type: str = "",
                due_on: str = "", due_before: str = "", limit: int = 50) -> dict:
     """List checkbox tasks across the vault, grouped with per-type counts.
     Every task carries a `type` derived from its note: "kanban" for board
-    cards, the note's frontmatter type (e.g. "meeting", "research"), or its
-    top-level folder (e.g. "tasks", "projects", "daily"). The result leads
+    cards, the note's frontmatter type (e.g. "meeting", "research"), or the
+    entity type of its top-level folder (e.g. "task", "deliverable",
+    "daily"; unmapped folders use the folder name). The result leads
     with `total` and `counts_by_type` — use those to answer "how many"
     questions. status: "open", "done", or "all". task_type narrows to one
     type. Date filters (both YYYY-MM-DD): due_on = tasks due exactly that
@@ -210,8 +217,8 @@ def list_tasks(folder: str = "", status: str = "open", task_type: str = "",
 
     Example: list_tasks(status="open") ->
       {"filter": {"status": "open"}, "total": 22,
-       "counts_by_type": {"tasks": 7, "kanban": 4, "research": 4, ...},
-       "tasks": [{"note": "Tasks/Inbox.md", "type": "tasks", "text": ..., "due": ...}, ...]}
+       "counts_by_type": {"task": 7, "kanban": 4, "research": 4, ...},
+       "tasks": [{"note": "Tasks/Inbox.md", "type": "task", "text": ..., "due": ...}, ...]}
     """
     v = get_vault()
     if status not in ("open", "done", "all"):
@@ -260,7 +267,7 @@ def add_task(path: str, text: str, due: str = "", priority: str = "", section: s
 
     Example: add_task(path="Tasks/Inbox", text="Renew domain", due="2026-07-25", priority="high")
     """
-    line = tk.format_task(text, due or None, priority or None)
+    line = tk.format_task(text, due or None, priority or None, block_id=ids.stamp_id("t"))
     return append_to_note(path, line, section)
 
 
@@ -290,7 +297,11 @@ def set_task_status(path: str, task_text: str, done: bool = True) -> dict:
     line = line[:mark_at] + ("x" if done else " ") + line[mark_at + 1 :]
     if done:
         if "✅" not in line:
-            line += f" ✅ {_today()}"
+            # A block ref must stay the last token, so ✅ slots in before it.
+            core, ref = ids.split_block_ref(line)
+            line = f"{core} ✅ {_today()}"
+            if ref:
+                line = ids.attach_block_ref(line, ref)
     else:
         line = tk.DONE_RE.sub("", line).rstrip()
     v.snapshot_before("set_task_status")
@@ -320,6 +331,66 @@ async def extract_tasks(text: str) -> dict:
     return {"tasks": tasks, "count": len(tasks)}
 
 
+# --------------- entity schemas ---------------
+
+@mcp.tool(annotations=READ_ONLY)
+def validate_schema(folder: str = "", limit: int = 50, offset: int = 0) -> dict:
+    """Check notes and their tasks/cards against the vault's entity schemas
+    (config/schemas/). Read-only: reports nonconformance, never changes
+    anything. Entities with no id watermark have never been reviewed and
+    sort first; stamped entities are still re-checked for drift. Use
+    offset to page through a long report.
+
+    Example: validate_schema(folder="Meetings") ->
+      {"total_checked": 12, "nonconforming_count": 3, "shown": 3,
+       "nonconforming": [{"note": "Meetings/2026-07-15 Sprint Planning.md",
+                          "entity": "meeting", "unmarked": true,
+                          "issues": ["(root): 'id' is a required property"],
+                          "tasks": [{"line": 14, "text": "...", "issues": [...]}]}]}
+    """
+    v = get_vault()
+    surface_dirs = {s.split("/")[0] for s in vc.get_config().surfaces.values()}
+    rows = []
+    checked = 0
+    for p in v.iter_notes(folder):
+        rel = v.rel(p)
+        if rel.split("/")[0] in surface_dirs:
+            continue  # machine-rendered surfaces are not entities
+        checked += 1
+        fm, body = md.split_frontmatter(p.read_text(encoding="utf-8"))
+        etype = _note_type(fm, rel)
+        note_issues = sc.validate_frontmatter(etype, fm)
+        if etype == "research":
+            note_issues = note_issues + sc.validate_research_body(body)
+        bad_tasks, any_unstamped_task = [], False
+        for task in tk.iter_tasks(body):
+            t_issues = sc.validate_line(task, etype)
+            if t_issues:
+                bad_tasks.append({"line": task.line_no + 1, "text": task.text, "issues": t_issues})
+                any_unstamped_task = any_unstamped_task or task.block_id is None
+        if not note_issues and not bad_tasks:
+            continue
+        has_note_schema = etype in sc.load_schemas() and etype not in sc.LINE_TYPES
+        rows.append({
+            "note": rel,
+            "entity": etype,
+            "unmarked": (has_note_schema and not fm.get("id")) or any_unstamped_task,
+            **({"issues": note_issues} if note_issues else {}),
+            **({"tasks": bad_tasks} if bad_tasks else {}),
+        })
+    rows.sort(key=lambda r: (not r["unmarked"], r["note"]))
+    page = rows[offset : offset + limit]
+    result = {
+        "total_checked": checked,
+        "nonconforming_count": len(rows),
+        "shown": len(page),
+        "nonconforming": page,
+    }
+    if offset + limit < len(rows):
+        result["next_offset"] = offset + limit
+    return result
+
+
 # --------------- kanban boards ---------------
 
 @mcp.tool()
@@ -338,7 +409,7 @@ def create_board(path: str, columns: str = "Backlog, Doing, Done") -> dict:
     if not names:
         raise VaultError("At least one column name is required")
     board = kb.Board(
-        frontmatter={"kanban-plugin": "board"},
+        frontmatter={"kanban-plugin": "board", "id": ids.stamp_id("b")},
         columns=[
             kb.Column(name=n, complete_marker=n.lower() in ("done", "complete", "completed"))
             for n in names
@@ -371,7 +442,9 @@ def add_card(path: str, column: str, text: str) -> dict:
     v = get_vault()
     board = kb.parse_board(v.read(path))
     v.snapshot_before("add_card")
-    board.column(column).cards.append({"text": text.strip(), "done": False})
+    board.column(column).cards.append(
+        {"text": text.strip(), "done": False, "id": ids.stamp_id("c")}
+    )
     v.write(path, kb.render_board(board))
     v.snapshot_after(f"add card to {column!r} on {path}")
     return {"board": path, "column": column, "added": text.strip()}
@@ -443,7 +516,7 @@ def create_meeting_note(title: str, date: str = "", attendees: str = "") -> dict
     except VaultError:
         attendee_lines = "".join(f"- {a}\n" for a in people)
         body = f"# {title.strip()}\n\n## Attendees\n\n{attendee_lines}\n## Agenda\n\n## Notes\n\n## Action items\n"
-    fm = {"date": day, "type": "meeting", "attendees": people}
+    fm = {"id": ids.stamp_id("m"), "date": day, "type": "meeting", "attendees": people}
     v.snapshot_before("create_meeting_note")
     v.write(rel, md.join_frontmatter(fm, body))
     v.snapshot_after(f"create meeting note {rel}")

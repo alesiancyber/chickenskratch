@@ -1,0 +1,120 @@
+[
+  {
+    "name": "urgent-priority-mapping",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 3.6,
+    "last_tasks": [
+      {
+        "text": "Renew the certificate on the mail server",
+        "due": "2026-07-20",
+        "priority": "highest"
+      }
+    ]
+  },
+  {
+    "name": "someday-item-kept",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 2.4,
+    "last_tasks": [
+      {
+        "text": "Redesign the pricing page",
+        "due": null,
+        "priority": "lowest"
+      }
+    ]
+  },
+  {
+    "name": "relative-date-two-weeks",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 3.1,
+    "last_tasks": [
+      {
+        "text": "Review the vendor contract",
+        "due": "2026-08-03",
+        "priority": null
+      }
+    ]
+  },
+  {
+    "name": "completed-item-excluded",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 3.3,
+    "last_tasks": [
+      {
+        "text": "Schedule the postmortem",
+        "due": "2026-07-21",
+        "priority": null
+      }
+    ]
+  },
+  {
+    "name": "no-tasks-pure-status",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 1.1,
+    "last_tasks": []
+  },
+  {
+    "name": "decision-is-not-a-task",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 1.1,
+    "last_tasks": []
+  },
+  {
+    "name": "multiple-tasks-mixed",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 6.9,
+    "last_tasks": [
+      {
+        "text": "File the quarterly taxes",
+        "due": "2026-07-25",
+        "priority": "high"
+      },
+      {
+        "text": "Update the onboarding doc",
+        "due": null,
+        "priority": null
+      },
+      {
+        "text": "Rotate the leaked API key",
+        "due": "2026-07-20",
+        "priority": "highest"
+      }
+    ]
+  },
+  {
+    "name": "date-not-repeated-in-text",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 3.2,
+    "last_tasks": [
+      {
+        "text": "Submit the expense report",
+        "due": "2026-07-21",
+        "priority": "high"
+      }
+    ]
+  }
+]

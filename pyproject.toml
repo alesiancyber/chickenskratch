@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Tezcat: model-agnostic agent harness for Obsidian — ask the black mirror"
 requires-python = ">=3.12"
 dependencies = [
+    "jsonschema>=4.22",
     "mcp>=1.9",
     "openai>=1.60",
     "pyyaml>=6.0",
@@ -13,6 +14,8 @@ dependencies = [
 harness = "harness.cli:main"
 harness-web = "harness.web:main"
 harness-eval = "harness.evals:main"
+harness-worker-eval = "harness.worker_evals:main"
+harness-watch = "harness.watcher:main"
 obsidian-mcp = "obsidian_mcp.server:main"
 files-mcp = "files_mcp.server:main"
 

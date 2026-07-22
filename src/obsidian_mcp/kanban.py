@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from .ids import split_block_ref
 from .markdown import join_frontmatter, split_frontmatter
 from .tasks import TASK_RE
 
@@ -70,6 +71,7 @@ class Board:
                         {
                             "text": card["text"],
                             "done": card["done"],
+                            **({"id": card["id"]} if card.get("id") else {}),
                             **({"details": card["extra"]} if card.get("extra") else {}),
                         }
                         for card in c.cards
@@ -105,7 +107,10 @@ def parse_board(content: str) -> Board:
         col = columns[-1]
         task = TASK_RE.match(line)
         if task and not task.group("indent"):
-            current_card = {"text": task.group("text").strip(), "done": task.group("mark").lower() == "x"}
+            text, block_id = split_block_ref(task.group("text").strip())
+            current_card = {"text": text, "done": task.group("mark").lower() == "x"}
+            if block_id:
+                current_card["id"] = block_id
             col.cards.append(current_card)
         elif line.strip() == "**Complete**":
             col.complete_marker = True
@@ -134,7 +139,8 @@ def render_board(board: Board) -> str:
         lines.extend(col.preamble)
         for card in col.cards:
             mark = "x" if card["done"] else " "
-            lines.append(f"- [{mark}] {card['text']}")
+            ref = f" ^{card['id']}" if card.get("id") else ""
+            lines.append(f"- [{mark}] {card['text']}{ref}")
             lines.extend(card.get("extra", []))
         chunks.append("\n".join(lines))
     body = "\n\n".join(chunks) + "\n"

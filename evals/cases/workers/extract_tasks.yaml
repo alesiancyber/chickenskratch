@@ -1,0 +1,99 @@
+# Judgment cases for the extract_tasks worker (DESIGN-mixed-models.md §7.4).
+# Run live:  uv run harness-worker-eval -m <worker model>
+# Scored structurally against the returned JSON, never against prose.
+#
+# Expectation schema per case:
+#   expect:       list of tasks that must be returned
+#     match:      regex that must hit one returned task's text
+#     due:        checked only if the key is present (explicit null = must be null)
+#     priority:   same rule
+#   exact: true   returned count must equal len(expect) — extras are failures
+#   forbid_text:  regexes that must not appear in any returned task text
+#
+# Date placeholders ({today}, {tomorrow}, {plus5}, {plus14}, ...) resolve at
+# run time in both the input text and the expectations, so cases never go stale.
+
+- name: urgent-priority-mapping
+  text: |
+    Quick recap from standup: the cert on the mail server expires soon and
+    Sam said it's urgent — renew it today. Nothing else blocking.
+  expect:
+    - match: "(?i)cert"
+      due: "{today}"
+      priority: highest
+  forbid_text: ["(?i)urgent"]   # priority word must not leak into the task text
+  exact: true
+
+# Regression #1: the first live smoke test (commit b15b876) dropped the
+# no-deadline "someday" item entirely. Policy: return it with due null.
+- name: someday-item-kept
+  text: |
+    Meeting wrapped early. One thought that came up: someday we should
+    redesign the pricing page, no rush at all. Also confirmed the offsite
+    is already booked.
+  expect:
+    - match: "(?i)pricing page"
+      due: null
+      # priority deliberately unchecked: "no rush at all" -> low is a
+      # defensible inference (qwen3.5-4b makes it). The regression being
+      # pinned is dropping the item or inventing a date, not the
+      # priority reading.
+  exact: true
+
+- name: relative-date-two-weeks
+  text: |
+    Nadia will send the vendor contract, and someone on our side needs to
+    review it in two weeks.
+  expect:
+    - match: "(?i)vendor contract"
+      due: "{plus14}"
+  exact: true
+
+- name: completed-item-excluded
+  text: |
+    Status: Priya already migrated the DNS records yesterday, so that's
+    done. Remaining: schedule the postmortem for tomorrow.
+  expect:
+    - match: "(?i)postmortem"
+      due: "{tomorrow}"
+  forbid_text: ["(?i)dns"]
+  exact: true
+
+- name: no-tasks-pure-status
+  text: |
+    FYI — the deploy went out clean, dashboards look normal, and the
+    support queue is quiet. No action needed from anyone.
+  expect: []
+  exact: true
+
+- name: decision-is-not-a-task
+  text: |
+    After the debate we decided to go with Postgres over SQLite. Everyone
+    agreed the migration plan Marcus drafted is fine as written.
+  expect: []
+  exact: true
+
+- name: multiple-tasks-mixed
+  text: |
+    Notes from planning: Sam needs to file the quarterly taxes by {plus5}
+    — that one's high priority. Someone should also update the onboarding
+    doc, no deadline. And urgent: rotate the leaked API key today.
+  expect:
+    - match: "(?i)tax"
+      due: "{plus5}"
+      priority: high
+    - match: "(?i)onboarding"
+      due: null
+    - match: "(?i)api key|rotate"
+      due: "{today}"
+      priority: highest
+  exact: true
+
+- name: date-not-repeated-in-text
+  text: |
+    Remind me that I have to submit the expense report tomorrow.
+  expect:
+    - match: "(?i)expense report"
+      due: "{tomorrow}"
+  forbid_text: ["(?i)tomorrow"]
+  exact: true

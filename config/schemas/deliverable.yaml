@@ -1,0 +1,22 @@
+# Line entity: a task owed to a person (DESIGN-vault.md §3) — same line
+# format as task, but accountability is mechanical: `for` (a [for:: Name]
+# inline field) and `due` are REQUIRED. A deliverable missing either is
+# nonconforming; an identical plain task is fine. If this enforcement
+# stops mattering, delete this file and the type folds back into task.
+type: object
+required: [id, text, for, due]
+properties:
+  id:
+    type: string
+    pattern: "^t-[0-9a-f]{12}$"
+  text:
+    type: string
+    minLength: 1
+  for:
+    type: string
+    minLength: 1
+  due:
+    type: string
+    pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+  priority:
+    enum: [highest, high, medium, low, lowest, null]

@@ -1,0 +1,125 @@
+[
+  {
+    "name": "urgent-priority-mapping",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 26.2,
+    "last_tasks": [
+      {
+        "text": "renew the cert on the mail server",
+        "due": "2026-07-20",
+        "priority": "highest"
+      }
+    ]
+  },
+  {
+    "name": "someday-item-kept",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "no returned task matches '(?i)pricing page'",
+      "expected exactly 1 task(s), got 0; extra: []"
+    ],
+    "seconds": 18.1,
+    "last_tasks": []
+  },
+  {
+    "name": "relative-date-two-weeks",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "'(?i)vendor contract': due=None, expected '2026-08-03'",
+      "expected exactly 1 task(s), got 2; extra: ['Review the vendor contract']"
+    ],
+    "seconds": 28.1,
+    "last_tasks": [
+      {
+        "text": "send the vendor contract",
+        "due": null,
+        "priority": null
+      },
+      {
+        "text": "review the vendor contract",
+        "due": "2026-08-03",
+        "priority": null
+      }
+    ]
+  },
+  {
+    "name": "completed-item-excluded",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 20.5,
+    "last_tasks": [
+      {
+        "text": "schedule the postmortem",
+        "due": "2026-07-21",
+        "priority": null
+      }
+    ]
+  },
+  {
+    "name": "no-tasks-pure-status",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 16.3,
+    "last_tasks": []
+  },
+  {
+    "name": "decision-is-not-a-task",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 17.0,
+    "last_tasks": []
+  },
+  {
+    "name": "multiple-tasks-mixed",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 30.7,
+    "last_tasks": [
+      {
+        "text": "File the quarterly taxes",
+        "due": "2026-07-25",
+        "priority": "high"
+      },
+      {
+        "text": "Update the onboarding doc",
+        "due": null,
+        "priority": null
+      },
+      {
+        "text": "Rotate the leaked API key",
+        "due": "2026-07-20",
+        "priority": "highest"
+      }
+    ]
+  },
+  {
+    "name": "date-not-repeated-in-text",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 21.2,
+    "last_tasks": [
+      {
+        "text": "submit the expense report",
+        "due": "2026-07-21",
+        "priority": null
+      }
+    ]
+  }
+]

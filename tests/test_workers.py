@@ -46,11 +46,21 @@ def test_no_tasks_found(monkeypatch):
     assert tasks == []
 
 
-def test_drops_entries_missing_text(monkeypatch):
+def test_entries_missing_text_fail_loud(monkeypatch):
+    # Silently dropping a malformed entry is a silently-missing task —
+    # the exact failure class the schema contract exists to prevent.
     payload = {"tasks": [{"due": "2026-07-24"}, {"text": "Real task", "due": None, "priority": None}]}
     monkeypatch.setattr(workers, "_worker_client", lambda: fake_client(json.dumps(payload)))
-    tasks = asyncio.run(workers.extract_tasks("...", "2026-07-20"))
-    assert tasks == [{"text": "Real task", "due": None, "priority": None}]
+    with pytest.raises(VaultError, match="schema-invalid"):
+        asyncio.run(workers.extract_tasks("...", "2026-07-20"))
+
+
+def test_empty_content_raises_clean_error(monkeypatch):
+    # Thinking-mode models fill `reasoning` and leave content None — that
+    # must be a loud error, never a silent "no tasks found".
+    monkeypatch.setattr(workers, "_worker_client", lambda: fake_client(content=None))
+    with pytest.raises(VaultError, match="empty content"):
+        asyncio.run(workers.extract_tasks("...", "2026-07-20"))
 
 
 def test_non_json_output_raises_clean_error(monkeypatch):
@@ -63,7 +73,7 @@ def test_non_json_output_raises_clean_error(monkeypatch):
 
 def test_malformed_tasks_field_raises_clean_error(monkeypatch):
     monkeypatch.setattr(workers, "_worker_client", lambda: fake_client('{"tasks": "do a thing"}'))
-    with pytest.raises(VaultError, match="malformed"):
+    with pytest.raises(VaultError, match="schema-invalid"):
         asyncio.run(workers.extract_tasks("...", "2026-07-20"))
 
 

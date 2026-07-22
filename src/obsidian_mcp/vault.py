@@ -12,6 +12,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from .vaultconfig import get_config
+
 IGNORED_DIRS = {".git", ".obsidian", ".trash"}
 
 
@@ -20,10 +22,15 @@ class VaultError(Exception):
 
 
 class Vault:
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, chat_id: str = "", exclude: tuple[str, ...] = ()):
         self.root = Path(root).expanduser().resolve()
         if not self.root.is_dir():
             raise VaultError(f"Vault directory not found: {self.root}")
+        # Conversation attribution for harness commits (Chat-Id trailer).
+        self.chat_id = chat_id
+        # Top-level folders structurally invisible to every tool — reads,
+        # searches, and writes all reject them (vault.yaml `exclude`).
+        self.exclude = tuple(exclude)
 
     # ---- paths ----
 
@@ -37,6 +44,9 @@ class Vault:
             raise VaultError(f"Path escapes the vault: {rel_path}")
         if p.suffix == "" and not p.is_dir():
             p = p.with_suffix(".md")
+        top = p.relative_to(self.root).parts
+        if top and top[0] in self.exclude:
+            raise VaultError(f"{top[0]}/ is excluded from harness access (vault.yaml exclude)")
         if must_exist and not p.exists():
             hint = self._suggest(rel_path)
             raise VaultError(f"Note not found: {rel_path}" + (f". Did you mean: {hint}?" if hint else ""))
@@ -57,8 +67,12 @@ class Vault:
             raise VaultError(f"Not a folder: {folder}")
         pattern = "**/*.md" if recursive else "*.md"
         for p in sorted(base.glob(pattern)):
-            if not any(part in IGNORED_DIRS for part in p.relative_to(self.root).parts):
-                yield p
+            parts = p.relative_to(self.root).parts
+            if any(part in IGNORED_DIRS for part in parts):
+                continue
+            if parts and parts[0] in self.exclude:
+                continue
+            yield p
 
     def read(self, rel_path: str) -> str:
         return self.resolve(rel_path, must_exist=True).read_text(encoding="utf-8")
@@ -113,8 +127,13 @@ class Vault:
         self.commit_if_dirty(f"manual edits (before harness: {tool})")
 
     def snapshot_after(self, summary: str) -> None:
+        message = f"harness: {summary}"
+        if self.chat_id:
+            # Trailer in the body: invisible to history()'s subject-only
+            # display, readable via commit_message() for chat attribution.
+            message += f"\n\nChat-Id: {self.chat_id}"
         try:
-            self.commit_if_dirty(f"harness: {summary}")
+            self.commit_if_dirty(message)
         except VaultError as e:
             # The mutation itself succeeded; be precise so the model doesn't
             # retry the write. The change will ride in the next snapshot.
@@ -136,6 +155,12 @@ class Vault:
             sha, message, date = lines[0].split("\x1f")
             commits.append({"sha": sha, "message": message, "date": date, "files": lines[1:]})
         return commits
+
+    def commit_message(self, sha: str) -> str:
+        """Full commit message body — history() exposes subjects only."""
+        self.ensure_repo()
+        r = self._git("log", "-1", "--format=%B", sha)
+        return r.stdout.strip() if r.returncode == 0 else ""
 
     def revert(self, sha: str) -> tuple[bool, str]:
         """Revert one commit as a new commit. On conflict, abort cleanly and
@@ -162,5 +187,9 @@ def get_vault() -> Vault:
         root = os.environ.get("OBSIDIAN_VAULT_PATH")
         if not root:
             raise VaultError("OBSIDIAN_VAULT_PATH is not set")
-        _vault = Vault(root)
+        _vault = Vault(
+            root,
+            chat_id=os.environ.get("HARNESS_CHAT_ID", ""),
+            exclude=get_config().exclude,
+        )
     return _vault

@@ -8,6 +8,7 @@ or the base system prompt.
 
 from __future__ import annotations
 
+import os
 import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,6 +22,7 @@ class Profile:
     model: str
     base_url: str = "http://localhost:11434/v1"
     api_key: str = "ollama"          # ignored by Ollama, required by the client
+    api_key_env: str = ""            # for real providers: name of the env var holding the key
     temperature: float = 0.2
     max_iterations: int = 15         # tool-call rounds before the run is cut off
     max_tool_result_chars: int = 6000
@@ -57,7 +59,18 @@ class Config:
 def load_config(path: str | Path) -> Config:
     path = Path(path).resolve()
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    models = {name: Profile(name=name, **spec) for name, spec in raw["models"].items()}
+    models = {}
+    for name, spec in raw["models"].items():
+        profile = Profile(name=name, **spec)
+        if profile.api_key_env:
+            key = os.environ.get(profile.api_key_env)
+            if not key:
+                raise ValueError(
+                    f"Model profile {name!r} sets api_key_env: {profile.api_key_env!r}, "
+                    f"but that environment variable is not set."
+                )
+            profile.api_key = key
+        models[name] = profile
     vault = raw.get("vault", "")
     if vault:
         # Relative vault paths are relative to the config file, not the cwd.

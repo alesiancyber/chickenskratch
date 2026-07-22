@@ -69,18 +69,26 @@ def _usage_dict(response) -> dict | None:
 
 class _AssembledToolCall:
     """Tool call reassembled from streaming deltas; mirrors the OpenAI type's
-    surface (.id, .function.name/.arguments, .model_dump())."""
+    surface (.id, .function.name/.arguments, .model_dump()).
 
-    def __init__(self, call_id: str, name: str, arguments: str):
+    extra_content carries provider-side data that must round-trip in history
+    (Gemini 3.x signs each function call with a thought_signature there and
+    rejects the next request if it's missing)."""
+
+    def __init__(self, call_id: str, name: str, arguments: str, extra_content=None):
         self.id = call_id
         self.function = SimpleNamespace(name=name, arguments=arguments)
+        self.extra_content = extra_content
 
     def model_dump(self) -> dict:
-        return {
+        dump = {
             "id": self.id,
             "type": "function",
             "function": {"name": self.function.name, "arguments": self.function.arguments},
         }
+        if self.extra_content is not None:
+            dump["extra_content"] = self.extra_content
+        return dump
 
 
 class Agent:
@@ -101,6 +109,7 @@ class Agent:
         on_delta=None,
         vault: str = "",
         tool_filter: list[str] | None = None,
+        chat_id: str = "",
     ):
         self.profile = profile
         self.log = log
@@ -123,7 +132,9 @@ class Agent:
         self.last_run_stats: dict = {"input_tokens": 0, "output_tokens": 0, "tool_calls": 0, "estimated": False}
         self._stream_usage = True  # ask streaming requests to report usage, until refused
         self.messages: list[dict] = [{"role": "system", "content": self._system_content()}]
-        self.client = MultiServerClient(servers, server_filter=profile.servers, tool_filter=tool_filter)
+        self.client = MultiServerClient(
+            servers, server_filter=profile.servers, tool_filter=tool_filter, chat_id=chat_id
+        )
         self._openai = AsyncOpenAI(base_url=profile.base_url, api_key=profile.api_key)
         self._tools: list[dict] = []
 
@@ -218,14 +229,24 @@ class Agent:
                 parts.append(delta.content)
                 self.on_delta(delta.content)
             for tc in delta.tool_calls or []:
-                slot = slots.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
+                # Gemini's compat layer omits index and sends each call whole:
+                # an index-less delta with an id opens a new slot; without an
+                # id it continues the latest one.
+                if tc.index is not None:
+                    key = tc.index
+                else:
+                    key = len(slots) if tc.id or not slots else max(slots)
+                slot = slots.setdefault(key, {"id": "", "name": "", "arguments": "", "extra": None})
                 if tc.id:
                     slot["id"] = tc.id
                 if tc.function:
                     slot["name"] += tc.function.name or ""
                     slot["arguments"] += tc.function.arguments or ""
+                extra = getattr(tc, "extra_content", None)
+                if extra is not None:
+                    slot["extra"] = extra
         calls = [
-            _AssembledToolCall(s["id"] or f"call_{i}", s["name"], s["arguments"])
+            _AssembledToolCall(s["id"] or f"call_{i}", s["name"], s["arguments"], s["extra"])
             for i, s in sorted(slots.items())
         ]
         return "".join(parts), calls, usage

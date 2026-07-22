@@ -9,7 +9,7 @@ import pytest
 import obsidian_mcp.vault as vault_mod
 from obsidian_mcp import server
 
-TESTVAULT = Path(__file__).resolve().parents[1] / "testvault"
+TESTVAULT = Path(__file__).resolve().parent / "fixture_vault"
 
 
 @pytest.fixture()
@@ -75,7 +75,8 @@ def test_task_grouping(vault):
     assert counts["kanban"] == 4          # board cards are typed, not hidden
     assert counts["meeting"] >= 2         # frontmatter type wins
     assert counts["research"] >= 4
-    assert counts["tasks"] >= 4           # folder fallback
+    assert counts["task"] >= 4            # vault.yaml folder→type map (Tasks: task)
+    assert counts["deliverable"] >= 2     # Deliverables/ maps to its own type
 
     kanban_only = server.list_tasks(status="open", task_type="kanban")
     assert kanban_only["total"] == 4
@@ -118,7 +119,8 @@ def test_create_board(vault):
     board = server.read_board("Boards/Marketing")
     assert [c["name"] for c in board["columns"]] == ["Ideas", "Active", "Shipped"]
     server.add_card("Boards/Marketing", "Ideas", "Launch teaser")
-    assert (vault / "Boards/Marketing.md").read_text().startswith("---\nkanban-plugin: board\n---")
+    raw = (vault / "Boards/Marketing.md").read_text()
+    assert raw.startswith("---\nkanban-plugin: board\nid: b-")  # born stamped
 
     with pytest.raises(vault_mod.VaultError, match="already exists"):
         server.create_board("Boards/Marketing")
@@ -132,7 +134,9 @@ def test_kanban(vault):
     server.move_card("Boards/Project Board", "Draft pricing", to_column="Doing")
     board = server.read_board("Boards/Project Board")
     doing = next(c for c in board["columns"] if c["name"] == "Doing")
-    assert {"text": "Draft pricing page", "done": False} in doing["cards"]
+    moved = next(c for c in doing["cards"] if c["text"] == "Draft pricing page")
+    assert moved["done"] is False
+    assert moved["id"].startswith("c-")  # stamped at add_card, survives the move
 
     server.move_card("Boards/Project Board", "DNS", to_column="Done")
     board = server.read_board("Boards/Project Board")
@@ -197,6 +201,58 @@ def test_daily_and_meeting_notes(vault):
     assert "**Day:** Friday, 2026-07-17" in note["content"]  # template used, {{day}} filled
     assert "## Topics covered" in note["content"]
     assert "## Action items" in note["content"]
+
+
+def test_validate_schema_flags_fixture_nonconformance(vault):
+    result = server.validate_schema()
+    assert result["total_checked"] > 0
+    by_note = {r["note"]: r for r in result["nonconforming"]}
+
+    # fixture meeting notes predate stamping: no id => unmarked, flagged
+    meeting = by_note["Meetings/2026-07-15 Sprint Planning.md"]
+    assert meeting["entity"] == "meeting" and meeting["unmarked"]
+    assert any("'id' is a required" in i for i in meeting["issues"])
+
+    # deliverables missing [for:: ...] / due are nonconforming
+    owed = by_note["Deliverables/Owed.md"]
+    assert owed["entity"] == "deliverable"
+    assert any(any(i.startswith("for:") for i in t["issues"]) for t in owed["tasks"])
+
+    # unmarked entities sort before any marked-but-drifted ones
+    assert result["nonconforming"][0]["unmarked"]
+    # Private/ is invisible here too
+    assert not any(r["note"].startswith("Private/") for r in result["nonconforming"])
+
+
+def test_validate_schema_passes_born_stamped_entities(vault):
+    server.create_meeting_note("Schema Sync", date="2026-07-17", attendees="Sam")
+    result = server.validate_schema(folder="Meetings")
+    flagged = {r["note"] for r in result["nonconforming"]}
+    assert "Meetings/2026-07-17 Schema Sync.md" not in flagged
+    assert "Meetings/2026-07-15 Sprint Planning.md" in flagged  # fixtures still flagged
+
+    note = server.read_note("Meetings/2026-07-17 Schema Sync")
+    assert note["frontmatter"]["id"].startswith("m-")
+
+
+def test_validate_schema_paginates(vault):
+    first = server.validate_schema(limit=1)
+    assert first["shown"] == 1 and first["next_offset"] == 1
+    second = server.validate_schema(limit=1, offset=first["next_offset"])
+    assert second["nonconforming"] != first["nonconforming"]
+
+
+def test_new_tasks_and_cards_born_stamped(vault):
+    server.add_task("Tasks/Inbox", "Stamped at birth")
+    line = next(ln for ln in (vault / "Tasks/Inbox.md").read_text().splitlines()
+                if "Stamped at birth" in ln)
+    assert " ^t-" in line
+
+    server.add_card("Boards/Project Board", "Backlog", "Stamped card")
+    board = server.read_board("Boards/Project Board")
+    backlog = next(c for c in board["columns"] if c["name"] == "Backlog")
+    card = next(c for c in backlog["cards"] if c["text"] == "Stamped card")
+    assert card["id"].startswith("c-")   # read_board shows clean text + the id
 
 
 def test_bad_dates_rejected_before_becoming_filenames(vault):
