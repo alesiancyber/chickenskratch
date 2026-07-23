@@ -143,6 +143,36 @@ def test_decisions_never_act_twice(vault, watcher):
     assert second["approved"] == 0  # resolved proposals are not pending — no re-apply
 
 
+def test_decisions_only_acts_and_renders_without_scanning(vault, watcher, make_watcher):
+    run(watcher)
+    target = proposals.pending(watcher.proposals_dir)[0]
+    review = vault / "Harness/Review.md"
+    review.write_text(review.read_text().replace(
+        f"- [ ] approve {target['id']}", f"- [x] approve {target['id']}"))
+
+    async def exploding(item):
+        raise AssertionError("the fast lane must never draft")
+
+    fast = make_watcher(vault, drafter=exploding, n_max=3)
+    summary = asyncio.run(fast.run_once(decisions_only=True))
+    assert summary["approved"] == 1 and summary["drafted"] == 0 and not summary["scanned"]
+    assert f"approve {target['id']}" not in review.read_text()  # feedback rendered
+    # the memo was left untouched, so the next full pass still scans
+    assert run(watcher)["scanned"]
+
+
+def test_render_never_clobbers_unacted_checked_boxes(vault, watcher):
+    run(watcher)
+    target = proposals.pending(watcher.proposals_dir)[0]
+    review = vault / "Harness/Review.md"
+    checked = review.read_text().replace(
+        f"- [ ] approve {target['id']}", f"- [x] approve {target['id']}")
+    review.write_text(checked)
+    assert watcher._render() is False     # unacted decision on the surface: hands off
+    assert review.read_text() == checked  # the user's check survived
+    assert run(watcher)["approved"] == 1  # and the next pass honors it
+
+
 def test_invalid_drafter_output_never_enters_queue(vault, tmp_path, monkeypatch):
     monkeypatch.setattr("harness.watcher.record_dashboard", lambda *a, **k: None)
 

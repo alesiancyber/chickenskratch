@@ -13,6 +13,7 @@
     <string>__REPO__/daemon/target/release/tezcatd</string>
     <string>--vault</string><string>__VAULT__</string>
     <string>--repo</string><string>__REPO__</string>
+    <string>--fast-file</string><string>__VAULT__/Harness/Review.md</string>
   </array>
   <key>WorkingDirectory</key><string>__REPO__</string>
   <key>RunAtLoad</key><true/>

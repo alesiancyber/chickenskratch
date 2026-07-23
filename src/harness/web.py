@@ -757,21 +757,41 @@ def build_app(
         def mtimes():
             return tuple(p.stat().st_mtime if p.exists() else None for p in surfaces)
 
+        review = Path(vault) / w.review_rel
+
+        def review_mtime():
+            return review.stat().st_mtime if review.exists() else None
+
         engine_loop = asyncio.new_event_loop()
         threading.Thread(target=engine_loop.run_forever, name="engine-pass", daemon=True).start()
+
+        async def engine(coro):
+            await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(coro, engine_loop))
+
         last = None
+        last_review = review_mtime()
+        tick = 0
         try:
             while True:
                 try:
-                    stamp = mtimes()
-                    if last is None or stamp != last:
-                        pass_future = asyncio.run_coroutine_threadsafe(w.run_once(), engine_loop)
-                        await asyncio.wrap_future(pass_future)
+                    # Fast lane every 0.5s: a checkbox toggle is an atomic
+                    # write — act on it immediately, no settle, no scan.
+                    r_m = review_mtime()
+                    if last_review is not None and r_m != last_review:
+                        await engine(w.run_once(decisions_only=True))
+                        r_m = review_mtime()
+                    last_review = r_m
+                    if tick % 10 == 0:  # full logic on the classic 5s cadence
                         stamp = mtimes()
-                    last = stamp
+                        if last is None or stamp != last:
+                            await engine(w.run_once())
+                            stamp = mtimes()
+                            last_review = review_mtime()  # our render isn't a decision
+                        last = stamp
                 except Exception:
                     pass  # the watcher must never take the server down
-                await asyncio.sleep(5)
+                tick += 1
+                await asyncio.sleep(0.5)
         finally:
             engine_loop.call_soon_threadsafe(engine_loop.stop)
 

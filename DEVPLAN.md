@@ -256,6 +256,23 @@ simulated for the note (e.g. add_task to another note) are listed as
 "not previewed" bullets, same disclosure rule as unified
 (`applier.simulate_for_note`, shared with preview()).
 
+## Phase 10.6 — Instant decisions ✅ BUILT (2026-07-23)
+
+A checkbox toggle is an atomic write — it needs none of the settle time
+that protects extraction from half-typed notes, so decisions get a fast
+lane. `run_once(decisions_only=True)` (CLI `--decisions-only`): act →
+apply → re-render, no scan/draft, git memo untouched so the next full
+pass still scans what the apply changed. tezcatd stat-polls
+`--fast-file` (Review.md, launchd default) every 300ms and fires the
+fast command on mtime change; the web loop does the same at 0.5s.
+Checkbox→applied is now ~1-2s (spawn + act + render) instead of up to
+~10s. Full passes also render immediately after acting, so feedback
+never waits behind a 30s Gemini drafting phase. Fixed alongside: the
+renderer now refuses to overwrite Review.md while it holds a checked
+box on a still-pending proposal — a decision made mid-pass can no
+longer be wiped by the pass-end re-render (it used to survive only in
+git history).
+
 ## Phase 11 — `//research` + direct result blocks (v2) — GATED
 
 *Gate: D0/D1/D2 usage gates passed AND v1 commands used in real notes

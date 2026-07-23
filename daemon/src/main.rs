@@ -74,6 +74,11 @@ struct Config {
     cmd: Vec<String>,
     interval: Duration,
     settle: Duration,
+    /// Decision surface (Review.md): a checkbox toggle is an atomic write,
+    /// so it gets a fast lane — no settle, checked every `fast_interval`.
+    fast_file: Option<PathBuf>,
+    fast_cmd: Vec<String>,
+    fast_interval: Duration,
 }
 
 const USAGE: &str = "\
@@ -81,12 +86,16 @@ tezcatd — watch the vault, wait for quiet, run one engine pass
 
 USAGE: tezcatd --vault <path> [--repo <path>] [--cmd \"uv run harness-watch\"]
                [--interval-secs 5] [--settle-secs 3]
+               [--fast-file <path>] [--fast-cmd \"...\"] [--fast-interval-ms 300]
 
-  --vault          vault to watch (or OBSIDIAN_VAULT_PATH env)
-  --repo           working directory for the pass command (default: cwd)
-  --cmd            pass command, whitespace-split (default: uv run harness-watch)
-  --interval-secs  seconds between tree scans (default 5)
-  --settle-secs    quiet time required before a pass fires (default 3)";
+  --vault             vault to watch (or OBSIDIAN_VAULT_PATH env)
+  --repo              working directory for the pass command (default: cwd)
+  --cmd               pass command, whitespace-split (default: uv run harness-watch)
+  --interval-secs     seconds between tree scans (default 5)
+  --settle-secs       quiet time required before a pass fires (default 3)
+  --fast-file         decision surface checked every fast interval, no settle
+  --fast-cmd          command for fast-file changes (default: cmd + --decisions-only)
+  --fast-interval-ms  fast lane check period (default 300)";
 
 impl Config {
     fn parse(mut args: impl Iterator<Item = String>) -> Result<Config, String> {
@@ -95,6 +104,9 @@ impl Config {
         let mut cmd = "uv run harness-watch".to_string();
         let mut interval = 5u64;
         let mut settle = 3u64;
+        let mut fast_file: Option<PathBuf> = None;
+        let mut fast_cmd: Option<String> = None;
+        let mut fast_interval = 300u64;
         while let Some(flag) = args.next() {
             let mut value = |name: &str| args.next().ok_or(format!("{name} needs a value"));
             match flag.as_str() {
@@ -103,6 +115,9 @@ impl Config {
                 "--cmd" => cmd = value("--cmd")?,
                 "--interval-secs" => interval = value("--interval-secs")?.parse().map_err(|_| "bad --interval-secs")?,
                 "--settle-secs" => settle = value("--settle-secs")?.parse().map_err(|_| "bad --settle-secs")?,
+                "--fast-file" => fast_file = Some(PathBuf::from(value("--fast-file")?)),
+                "--fast-cmd" => fast_cmd = Some(value("--fast-cmd")?),
+                "--fast-interval-ms" => fast_interval = value("--fast-interval-ms")?.parse().map_err(|_| "bad --fast-interval-ms")?,
                 "--help" | "-h" => return Err(USAGE.to_string()),
                 other => return Err(format!("unknown flag {other}\n\n{USAGE}")),
             }
@@ -111,12 +126,24 @@ impl Config {
         if !vault.is_dir() {
             return Err(format!("vault directory not found: {}", vault.display()));
         }
+        let cmd: Vec<String> = cmd.split_whitespace().map(str::to_string).collect();
+        let fast_cmd = match fast_cmd {
+            Some(s) => s.split_whitespace().map(str::to_string).collect(),
+            None => {
+                let mut c = cmd.clone();
+                c.push("--decisions-only".to_string());
+                c
+            }
+        };
         Ok(Config {
             vault,
             repo,
-            cmd: cmd.split_whitespace().map(str::to_string).collect(),
+            cmd,
             interval: Duration::from_secs(interval),
             settle: Duration::from_secs(settle),
+            fast_file,
+            fast_cmd,
+            fast_interval: Duration::from_millis(fast_interval.max(50)),
         })
     }
 }
@@ -126,12 +153,20 @@ fn log(msg: &str) {
     println!("tezcatd[{secs}] {msg}");
 }
 
-fn run_pass(cfg: &Config) {
-    match Command::new(&cfg.cmd[0]).args(&cfg.cmd[1..]).current_dir(&cfg.repo).status() {
+fn run_cmd(cmd: &[String], repo: &Path) {
+    match Command::new(&cmd[0]).args(&cmd[1..]).current_dir(repo).status() {
         Ok(status) if status.success() => {}
         Ok(status) => log(&format!("pass command exited with {status}")),
-        Err(e) => log(&format!("failed to spawn {:?}: {e}", cfg.cmd[0])),
+        Err(e) => log(&format!("failed to spawn {:?}: {e}", cmd[0])),
     }
+}
+
+fn run_pass(cfg: &Config) {
+    run_cmd(&cfg.cmd, &cfg.repo);
+}
+
+fn mtime_of(p: &Path) -> Option<SystemTime> {
+    std::fs::metadata(p).and_then(|m| m.modified()).ok()
 }
 
 fn main() {
@@ -152,8 +187,27 @@ fn main() {
     run_pass(&cfg);
     baseline = scan(&cfg.vault).unwrap_or(baseline);
 
+    // The fast lane checks the decision surface every fast_interval; the
+    // full scan keeps its own cadence on top of the same clock.
+    let ticks_per_full = (cfg.interval.as_millis() / cfg.fast_interval.as_millis()).max(1);
+    let mut last_fast = cfg.fast_file.as_deref().and_then(mtime_of);
+    let mut tick: u128 = 0;
     loop {
-        thread::sleep(cfg.interval);
+        thread::sleep(cfg.fast_interval);
+        if let Some(ff) = cfg.fast_file.as_deref() {
+            let m = mtime_of(ff);
+            if m != last_fast {
+                log("decision surface changed — fast pass");
+                run_cmd(&cfg.fast_cmd, &cfg.repo);
+                last_fast = mtime_of(ff); // our own re-render isn't a decision
+            } else {
+                last_fast = m;
+            }
+        }
+        tick += 1;
+        if tick % ticks_per_full != 0 {
+            continue;
+        }
         let cur = match scan(&cfg.vault) {
             Ok(s) => s,
             Err(e) => {
@@ -174,6 +228,7 @@ fn main() {
         // Re-baseline after the pass so its own writes (Review.md render,
         // snapshot commits) never re-trigger the next tick.
         baseline = scan(&cfg.vault).unwrap_or(cur);
+        last_fast = cfg.fast_file.as_deref().and_then(mtime_of);
     }
 }
 
@@ -223,6 +278,18 @@ mod tests {
         fs::write(dir.join("Scripts/.venv/junk.py"), "x = 2").unwrap();
         let after = scan(&dir).unwrap();
         assert_eq!(before.fingerprint, after.fingerprint, "noise dirs must never trigger");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fast_cmd_defaults_to_decisions_only() {
+        let dir = temp_vault("cfg");
+        let cfg = Config::parse(
+            vec!["--vault".to_string(), dir.to_string_lossy().into_owned(),
+                 "--fast-file".to_string(), "Review.md".to_string()].into_iter(),
+        ).unwrap();
+        assert_eq!(cfg.fast_cmd.last().unwrap(), "--decisions-only");
+        assert_eq!(cfg.cmd.join(" "), "uv run harness-watch");
         let _ = fs::remove_dir_all(&dir);
     }
 

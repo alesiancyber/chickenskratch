@@ -318,10 +318,17 @@ class Watcher:
             ]
         content = "\n".join(lines) + "\n"
         try:
-            if v.read(self.review_rel) == content:
-                return False
+            current = v.read(self.review_rel)
         except VaultError:
-            pass
+            current = ""
+        if current == content:
+            return False
+        # A checked box on a still-pending proposal is an unacted decision
+        # (checked mid-pass, after _act ran). Never overwrite it — the next
+        # pass acts on it, then rendering resumes.
+        pending_ids = {p["id"] for p in rows}
+        if any(m.group(2) in pending_ids for m in DECISION_RE.finditer(current)):
+            return False
         self.write_surface(self.review_rel, content,
                            f"update {self.review_rel}", action="render_review")
         return True
@@ -348,7 +355,11 @@ class Watcher:
             # nothing previewable at all: fall through to unified's notes
         return ["", "```diff", applier.preview(note_text, p), "```"]
 
-    async def run_once(self) -> dict:
+    async def run_once(self, decisions_only: bool = False) -> dict:
+        """One engine pass. `decisions_only` is the fast lane a checkbox
+        trigger uses: act on decisions, re-render, done — no scanning or
+        drafting, and the git memo is left untouched so the next full
+        pass still scans whatever the apply changed."""
         summary = {
             "drafted": 0, "auto": 0, "approved": 0, "rejected": 0, "stale": 0,
             "scanned": False, "locked": False,
@@ -367,21 +378,29 @@ class Watcher:
             state = self._load_state()
             self._capture_seen = state.get("capture_seen", "")
             self._inbox_seen = state.get("inbox_seen", "")
-            self._ensure_spec()
-            # Re-read the spec each pass: Spec.md edits (inboxes,
-            # exclusions) take effect without restarting the daemon.
-            cfg = get_config(self.vault_path)
-            self.capture_inbox = cfg.capture_inbox
-            self.waiting_inbox = cfg.waiting_inbox
-            for proc in self.processors:
-                if proc.ensure:
-                    proc.ensure(self)
+            if not decisions_only:
+                self._ensure_spec()
+                # Re-read the spec each pass: Spec.md edits (inboxes,
+                # exclusions) take effect without restarting the daemon.
+                cfg = get_config(self.vault_path)
+                self.capture_inbox = cfg.capture_inbox
+                self.waiting_inbox = cfg.waiting_inbox
+                for proc in self.processors:
+                    if proc.ensure:
+                        proc.ensure(self)
             # One queue read and one git-state read serve the whole pass:
             # _act works through the pending list, and everything after it
             # (auto-stale, coverage, sha stamping) reuses the same context.
             pending = proposals.pending(self.proposals_dir)
             acted, pending = self._act(self._read_decisions(), pending)
             summary.update(acted)
+            if decisions_only:
+                if sum(acted.values()):
+                    self._render()
+                    self._render_changes()
+                return summary
+            if sum(acted.values()):
+                self._render()  # visible feedback beats drafting latency
             vs = applier.vault_state(self.vault_path)
             fingerprint = self._vault_fingerprint(vs)
             if state.get("fingerprint") != fingerprint:
@@ -438,6 +457,9 @@ def main() -> None:
     parser.add_argument("-v", "--vault", help="vault path (default: config, or $OBSIDIAN_VAULT_PATH)")
     parser.add_argument("--n-max", type=int, default=N_MAX, help="max proposals drafted this pass")
     parser.add_argument(
+        "--decisions-only", action="store_true",
+        help="fast lane: act on Review.md checkboxes and re-render; no scan/draft")
+    parser.add_argument(
         "--disable", action="append", default=[], metavar="NAME",
         help="disable a processor for this pass (repeatable); names: "
         + ", ".join(p.name for p in processors.REGISTRY),
@@ -445,7 +467,8 @@ def main() -> None:
     args = parser.parse_args()
     _config, vault, _servers = load_runtime(vault=args.vault)
     summary = asyncio.run(
-        Watcher(vault, n_max=args.n_max, disabled=tuple(args.disable)).run_once()
+        Watcher(vault, n_max=args.n_max, disabled=tuple(args.disable))
+        .run_once(decisions_only=args.decisions_only)
     )
     if summary["locked"]:
         print("watch pass: skipped — another pass is already running")
