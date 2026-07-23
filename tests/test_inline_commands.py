@@ -1,16 +1,18 @@
-"""//commands: the vault is the command line. A typed //azure line is an
-explicit order — executed on the next pass, replaced in place by ranked
-links, no checkbox needed (user_invoked bypasses the auto_apply trust
-list; the verifier and staleness checks still gate, and every write is
-snapshot-bracketed)."""
+"""//commands: the vault is the command line, and commands are their own
+class of change (2026-07-23 redesign) — user ORDERS, not harness
+suggestions. Trust is intrinsic (typing is the approval), nothing ever
+queues in Review.md, no proposal artifacts exist, staleness is the
+replace_line anchor itself, and the n_max drafting budget is never
+spent. The write substrate (gated tools, snapshot per mutation,
+revertibility) is fully shared with proposals."""
 
 import asyncio
 import re
 
 import pytest
 
-from harness import processors, proposals
-from harness.processors import INLINE_COMMAND
+from harness import commands, processors, proposals
+from obsidian_mcp.vault import Vault
 
 LINKS = ("- Alert correlation in Microsoft Sentinel — "
          "https://learn.microsoft.com/en-us/azure/sentinel/correlation\n"
@@ -19,7 +21,7 @@ LINKS = ("- Alert correlation in Microsoft Sentinel — "
 
 @pytest.fixture()
 def vault(gitvault):
-    # trust list deliberately empty: a typed command must not need it
+    # empty trust list on purpose: commands must not need auto_apply
     (gitvault / "Harness").mkdir(exist_ok=True)
     (gitvault / "Harness/Spec.md").write_text("---\nauto_apply: []\n---\n\n# Vault Spec\n")
     return gitvault
@@ -33,7 +35,7 @@ def fake_azure(monkeypatch):
         calls.append(args)
         return LINKS
 
-    monkeypatch.setitem(processors.INLINE_COMMANDS, "azure", fake)
+    monkeypatch.setitem(commands.INLINE_COMMANDS, "azure", fake)
     return calls
 
 
@@ -41,26 +43,24 @@ def run(w):
     return asyncio.run(w.run_once())
 
 
-def test_typed_command_replaced_in_place_without_checkbox(vault, make_watcher, fake_azure):
+def test_typed_command_replaced_in_place_no_queue_no_artifacts(vault, make_watcher, fake_azure):
     note = vault / "Tasks/detections.md"
     note.write_text("# Detections\n\nabove\n\n//azure alert correlation\n\nbelow\n")
-    w = make_watcher(vault, registry=(INLINE_COMMAND,))
+    w = make_watcher(vault, registry=())
     summary = run(w)
 
-    assert summary["auto"] == 1 and summary["drafted"] == 1
+    assert summary["commands"] == 1 and summary["drafted"] == 0
     assert fake_azure == ["alert correlation"]
     text = note.read_text()
-    # results ride in a callout: titled block, command echo as provenance
-    assert "> [!example] //azure alert correlation" in text
-    assert "> - Alert correlation" in text  # result lines are quoted into it
-    assert "learn.microsoft.com" in text
+    assert "> [!example] //azure alert correlation" in text  # callout, echo as title
+    assert "> - Alert correlation" in text
     assert text.index("above") < text.index("learn.microsoft.com") < text.index("below")
     assert not re.search(r"^//azure", text, re.M)  # no re-trigger anchor left
 
-    # applied without a checkbox, resolved as auto, and snapshot-committed
+    # a command leaves NO proposal artifact and NO checkbox — its audit
+    # trail is the git snapshot
+    assert proposals.load_all(w.proposals_dir) == []
     assert "approve p-" not in (vault / "Harness/Review.md").read_text()
-    assert [p["status"] for p in proposals.load_all(w.proposals_dir)] == ["auto"]
-    from obsidian_mcp.vault import Vault
     assert any("replace line" in c["message"] for c in Vault(vault).history())
 
 
@@ -68,23 +68,8 @@ def test_prose_and_unknown_slashes_never_match(vault, make_watcher, fake_azure):
     note = vault / "Tasks/notes.md"
     body = "# Notes\n\n//todo tidy this later\n// a stray comment\n//azure\n"
     note.write_text(body)  # unknown command, bare comment, and //azure with no args
-    w = make_watcher(vault, registry=(INLINE_COMMAND,))
-    summary = run(w)
-    assert summary["drafted"] == 0 and fake_azure == []
-    assert note.read_text() == body  # untouched
-
-
-def test_transient_failure_leaves_the_line_for_retry(vault, make_watcher, monkeypatch):
-    async def down(args, vault_path):
-        return None
-
-    monkeypatch.setitem(processors.INLINE_COMMANDS, "azure", down)
-    note = vault / "Tasks/detections.md"
-    note.write_text("//azure alert correlation\n")
-    w = make_watcher(vault, registry=(INLINE_COMMAND,))
-    summary = run(w)
-    assert summary["drafted"] == 0 and summary["auto"] == 0
-    assert note.read_text().startswith("//azure alert correlation")  # stays armed
+    assert run(make_watcher(vault, registry=()))["commands"] == 0
+    assert fake_azure == [] and note.read_text() == body
 
 
 def test_enter_is_the_submit_key(vault, make_watcher, fake_azure):
@@ -92,59 +77,34 @@ def test_enter_is_the_submit_key(vault, make_watcher, fake_azure):
     command fires only once Enter terminates the line."""
     note = vault / "Tasks/typing.md"
     note.write_text("# T\n\n//azure alert correlation")  # no trailing newline
-    w = make_watcher(vault, registry=(INLINE_COMMAND,))
-    assert run(w)["drafted"] == 0 and fake_azure == []
+    w = make_watcher(vault, registry=())
+    assert run(w)["commands"] == 0 and fake_azure == []
 
     note.write_text("# T\n\n//azure alert correlation\n")  # Enter pressed
-    assert run(w)["auto"] == 1
+    assert run(w)["commands"] == 1
     assert "learn.microsoft.com" in note.read_text()
 
 
-def test_command_typed_into_capture_surface_never_becomes_a_task():
-    """Wrong-place safety: Capture.md is excluded from the command scan,
-    and a //command typed there by habit must not be extracted as a task."""
-    text = processors.capture_text(
-        "# Capture\n\n//azure alert correlation\ncall the vendor tomorrow\n")
-    assert text == "call the vendor tomorrow"
-    assert processors.is_command_line("//azure alert correlation")
-    assert processors.is_command_line("//azure")  # even bare: never task text
-    assert not processors.is_command_line("//todo unknown commands are prose")
+def test_transient_failure_leaves_the_line_armed(vault, make_watcher, monkeypatch):
+    async def down(args, vault_path):
+        return None
 
-
-def test_dead_worker_never_starves_model_free_commands(vault, make_watcher):
-    """Capture drafts through an LLM worker; //commands do not. A down
-    worker fails capture's draft — the command behind it must still run."""
-    from obsidian_mcp.vault import VaultError
-
-    async def worker_down(text, today):
-        raise VaultError("extract_tasks worker unavailable")
-
-    async def links(args, vault_path):
-        return LINKS
-
-    (vault / "Harness/Capture.md").write_text(
-        "# Capture\n\nremember to rotate the api keys\n")
+    monkeypatch.setitem(commands.INLINE_COMMANDS, "azure", down)
     note = vault / "Tasks/detections.md"
     note.write_text("//azure alert correlation\n")
-    w = make_watcher(vault, registry=(processors.CAPTURE, INLINE_COMMAND),
-                     capture_extractor=worker_down)
-    import unittest.mock as mock
-    with mock.patch.dict(processors.INLINE_COMMANDS, {"azure": links}):
-        summary = run(w)
-    assert summary["auto"] == 1  # the command ran despite capture's dead worker
-    assert "learn.microsoft.com" in note.read_text()
+    summary = run(make_watcher(vault, registry=()))
+    assert summary["commands"] == 0
+    assert note.read_text().startswith("//azure alert correlation")  # stays armed
 
 
 def test_command_outranks_pending_maintenance_on_the_same_note(vault, make_watcher, fake_azure):
-    """The live failure of 2026-07-23: a grouping proposal pending against
-    Tasks/Inbox.md silently swallowed a typed //azure there — the per-note
-    queue invariant must never block a user-invoked command. The command
-    applies; the maintenance proposal goes stale on the next pass."""
+    """Commands never consult the proposal queue: a pending proposal on
+    the same note neither blocks the command nor survives it (the apply
+    moves the note, so the proposal auto-stales next pass)."""
     note = vault / "Tasks/detections.md"
     note.write_text("# D\n\nsome text\n")
-    w = make_watcher(vault, registry=(INLINE_COMMAND,))
+    w = make_watcher(vault, registry=())
     run(w)
-    # plant a pending proposal against the same note
     p = proposals.new_proposal(
         kind="grouping", note="Tasks/detections.md", vault_sha="",
         note_content=note.read_text(), title="Group things", summary="s", issues=[],
@@ -153,18 +113,93 @@ def test_command_outranks_pending_maintenance_on_the_same_note(vault, make_watch
     proposals.save(p, w.proposals_dir)
 
     note.write_text("# D\n\nsome text\n\n//azure alert correlation\n")
-    summary = run(w)
-    assert summary["auto"] == 1  # the command was NOT queue-blocked
+    assert run(w)["commands"] == 1
     assert "learn.microsoft.com" in note.read_text()
-    # the maintenance proposal went stale (its note moved), never applied
     statuses = {q["id"]: q["status"] for q in proposals.load_all(w.proposals_dir)}
     assert statuses[p["id"]] == "stale"
 
 
+def test_command_applies_even_when_note_edited_during_execution(vault, make_watcher, monkeypatch):
+    """Staleness is the line anchor, nothing more: the user typing
+    elsewhere in the note while the search runs never gates the apply."""
+    note = vault / "Tasks/inbox-like.md"
+    note.write_text("# Inbox\n\n- [ ] a task ^t-aaaaaaaaaaaa\n\n//azure alert correlation\n")
+
+    async def user_kept_typing(args, vault_path):
+        note.write_text(note.read_text().replace("a task", "a task, now reworded"))
+        return LINKS
+
+    monkeypatch.setitem(commands.INLINE_COMMANDS, "azure", user_kept_typing)
+    summary = run(make_watcher(vault, registry=()))
+    assert summary["commands"] == 1
+    text = note.read_text()
+    assert "now reworded" in text and "learn.microsoft.com" in text
+
+
+def test_command_line_deleted_during_execution_lapses_silently(vault, make_watcher, monkeypatch):
+    note = vault / "Tasks/inbox-like.md"
+    note.write_text("//azure alert correlation\n")
+
+    async def user_deleted_it(args, vault_path):
+        note.write_text("# changed my mind\n")
+        return LINKS
+
+    monkeypatch.setitem(commands.INLINE_COMMANDS, "azure", user_deleted_it)
+    w = make_watcher(vault, registry=())
+    summary = run(w)
+    assert summary["commands"] == 0
+    assert note.read_text() == "# changed my mind\n"  # the user's edit wins
+    assert proposals.load_all(w.proposals_dir) == []  # and no artifact remains
+
+
+def test_dead_worker_never_starves_commands(vault, make_watcher, monkeypatch):
+    """Capture drafts through an LLM worker; commands run in their own
+    phase before drafting — a down worker cannot touch them."""
+    from obsidian_mcp.vault import VaultError
+
+    async def worker_down(text, today):
+        raise VaultError("extract_tasks worker unavailable")
+
+    async def links(args, vault_path):
+        return LINKS
+
+    monkeypatch.setitem(commands.INLINE_COMMANDS, "azure", links)
+    (vault / "Harness/Capture.md").write_text(
+        "# Capture\n\nremember to rotate the api keys\n")
+    note = vault / "Tasks/detections.md"
+    note.write_text("//azure alert correlation\n")
+    w = make_watcher(vault, registry=(processors.CAPTURE,), capture_extractor=worker_down)
+    summary = run(w)
+    assert summary["commands"] == 1
+    assert "learn.microsoft.com" in note.read_text()
+
+
+def test_commands_kill_switch_rides_disabled_processors(vault, make_watcher, fake_azure):
+    """`disabled_processors: [inline_command]` still turns commands off —
+    the name is peeled off before the registry (which would reject it)."""
+    note = vault / "Tasks/detections.md"
+    note.write_text("//azure alert correlation\n")
+    w = make_watcher(vault, disabled=("inline_command",))
+    assert run(w)["commands"] == 0
+    assert fake_azure == []
+    assert note.read_text().startswith("//azure")
+
+
+def test_command_typed_into_capture_surface_never_becomes_a_task():
+    """Wrong-place safety: Capture.md is excluded from the command scan,
+    and a //command typed there by habit must not be extracted as a task."""
+    text = processors.capture_text(
+        "# Capture\n\n//azure alert correlation\ncall the vendor tomorrow\n")
+    assert text == "call the vendor tomorrow"
+    assert commands.is_command_line("//azure alert correlation")
+    assert commands.is_command_line("//azure")  # even bare: never task text
+    assert not commands.is_command_line("//todo unknown commands are prose")
+
+
 def test_command_results_in_the_inbox_are_not_task_intent():
-    """After //azure runs in the capture inbox, its echo, link lines, and
-    indented continuations must not be re-extracted as tasks; real free
-    text still is."""
+    """A command result (callout title, quoted links, indented
+    continuations) must not be re-extracted as tasks; real free text
+    still is."""
     section = [
         "- [ ] existing task ^t-aaaaaaaaaaaa",
         "> [!example] //azure alert correlation",
@@ -176,53 +211,3 @@ def test_command_results_in_the_inbox_are_not_task_intent():
     heading, _lines, _idx, prose = found
     assert heading == "Tasks"
     assert prose == ["call the vendor tomorrow"]
-
-
-def test_command_applies_even_when_note_edited_during_draft(vault, make_watcher, monkeypatch):
-    """The 12:06 live failure: the user kept typing in the note while the
-    search ran, whole-note staleness flagged it, and the command silently
-    became a Review.md checkbox. Command staleness is line-scoped: any
-    edit that leaves the command line intact must not gate the apply."""
-    note = vault / "Tasks/inbox-like.md"
-    note.write_text("# Inbox\n\n- [ ] a task ^t-aaaaaaaaaaaa\n\n//azure alert correlation\n")
-
-    async def user_kept_typing(args, vault_path):
-        note.write_text(note.read_text().replace("a task", "a task, now reworded"))
-        return LINKS
-
-    monkeypatch.setitem(processors.INLINE_COMMANDS, "azure", user_kept_typing)
-    w = make_watcher(vault, registry=(INLINE_COMMAND,))
-    summary = run(w)
-    assert summary["auto"] == 1  # applied despite the concurrent edit
-    text = note.read_text()
-    assert "now reworded" in text and "learn.microsoft.com" in text
-    assert not [p for p in proposals.load_all(w.proposals_dir) if p["status"] == "pending"]
-
-
-def test_command_line_deleted_during_draft_goes_stale_never_pending(vault, make_watcher, monkeypatch):
-    note = vault / "Tasks/inbox-like.md"
-    note.write_text("//azure alert correlation\n")
-
-    async def user_deleted_it(args, vault_path):
-        note.write_text("# changed my mind\n")
-        return LINKS
-
-    monkeypatch.setitem(processors.INLINE_COMMANDS, "azure", user_deleted_it)
-    w = make_watcher(vault, registry=(INLINE_COMMAND,))
-    summary = run(w)
-    assert summary["auto"] == 0
-    assert note.read_text() == "# changed my mind\n"  # user's edit wins, untouched
-    # resolved stale, never a checkbox
-    assert [p["status"] for p in proposals.load_all(w.proposals_dir)] == ["stale"]
-
-
-def test_verifier_rejects_plans_that_stray(vault, make_watcher):
-    item = {"note": "Tasks/x.md", "line": "//azure q", "command": "azure", "args": "q"}
-    good = {"apply": [{"tool": "replace_line", "args": {
-        "path": "Tasks/x.md", "line_text": "//azure q", "content": "r"}}]}
-    assert processors.verify_command(None, item, good) == []
-    wrong_note = {"apply": [{"tool": "replace_line", "args": {
-        "path": "Tasks/other.md", "line_text": "//azure q", "content": "r"}}]}
-    assert processors.verify_command(None, item, wrong_note)
-    wrong_tool = {"apply": [{"tool": "replace_section", "args": {}}]}
-    assert processors.verify_command(None, item, wrong_tool)

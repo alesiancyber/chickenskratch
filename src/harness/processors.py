@@ -25,6 +25,7 @@ from obsidian_mcp.vault import VaultError
 from obsidian_mcp.vaultconfig import SPEC_REL, get_config
 
 from . import applier, grouping, proposals
+from .commands import is_command_line
 from .proposals import content_hash
 
 if TYPE_CHECKING:
@@ -56,12 +57,6 @@ class ProcessorSpec:
     # (w, item, proposal) -> failure strings. Empty = safe to apply without
     # a checkbox; any failure (or no verifier) = the Review.md queue.
     verify: Callable[[Watcher, dict, dict], list[str]] | None = None
-    # User-invoked transformations (a typed //command IS the approval):
-    # verified drafts apply immediately without needing Spec.md auto_apply
-    # trust. The verifier and staleness checks still gate every apply —
-    # only the trust list is bypassed, because the user asked by name.
-    # disabled_processors still turns the whole processor off.
-    user_invoked: bool = False
 
 
 # ---- capture: Harness/Capture.md -> extraction -> inbox/waiting proposal ----
@@ -158,134 +153,6 @@ async def draft_capture(w: Watcher, item: dict) -> dict | None:
 def _capture_applied(w: Watcher, p: dict) -> None:
     if w.capture_rel:
         reset_capture(w)
-
-
-# ---- inline_command: //azure typed anywhere -> results written in place ----
-#
-# The vault is the command line: a line starting with a known //command in
-# any non-surface note is an explicit order, executed on the next pass and
-# replaced in place by its result (settle time means never mid-keystroke).
-# Only KNOWN command names match, so prose and code comments that happen
-# to start with // are never touched. One command per note per pass; a
-# note with several resolves over successive passes.
-
-_CMD_RE = re.compile(r"^//([a-z][\w-]*)\s+(\S.*)$")
-_CMD_PREFIX_RE = re.compile(r"^//([a-z][\w-]*)\b")
-
-
-def is_command_line(line: str) -> bool:
-    """Does this line start with a KNOWN command name (args or not)?
-    Used by capture to keep commands out of task extraction."""
-    m = _CMD_PREFIX_RE.match(line)
-    return bool(m and m.group(1) in INLINE_COMMANDS)
-
-
-async def _azure_docs(args: str, vault_path: str) -> str | None:
-    """//azure: one ms-learn MCP search, digested to a ranked link list
-    (mcp_client's docs digest — links, never summaries), model-free.
-    None = transient failure (server unreachable, no search tool): the
-    command line stays put and retries on the next scan."""
-    from .bootstrap import DEFAULT_MCP
-    from .mcp_client import MultiServerClient, load_mcp_config
-
-    try:
-        specs = load_mcp_config(DEFAULT_MCP, vault_path)
-        async with MultiServerClient(specs, server_filter=["ms-learn"]) as client:
-            tool = next((t for t in client.tools if "search" in t), None)
-            if tool is None:
-                return None
-            text, is_error = await client.call(tool, {"query": args})
-    except Exception:
-        return None
-    if is_error:
-        return None
-    lines = text.splitlines()
-    if lines and lines[0].startswith("Documentation pages found"):
-        lines = lines[1:]  # model-facing instruction, not note content
-    # Cap the block at a LINE boundary: a mid-line cut would sever a link.
-    kept, size = [], 0
-    for ln in lines:
-        size += len(ln) + 1
-        if size > 6000:
-            break
-        kept.append(ln)
-    return "\n".join(kept).strip() or None
-
-
-# command name -> async (args, vault_path) -> result markdown | None.
-# //research is reserved for a future web-crawling command.
-INLINE_COMMANDS: dict[str, Callable[[str, str], Awaitable[str | None]]] = {
-    "azure": _azure_docs,
-}
-
-
-def scan_commands(w: Watcher) -> list[dict]:
-    surface_dirs = get_config(w.vault_path).surface_dirs
-    items = []
-    for p in w.vault.iter_notes():
-        rel = w.vault.rel(p)
-        if rel.split("/")[0] in surface_dirs:
-            continue
-        text = p.read_text(encoding="utf-8")
-        lines = text.splitlines()
-        # Enter is the submit key: a final line with no newline after it
-        # is still being typed — never execute a half-typed command.
-        if text and not text.endswith("\n"):
-            lines = lines[:-1]
-        for line in lines:
-            m = _CMD_RE.match(line)
-            if m and m.group(1) in INLINE_COMMANDS:
-                items.append({
-                    "kind": "inline_command",
-                    "note": rel,
-                    "content": text,
-                    "vault_sha": w._pass_sha,
-                    "line": line,
-                    "command": m.group(1),
-                    "args": m.group(2).strip(),
-                })
-                break  # one per note per pass (the queue invariant anyway)
-    return items
-
-
-async def draft_command(w: Watcher, item: dict) -> dict | None:
-    result = await INLINE_COMMANDS[item["command"]](item["args"], w.vault_path)
-    if result is None:
-        return None  # transient failure: the line stays, retried next scan
-    # The result rides in an Obsidian callout: a visually distinct titled
-    # block in reading AND live-preview views, collapsible by hand, plain
-    # text on disk. The title echoes the command (provenance) and, being
-    # blockquoted, can never re-match _CMD_RE.
-    quoted = "\n".join("> " + ln for ln in result.splitlines())
-    content = f"> [!example] //{item['command']} {item['args']}\n{quoted}"
-    return proposals.new_proposal(
-        kind="inline_command",
-        note=item["note"],
-        vault_sha=item["vault_sha"],
-        note_content=item["content"],
-        title=f"//{item['command']} {item['args'][:60]}",
-        summary="Typed command, executed in place.",
-        issues=[],
-        apply=[{"tool": "replace_line", "args": {
-            "path": item["note"], "line_text": item["line"], "content": content,
-        }}],
-    )
-
-
-def verify_command(w: Watcher, item: dict, proposal: dict) -> list[str]:
-    """Deterministic: the plan may replace exactly the typed command line,
-    nothing else. With user_invoked this verifier is what checkbox-free
-    application rides on — keep it tautologically tight."""
-    plan = proposal["apply"]
-    if len(plan) != 1 or plan[0]["tool"] != "replace_line":
-        return [f"plan must be exactly one replace_line, got {[s['tool'] for s in plan]}"]
-    args = plan[0]["args"]
-    failures = []
-    if args.get("path") != item["note"]:
-        failures.append(f"plan targets {args.get('path')!r}, not the note the command was typed in")
-    if args.get("line_text") != item["line"]:
-        failures.append("plan anchors to a line other than the typed command")
-    return failures
 
 
 # ---- inbox_extract: free text typed into the task inbox -> real tasks ----
@@ -728,8 +595,6 @@ CAPTURE = ProcessorSpec(
     render_diff=False, ensure=ensure_capture, on_applied=_capture_applied,
     verify=verify_extraction,
 )
-INLINE_COMMAND = ProcessorSpec("inline_command", scan_commands, draft_command,
-                               verify=verify_command, user_invoked=True)
 INBOX_EXTRACT = ProcessorSpec("inbox_extract", scan_inbox, draft_inbox,
                               verify=verify_extraction)
 SPEC_DRIFT = ProcessorSpec("spec_drift", scan_spec_drift, draft_spec_drift)
@@ -737,10 +602,11 @@ SCHEMA_FIX = ProcessorSpec("schema_fix", scan_schema, draft_schema,
                            verify=verify_schema_fix)
 GROUPING = ProcessorSpec("grouping", scan_grouping, draft_grouping)
 
-# Typed input first (capture, then //commands): the user actively feeding
-# the pipeline is never starved out of n_max by a maintenance backlog.
+# Capture first: the user actively feeding the pipeline is never starved
+# out of n_max by a maintenance backlog. (//commands are not processors —
+# they execute in their own pass phase before drafting; see commands.py.)
 REGISTRY: tuple[ProcessorSpec, ...] = (
-    CAPTURE, INLINE_COMMAND, INBOX_EXTRACT, SPEC_DRIFT, SCHEMA_FIX, GROUPING)
+    CAPTURE, INBOX_EXTRACT, SPEC_DRIFT, SCHEMA_FIX, GROUPING)
 
 
 def registry(disabled: Sequence[str] = ()) -> tuple[ProcessorSpec, ...]:

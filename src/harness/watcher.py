@@ -32,7 +32,7 @@ from obsidian_mcp import workers as wk
 from obsidian_mcp.vault import Vault, VaultError
 from obsidian_mcp.vaultconfig import get_config
 
-from . import applier, changes, diffhtml, processors, proposals
+from . import applier, changes, commands, diffhtml, processors, proposals
 from .bootstrap import ROOT, apply_worker_profile
 from .corpus import record_dashboard
 from .processors import ProcessorSpec
@@ -144,11 +144,16 @@ class Watcher:
         Called at construction and again each full pass, so a Spec.md
         edit takes effect without a restart."""
         self.n_max = self._n_max_override if self._n_max_override is not None else cfg.n_max
+        disabled = tuple(self._disabled_override if self._disabled_override is not None
+                         else cfg.disabled_processors)
+        # "inline_command" in the disabled list is the commands kill switch —
+        # commands are a pass phase, not a processor, so the name is peeled
+        # off before the registry (which would reject it as unknown).
+        self.commands_enabled = "inline_command" not in disabled
+        disabled = tuple(n for n in disabled if n != "inline_command")
         if self._registry_override is not None:
             self.processors = self._registry_override
         else:
-            disabled = (self._disabled_override if self._disabled_override is not None
-                        else cfg.disabled_processors)
             self.processors = processors.registry(disabled)
         self._by_kind = {p.name: p for p in self.processors}
         self.review_rel = cfg.surfaces.get("review", "Harness/Review.md")
@@ -221,7 +226,33 @@ class Watcher:
         }
         self.state_path.write_text(json.dumps(state), encoding="utf-8")
 
-    # ---- stage 2: draft ----
+    # ---- stage 2: execute typed //commands ----
+
+    async def _run_commands(self, summary: dict) -> None:
+        """The command phase (commands.py): user ORDERS, not harness
+        suggestions — intrinsically trusted, never queued, never budgeted
+        by n_max (that bounds LLM drafting cost). Ordered before proposal
+        scanning so drafts see the post-command note. Staleness is the
+        replace_line anchor itself: the line gone or duplicated means the
+        user's edit won and the order lapses."""
+        if not self.commands_enabled:
+            return
+        from obsidian_mcp import server
+
+        for item in commands.scan(self.vault, get_config(self.vault_path).surface_dirs):
+            # a slow search must never queue a human decision
+            self._sweep_late_decisions(summary)
+            result = await commands.INLINE_COMMANDS[item["command"]](item["args"], self.vault_path)
+            if result is None:
+                continue  # transient failure: the line stays armed, retried next scan
+            try:
+                server.replace_line(item["note"], item["line"],
+                                    commands.render_callout(item, result))
+            except VaultError:
+                continue  # the line was edited away mid-flight: the user's edit wins
+            summary["commands"] += 1
+
+    # ---- stage 3: draft proposals ----
 
     async def _draft(self, items: list[tuple[ProcessorSpec, dict]],
                      summary: dict) -> tuple[int, int]:
@@ -252,32 +283,14 @@ class Watcher:
             except ValueError:
                 continue  # drafter emitted an invalid plan: never enters the queue
             drafted += 1
-            # Auto-apply: only processors the vault's Spec.md trusts — or
-            # user_invoked ones, where the typed command IS the approval —
-            # only with a verifier, only when it passes. Trusted-processor
-            # failure means the proposal simply keeps its checkbox.
-            if (proc.name in auto_trusted or proc.user_invoked) and proc.verify:
-                if proc.verify(self, item, p):
+            # Auto-apply: only processors the vault's Spec.md trusts, only
+            # with a verifier, only when it passes, only against an unmoved
+            # note. Any failure means the proposal simply keeps its
+            # checkbox — verification degrades to review, never blocks.
+            if proc.name in auto_trusted and proc.verify:
+                if proc.verify(self, item, p) or applier.is_stale(p, self.vault_path):
                     continue
-                if proc.user_invoked:
-                    # Line-scoped staleness: a typed command anchors on its
-                    # exact line, and the user editing ANYWHERE else in the
-                    # note (an inbox is a living note) must not gate it. It
-                    # applies while the line survives; otherwise it resolves
-                    # stale — a command never grows a checkbox.
-                    if not applier.lines_applicable(p, self.vault_path):
-                        proposals.resolve(p, "stale", self.proposals_dir)
-                        continue
-                    try:
-                        applier.apply(p, self.vault_path)
-                    except VaultError:
-                        # lost a race to a concurrent edit: line vanished
-                        proposals.resolve(p, "stale", self.proposals_dir)
-                        continue
-                else:
-                    if applier.is_stale(p, self.vault_path):
-                        continue
-                    applier.apply(p, self.vault_path)
+                applier.apply(p, self.vault_path)
                 # No corpus row: auto-applies are not human labels.
                 proposals.resolve(p, "auto", self.proposals_dir)
                 auto += 1
@@ -428,8 +441,8 @@ class Watcher:
         drafting, and the git memo is left untouched so the next full
         pass still scans whatever the apply changed."""
         summary = {
-            "drafted": 0, "auto": 0, "approved": 0, "rejected": 0, "stale": 0,
-            "scanned": False, "locked": False,
+            "commands": 0, "drafted": 0, "auto": 0, "approved": 0, "rejected": 0,
+            "stale": 0, "scanned": False, "locked": False,
         }
         self._pass_status = None  # worker status probed at most once per pass
         lock_path = self.state_path.with_suffix(".lock")
@@ -487,6 +500,10 @@ class Watcher:
                 flipped, pending = self._auto_stale(pending, vs)
                 summary["stale"] += flipped
                 self._pass_sha = vs[0]
+                # Commands execute before the proposal scan: drafts see the
+                # post-command note, and command writes are scanned in-pass
+                # (so they never need the post-scan memo drop below).
+                await self._run_commands(summary)
                 # One pending proposal per note is a queue invariant, so it
                 # is enforced here — not re-implemented in every scan. The
                 # seen set also dedupes WITHIN the pass: when two
@@ -498,10 +515,7 @@ class Watcher:
                 items = []
                 for proc in self.processors:
                     for item in proc.scan(self):
-                        # A typed //command never queues behind pending
-                        # maintenance on the same note: it applies now, and
-                        # the apply auto-stales whatever was pending there.
-                        if proc.user_invoked or item["note"] not in seen_notes:
+                        if item["note"] not in seen_notes:
                             seen_notes.add(item["note"])
                             items.append((proc, item))
                 summary["drafted"], summary["auto"] = await self._draft(items, summary)
@@ -591,7 +605,8 @@ def main() -> None:
         "--disable", action="append", default=[], metavar="NAME",
         help="disable a processor for this pass, overriding Spec.md "
         "disabled_processors (repeatable); names: "
-        + ", ".join(p.name for p in processors.REGISTRY),
+        + ", ".join(p.name for p in processors.REGISTRY)
+        + ", inline_command (the //commands phase)",
     )
     args = parser.parse_args()
     _config, vault, _servers = load_runtime(vault=args.vault)
@@ -604,9 +619,9 @@ def main() -> None:
         print("watch pass: skipped — another pass is already running")
         return
     print(
-        f"watch pass: drafted {summary['drafted']}, auto-applied {summary['auto']}, "
-        f"applied {summary['approved']}, rejected {summary['rejected']}, "
-        f"stale {summary['stale']}"
+        f"watch pass: {summary['commands']} command(s), drafted {summary['drafted']}, "
+        f"auto-applied {summary['auto']}, applied {summary['approved']}, "
+        f"rejected {summary['rejected']}, stale {summary['stale']}"
         + ("" if summary["scanned"] else " (vault unchanged — scan skipped)")
     )
 

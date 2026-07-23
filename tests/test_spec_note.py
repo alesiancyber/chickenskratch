@@ -94,7 +94,7 @@ def test_spec_note_drives_engine_knobs_per_pass(vault, make_watcher, monkeypatch
     monkeypatch.setattr("harness.watcher.apply_worker_profile", lambda name: applied.append(name))
     run(w)
     assert w.n_max == 2
-    assert [p.name for p in w.processors] == ["capture", "inline_command", "inbox_extract", "spec_drift"]
+    assert [p.name for p in w.processors] == ["capture", "inbox_extract", "spec_drift"]
     assert applied == ["spec-picked"]
 
     # a pinned knob wins over the note
