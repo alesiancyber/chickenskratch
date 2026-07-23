@@ -178,6 +178,44 @@ def test_command_results_in_the_inbox_are_not_task_intent():
     assert prose == ["call the vendor tomorrow"]
 
 
+def test_command_applies_even_when_note_edited_during_draft(vault, make_watcher, monkeypatch):
+    """The 12:06 live failure: the user kept typing in the note while the
+    search ran, whole-note staleness flagged it, and the command silently
+    became a Review.md checkbox. Command staleness is line-scoped: any
+    edit that leaves the command line intact must not gate the apply."""
+    note = vault / "Tasks/inbox-like.md"
+    note.write_text("# Inbox\n\n- [ ] a task ^t-aaaaaaaaaaaa\n\n//azure alert correlation\n")
+
+    async def user_kept_typing(args, vault_path):
+        note.write_text(note.read_text().replace("a task", "a task, now reworded"))
+        return LINKS
+
+    monkeypatch.setitem(processors.INLINE_COMMANDS, "azure", user_kept_typing)
+    w = make_watcher(vault, registry=(INLINE_COMMAND,))
+    summary = run(w)
+    assert summary["auto"] == 1  # applied despite the concurrent edit
+    text = note.read_text()
+    assert "now reworded" in text and "learn.microsoft.com" in text
+    assert not [p for p in proposals.load_all(w.proposals_dir) if p["status"] == "pending"]
+
+
+def test_command_line_deleted_during_draft_goes_stale_never_pending(vault, make_watcher, monkeypatch):
+    note = vault / "Tasks/inbox-like.md"
+    note.write_text("//azure alert correlation\n")
+
+    async def user_deleted_it(args, vault_path):
+        note.write_text("# changed my mind\n")
+        return LINKS
+
+    monkeypatch.setitem(processors.INLINE_COMMANDS, "azure", user_deleted_it)
+    w = make_watcher(vault, registry=(INLINE_COMMAND,))
+    summary = run(w)
+    assert summary["auto"] == 0
+    assert note.read_text() == "# changed my mind\n"  # user's edit wins, untouched
+    # resolved stale, never a checkbox
+    assert [p["status"] for p in proposals.load_all(w.proposals_dir)] == ["stale"]
+
+
 def test_verifier_rejects_plans_that_stray(vault, make_watcher):
     item = {"note": "Tasks/x.md", "line": "//azure q", "command": "azure", "args": "q"}
     good = {"apply": [{"tool": "replace_line", "args": {

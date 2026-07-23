@@ -254,13 +254,30 @@ class Watcher:
             drafted += 1
             # Auto-apply: only processors the vault's Spec.md trusts — or
             # user_invoked ones, where the typed command IS the approval —
-            # only with a verifier, only when it passes, only against an
-            # unmoved note. Any failure means the proposal simply keeps
-            # its checkbox — verification degrades to review, never blocks.
+            # only with a verifier, only when it passes. Trusted-processor
+            # failure means the proposal simply keeps its checkbox.
             if (proc.name in auto_trusted or proc.user_invoked) and proc.verify:
-                if proc.verify(self, item, p) or applier.is_stale(p, self.vault_path):
+                if proc.verify(self, item, p):
                     continue
-                applier.apply(p, self.vault_path)
+                if proc.user_invoked:
+                    # Line-scoped staleness: a typed command anchors on its
+                    # exact line, and the user editing ANYWHERE else in the
+                    # note (an inbox is a living note) must not gate it. It
+                    # applies while the line survives; otherwise it resolves
+                    # stale — a command never grows a checkbox.
+                    if not applier.lines_applicable(p, self.vault_path):
+                        proposals.resolve(p, "stale", self.proposals_dir)
+                        continue
+                    try:
+                        applier.apply(p, self.vault_path)
+                    except VaultError:
+                        # lost a race to a concurrent edit: line vanished
+                        proposals.resolve(p, "stale", self.proposals_dir)
+                        continue
+                else:
+                    if applier.is_stale(p, self.vault_path):
+                        continue
+                    applier.apply(p, self.vault_path)
                 # No corpus row: auto-applies are not human labels.
                 proposals.resolve(p, "auto", self.proposals_dir)
                 auto += 1

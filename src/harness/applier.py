@@ -74,6 +74,25 @@ def is_stale(proposal: dict, vault_path: str, state: tuple[str, str] | None = No
     return ""
 
 
+def lines_applicable(proposal: dict, vault_path: str) -> bool:
+    """Line-scoped staleness for user-invoked plans: every step is a
+    replace_line whose anchor still exists exactly once. The rest of the
+    note is free to have moved since drafting — the plan touches only
+    its anchored lines, so whole-note staleness (a user actively typing
+    in their inbox) must not gate it."""
+    v = Vault(vault_path)
+    try:
+        current = v.read(proposal["drafted_against"]["note"])
+    except vault_mod.VaultError:
+        return False
+    lines = [ln.rstrip() for ln in current.splitlines()]
+    return all(
+        step["tool"] == "replace_line"
+        and lines.count(str(step["args"]["line_text"]).rstrip()) == 1
+        for step in proposal["apply"]
+    )
+
+
 def apply(proposal: dict, vault_path: str) -> list[dict]:
     """Execute the plan through the gated vault tools. Each step snapshots
     itself, so a mid-plan failure leaves per-step commits in ↺ Changes."""
