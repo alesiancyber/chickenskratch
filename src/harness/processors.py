@@ -245,8 +245,12 @@ async def draft_command(w: Watcher, item: dict) -> dict | None:
     result = await INLINE_COMMANDS[item["command"]](item["args"], w.vault_path)
     if result is None:
         return None  # transient failure: the line stays, retried next scan
-    # The bold echo keeps provenance and can never re-match _CMD_RE.
-    content = f"**//{item['command']} {item['args']}**\n\n{result}"
+    # The result rides in an Obsidian callout: a visually distinct titled
+    # block in reading AND live-preview views, collapsible by hand, plain
+    # text on disk. The title echoes the command (provenance) and, being
+    # blockquoted, can never re-match _CMD_RE.
+    quoted = "\n".join("> " + ln for ln in result.splitlines())
+    content = f"> [!example] //{item['command']} {item['args']}\n{quoted}"
     return proposals.new_proposal(
         kind="inline_command",
         note=item["note"],
@@ -305,13 +309,16 @@ def _inbox_prose(body: str) -> tuple[str, list[str], list[int], list[str]] | Non
 
 def _is_task_intent(ln: str) -> bool:
     """Free text worth extracting: non-blank, not already a checkbox, and
-    not reference material — //command lines, their bold echo, URL lines,
-    and indented continuations are content, never task intent (a //azure
-    result written into the inbox must not be re-extracted as tasks)."""
+    not reference material — //command lines, callout/blockquote lines
+    (command results render as callouts), URL lines, and indented
+    continuations are content, never task intent (a //azure result
+    written into the inbox must not be re-extracted as tasks)."""
     if not ln.strip() or ln.lstrip().startswith("- ["):
         return False
     if ln != ln.lstrip():
         return False  # indented continuation (e.g. a result's "covers:" line)
+    if ln.startswith(">"):
+        return False  # blockquote/callout: quoted reference, not intent
     return not (is_command_line(ln) or ln.startswith("**//") or "://" in ln)
 
 

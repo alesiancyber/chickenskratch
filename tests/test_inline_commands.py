@@ -50,7 +50,9 @@ def test_typed_command_replaced_in_place_without_checkbox(vault, make_watcher, f
     assert summary["auto"] == 1 and summary["drafted"] == 1
     assert fake_azure == ["alert correlation"]
     text = note.read_text()
-    assert "**//azure alert correlation**" in text  # bolded echo keeps provenance
+    # results ride in a callout: titled block, command echo as provenance
+    assert "> [!example] //azure alert correlation" in text
+    assert "> - Alert correlation" in text  # result lines are quoted into it
     assert "learn.microsoft.com" in text
     assert text.index("above") < text.index("learn.microsoft.com") < text.index("below")
     assert not re.search(r"^//azure", text, re.M)  # no re-trigger anchor left
@@ -165,9 +167,9 @@ def test_command_results_in_the_inbox_are_not_task_intent():
     text still is."""
     section = [
         "- [ ] existing task ^t-aaaaaaaaaaaa",
-        "**//azure alert correlation**",
-        "- Alert correlation — https://learn.microsoft.com/x",
-        "  covers: correlating alerts into incidents",
+        "> [!example] //azure alert correlation",
+        "> - Alert correlation — https://learn.microsoft.com/x",
+        ">   covers: correlating alerts into incidents",
         "call the vendor tomorrow",
     ]
     found = processors._inbox_prose("## Tasks\n" + "\n".join(section) + "\n")
