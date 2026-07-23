@@ -481,7 +481,10 @@ class Watcher:
                 items = []
                 for proc in self.processors:
                     for item in proc.scan(self):
-                        if item["note"] not in seen_notes:
+                        # A typed //command never queues behind pending
+                        # maintenance on the same note: it applies now, and
+                        # the apply auto-stales whatever was pending there.
+                        if proc.user_invoked or item["note"] not in seen_notes:
                             seen_notes.add(item["note"])
                             items.append((proc, item))
                 summary["drafted"], summary["auto"] = await self._draft(items, summary)

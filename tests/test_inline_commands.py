@@ -133,6 +133,49 @@ def test_dead_worker_never_starves_model_free_commands(vault, make_watcher):
     assert "learn.microsoft.com" in note.read_text()
 
 
+def test_command_outranks_pending_maintenance_on_the_same_note(vault, make_watcher, fake_azure):
+    """The live failure of 2026-07-23: a grouping proposal pending against
+    Tasks/Inbox.md silently swallowed a typed //azure there — the per-note
+    queue invariant must never block a user-invoked command. The command
+    applies; the maintenance proposal goes stale on the next pass."""
+    note = vault / "Tasks/detections.md"
+    note.write_text("# D\n\nsome text\n")
+    w = make_watcher(vault, registry=(INLINE_COMMAND,))
+    run(w)
+    # plant a pending proposal against the same note
+    p = proposals.new_proposal(
+        kind="grouping", note="Tasks/detections.md", vault_sha="",
+        note_content=note.read_text(), title="Group things", summary="s", issues=[],
+        apply=[{"tool": "replace_section", "args": {
+            "path": "Tasks/detections.md", "heading": "D", "content": "x"}}])
+    proposals.save(p, w.proposals_dir)
+
+    note.write_text("# D\n\nsome text\n\n//azure alert correlation\n")
+    summary = run(w)
+    assert summary["auto"] == 1  # the command was NOT queue-blocked
+    assert "learn.microsoft.com" in note.read_text()
+    # the maintenance proposal went stale (its note moved), never applied
+    statuses = {q["id"]: q["status"] for q in proposals.load_all(w.proposals_dir)}
+    assert statuses[p["id"]] == "stale"
+
+
+def test_command_results_in_the_inbox_are_not_task_intent():
+    """After //azure runs in the capture inbox, its echo, link lines, and
+    indented continuations must not be re-extracted as tasks; real free
+    text still is."""
+    section = [
+        "- [ ] existing task ^t-aaaaaaaaaaaa",
+        "**//azure alert correlation**",
+        "- Alert correlation — https://learn.microsoft.com/x",
+        "  covers: correlating alerts into incidents",
+        "call the vendor tomorrow",
+    ]
+    found = processors._inbox_prose("## Tasks\n" + "\n".join(section) + "\n")
+    heading, _lines, _idx, prose = found
+    assert heading == "Tasks"
+    assert prose == ["call the vendor tomorrow"]
+
+
 def test_verifier_rejects_plans_that_stray(vault, make_watcher):
     item = {"note": "Tasks/x.md", "line": "//azure q", "command": "azure", "args": "q"}
     good = {"apply": [{"tool": "replace_line", "args": {

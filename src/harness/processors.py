@@ -297,11 +297,22 @@ def _inbox_prose(body: str) -> tuple[str, list[str], list[int], list[str]] | Non
     for head, lines in sections:
         if not head:
             continue  # v1: only prose under a heading
-        idx = [i for i, ln in enumerate(lines)
-               if ln.strip() and not ln.lstrip().startswith("- [")]
+        idx = [i for i, ln in enumerate(lines) if _is_task_intent(ln)]
         if idx:
             return head, lines, idx, [lines[i] for i in idx]
     return None
+
+
+def _is_task_intent(ln: str) -> bool:
+    """Free text worth extracting: non-blank, not already a checkbox, and
+    not reference material — //command lines, their bold echo, URL lines,
+    and indented continuations are content, never task intent (a //azure
+    result written into the inbox must not be re-extracted as tasks)."""
+    if not ln.strip() or ln.lstrip().startswith("- ["):
+        return False
+    if ln != ln.lstrip():
+        return False  # indented continuation (e.g. a result's "covers:" line)
+    return not (is_command_line(ln) or ln.startswith("**//") or "://" in ln)
 
 
 def scan_inbox(w: Watcher) -> list[dict]:
