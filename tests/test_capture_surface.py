@@ -174,6 +174,9 @@ def test_empty_extraction_marks_processed_without_a_proposal(vault, watcher, mon
 
 
 def test_worker_down_completes_the_pass(vault, watcher):
+    """A dead capture worker fails capture's own drafts (retried next
+    pass, no proposal enters the queue) but no longer halts the pass or
+    the processors behind it — see the //commands starvation fix."""
     async def down(text, today):
         raise vault_mod.VaultError("worker unavailable")
 
@@ -181,5 +184,5 @@ def test_worker_down_completes_the_pass(vault, watcher):
     run(watcher)
     type_into_capture(vault, "\nsomething\n")
     summary = run(watcher)
-    assert summary["drafted"] == 0
-    assert capture_rows(watcher) == []
+    assert capture_rows(watcher) == []  # capture itself drafted nothing
+    assert summary["scanned"]           # and the pass still completed

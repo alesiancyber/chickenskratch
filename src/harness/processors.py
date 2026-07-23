@@ -76,10 +76,14 @@ def ensure_capture(w: Watcher) -> None:
 
 
 def capture_text(raw: str) -> str:
-    """What the user typed: the note minus the skeleton's own lines."""
+    """What the user typed: the note minus the skeleton's own lines.
+    Known //command lines are never capture text — a command typed here
+    by habit must not be extracted into a junk task (commands execute in
+    knowledge notes; surfaces are excluded from the command scan)."""
     skeleton = {ln for ln in CAPTURE_SKELETON.splitlines() if ln.strip()}
     return "\n".join(
-        ln for ln in raw.splitlines() if ln.strip() and ln not in skeleton
+        ln for ln in raw.splitlines()
+        if ln.strip() and ln not in skeleton and not is_command_line(ln)
     ).strip()
 
 
@@ -166,6 +170,14 @@ def _capture_applied(w: Watcher, p: dict) -> None:
 # note with several resolves over successive passes.
 
 _CMD_RE = re.compile(r"^//([a-z][\w-]*)\s+(\S.*)$")
+_CMD_PREFIX_RE = re.compile(r"^//([a-z][\w-]*)\b")
+
+
+def is_command_line(line: str) -> bool:
+    """Does this line start with a KNOWN command name (args or not)?
+    Used by capture to keep commands out of task extraction."""
+    m = _CMD_PREFIX_RE.match(line)
+    return bool(m and m.group(1) in INLINE_COMMANDS)
 
 
 async def _azure_docs(args: str, vault_path: str) -> str | None:
@@ -208,7 +220,12 @@ def scan_commands(w: Watcher) -> list[dict]:
         if rel.split("/")[0] in surface_dirs:
             continue
         text = p.read_text(encoding="utf-8")
-        for line in text.splitlines():
+        lines = text.splitlines()
+        # Enter is the submit key: a final line with no newline after it
+        # is still being typed — never execute a half-typed command.
+        if text and not text.endswith("\n"):
+            lines = lines[:-1]
+        for line in lines:
             m = _CMD_RE.match(line)
             if m and m.group(1) in INLINE_COMMANDS:
                 items.append({

@@ -229,7 +229,10 @@ class Watcher:
         processors apply immediately. Returns (drafted, auto_applied)."""
         auto_trusted = set(get_config(self.vault_path).auto_apply)
         drafted = auto = 0
+        failed: set[str] = set()  # processors whose draft errored this pass
         for proc, item in items[: self.n_max]:
+            if proc.name in failed:
+                continue  # its worker already failed once: don't hammer it
             # Decisions never wait behind drafting: a slow worker phase
             # holds the pass lock for minutes, so checked boxes are
             # serviced between calls — latency bounded by ONE draft.
@@ -237,7 +240,11 @@ class Watcher:
             try:
                 p = await proc.draft(self, item)
             except VaultError:
-                break  # worker down/misbehaving: stop drafting, pass still completes
+                # This processor's worker is down/misbehaving. Others keep
+                # drafting — a dead LLM worker must never starve the
+                # model-free processors (//commands) behind it in line.
+                failed.add(proc.name)
+                continue
             if p is None:
                 continue
             try:

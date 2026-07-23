@@ -85,6 +85,54 @@ def test_transient_failure_leaves_the_line_for_retry(vault, make_watcher, monkey
     assert note.read_text().startswith("//azure alert correlation")  # stays armed
 
 
+def test_enter_is_the_submit_key(vault, make_watcher, fake_azure):
+    """A final line with no newline after it is still being typed: the
+    command fires only once Enter terminates the line."""
+    note = vault / "Tasks/typing.md"
+    note.write_text("# T\n\n//azure alert correlation")  # no trailing newline
+    w = make_watcher(vault, registry=(INLINE_COMMAND,))
+    assert run(w)["drafted"] == 0 and fake_azure == []
+
+    note.write_text("# T\n\n//azure alert correlation\n")  # Enter pressed
+    assert run(w)["auto"] == 1
+    assert "learn.microsoft.com" in note.read_text()
+
+
+def test_command_typed_into_capture_surface_never_becomes_a_task():
+    """Wrong-place safety: Capture.md is excluded from the command scan,
+    and a //command typed there by habit must not be extracted as a task."""
+    text = processors.capture_text(
+        "# Capture\n\n//azure alert correlation\ncall the vendor tomorrow\n")
+    assert text == "call the vendor tomorrow"
+    assert processors.is_command_line("//azure alert correlation")
+    assert processors.is_command_line("//azure")  # even bare: never task text
+    assert not processors.is_command_line("//todo unknown commands are prose")
+
+
+def test_dead_worker_never_starves_model_free_commands(vault, make_watcher):
+    """Capture drafts through an LLM worker; //commands do not. A down
+    worker fails capture's draft — the command behind it must still run."""
+    from obsidian_mcp.vault import VaultError
+
+    async def worker_down(text, today):
+        raise VaultError("extract_tasks worker unavailable")
+
+    async def links(args, vault_path):
+        return LINKS
+
+    (vault / "Harness/Capture.md").write_text(
+        "# Capture\n\nremember to rotate the api keys\n")
+    note = vault / "Tasks/detections.md"
+    note.write_text("//azure alert correlation\n")
+    w = make_watcher(vault, registry=(processors.CAPTURE, INLINE_COMMAND),
+                     capture_extractor=worker_down)
+    import unittest.mock as mock
+    with mock.patch.dict(processors.INLINE_COMMANDS, {"azure": links}):
+        summary = run(w)
+    assert summary["auto"] == 1  # the command ran despite capture's dead worker
+    assert "learn.microsoft.com" in note.read_text()
+
+
 def test_verifier_rejects_plans_that_stray(vault, make_watcher):
     item = {"note": "Tasks/x.md", "line": "//azure q", "command": "azure", "args": "q"}
     good = {"apply": [{"tool": "replace_line", "args": {

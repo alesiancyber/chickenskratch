@@ -106,10 +106,17 @@ def digest_docs_search(text: str) -> str:
         if not url:
             continue
         base, _, fragment = url.partition("#")
+        # Excerpts are flattened to one line with heading markers stripped:
+        # docs chunks open with "# Title\n## Section" and raw markdown here
+        # would render as actual headings when the digest lands in a note
+        # (//azure writes it in place) or in a chat transcript.
+        excerpt = " ".join(
+            w for w in str(r.get("content") or "")[:200].split() if w.strip("#")
+        ).strip()
         page = pages.setdefault(
             base,
             {"title": str(r.get("title") or base), "sections": [], "count": 0,
-             "excerpt": str(r.get("content") or "")[:200].strip()},
+             "excerpt": excerpt},
         )
         page["count"] += 1
         if fragment and fragment not in page["sections"]:
