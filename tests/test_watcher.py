@@ -193,6 +193,26 @@ def test_mid_pass_decision_is_acted_before_the_pass_ends(vault, watcher, make_wa
     assert f"approve {target['id']}" not in review.read_text()  # and re-rendered
 
 
+def test_post_scan_applies_are_rescanned_next_pass(vault, watcher, make_watcher):
+    """An apply that lands after this pass's scan (a decision swept
+    mid-draft, an auto-apply) must not be folded into the git memo — the
+    next full pass has to rescan the notes it changed."""
+    run(watcher)  # leaves pending proposals
+    target = proposals.pending(watcher.proposals_dir)[0]
+    review = vault / "Harness/Review.md"
+
+    async def checking_drafter(item):
+        # the user's decision arrives mid-draft, after the scan already ran
+        review.write_text(review.read_text().replace(
+            f"- [ ] approve {target['id']}", f"- [x] approve {target['id']}"))
+        return await fake_drafter(item)
+
+    (vault / "Home.md").write_text((vault / "Home.md").read_text() + "\nnudge\n")
+    summary = run(make_watcher(vault, drafter=checking_drafter, n_max=3))
+    assert summary["approved"] == 1  # applied in-pass, after the scan
+    assert run(watcher)["scanned"]   # so the memo was dropped: next pass scans
+
+
 def test_decision_is_serviced_between_drafting_calls(vault, watcher, make_watcher):
     """A slow drafting phase holds the pass lock for minutes; a checked
     box must land after at most ONE draft call, not at pass end."""

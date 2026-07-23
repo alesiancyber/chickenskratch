@@ -1,6 +1,5 @@
-"""Usage stats: persistent per-model totals and chat-level persistence."""
+"""Usage stats: persistent per-model totals."""
 
-from harness.chats import ChatStore
 from harness.stats import record_run, totals
 
 
@@ -26,15 +25,3 @@ def test_corrupt_stats_file_resets_cleanly(tmp_path):
     assert totals(p) == {}
     record_run("m", {"input_tokens": 5, "output_tokens": 1, "tool_calls": 0}, path=p)
     assert totals(p)["m"]["runs"] == 1
-
-
-def test_chat_store_persists_stats(tmp_path):
-    store = ChatStore(tmp_path / "chats")
-    msgs = [{"role": "system", "content": "s"}, {"role": "user", "content": "hi"}]
-    stats = {"input_tokens": 9, "output_tokens": 1, "context_tokens": 10, "estimated": False}
-    store.save("20260718-abc", "m", msgs, stats)
-    assert store.load("20260718-abc")["stats"] == stats
-
-    # saves without stats stay loadable (older chats, tests)
-    store.save("20260718-def", "m", msgs)
-    assert store.load("20260718-def")["stats"] == {}

@@ -46,6 +46,17 @@ class VaultConfig:
     # Review.md diff rendering: "split" = GitHub-style side-by-side HTML
     # (Obsidian reading view renders it); "unified" = classic ```diff.
     diff_style: str = "split"
+    # models.yaml profile the drafting workers run on ("" = the repo
+    # default: models.yaml `worker:`, then WORKER_* env). A profile NAME,
+    # never an endpoint — URLs and keys stay repo-side, the vault only
+    # picks which declared profile to use. Swapping the worker model is
+    # a note edit; the engine re-reads it every pass.
+    worker: str = ""
+    # Processors switched off for this vault (the rollback flag, now a
+    # note edit). Unknown names are reported and ignored, never a crash.
+    disabled_processors: tuple[str, ...] = ()
+    # Proposals drafted per engine pass; a big backlog drains over days.
+    n_max: int = 5
 
     @property
     def surface_dirs(self) -> frozenset[str]:
@@ -93,6 +104,12 @@ def _spec_overrides(base: VaultConfig, fm: dict) -> VaultConfig:
         out = replace(out, fidelity=str(fm["fidelity"]))
     if fm.get("diff_style") in ("split", "unified"):
         out = replace(out, diff_style=str(fm["diff_style"]))
+    if isinstance(fm.get("worker"), str):
+        out = replace(out, worker=fm["worker"].strip())
+    if isinstance(fm.get("disabled_processors"), list):
+        out = replace(out, disabled_processors=tuple(str(n) for n in fm["disabled_processors"]))
+    if isinstance(fm.get("n_max"), int) and not isinstance(fm.get("n_max"), bool) and fm["n_max"] >= 1:
+        out = replace(out, n_max=int(fm["n_max"]))
     return out
 
 

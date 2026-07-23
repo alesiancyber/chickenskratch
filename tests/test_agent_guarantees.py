@@ -69,6 +69,9 @@ class FakeMCP:
             for n in ("read_thing", "write_thing")
         ]
 
+    def is_known(self, name):
+        return True
+
     def is_write(self, name):
         return not name.startswith("read")
 
@@ -177,6 +180,23 @@ def test_gate_off_never_asks():
     )
     run(agent)
     assert agent.client.calls == [("write_thing", {})]
+
+
+def test_unknown_tool_never_prompts_for_approval():
+    """A hallucinated tool name can't write anything — the user must never
+    be asked to approve a call that cannot execute; the client's
+    unknown-tool error goes straight back to the model."""
+    async def bomb(name, args):
+        raise AssertionError("confirm must not be called for an unknown tool")
+
+    agent = make_agent(
+        [response(tool_calls=[FakeToolCall("no_such_tool")]), response(content="ok")],
+        confirm=bomb, confirm_writes=True,
+    )
+    agent.client.is_known = lambda name: False
+    assert run(agent) == "ok"
+    tool_msg = next(m for m in agent.messages if m["role"] == "tool")
+    assert tool_msg["content"].startswith("Error:")
 
 
 def test_override_disables_gate_despite_profile():

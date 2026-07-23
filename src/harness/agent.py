@@ -119,7 +119,8 @@ class Agent:
         # evals, where appending citations would perturb answer checks.
         self.vault = vault
         # When set, completions stream and each content fragment is passed
-        # to on_delta(text) as it generates (the web UI's live rendering).
+        # to on_delta(text) as it generates (live rendering for any
+        # interactive surface; the CLI prints whole replies and leaves it unset).
         self.on_delta = on_delta
         # Per-session approvals override: None = use profile.confirm_writes.
         self.confirm_writes_override: bool | None = None
@@ -433,6 +434,12 @@ class Agent:
                 available = ", ".join(s.name for s in self.skills) or "(none)"
                 return f"Unknown skill {args.get('name')!r}. Available skills: {available}"
             return render_skill(skill)
+        if not self.client.is_known(name):
+            # A tool that doesn't exist can't write anything: skip the write
+            # gate (never ask the user to approve an inexecutable call) and
+            # let the client return its unknown-tool error listing.
+            text, _ = await self.client.call(name, args)
+            return f"Error: {text}"
         is_write = self.client.is_write(name)
         write_key = (name, json.dumps(args, sort_keys=True))
         if is_write and write_key in self._executed_writes:

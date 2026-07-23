@@ -32,6 +32,23 @@ def test_changes_surface_renders_and_never_loops(vault, make_watcher):
     assert surface.stat().st_mtime == stamp
 
 
+def test_status_line_shows_worker_and_reachability(vault, make_watcher, monkeypatch):
+    """The UI's ops visibility, folded into the surface: which worker
+    drafts proposals and whether its endpoint answers (as of last pass)."""
+    monkeypatch.setenv("WORKER_MODEL", "test-model-9b")
+    monkeypatch.setenv("WORKER_BASE_URL", "http://127.0.0.1:9")
+    monkeypatch.setattr("harness.backends.endpoint_alive_sync", lambda base, timeout=1.5: True)
+    w = make_watcher(vault, registry=())
+    run(w)
+    text = (vault / "Harness/Changes.md").read_text()
+    assert "`test-model-9b`" in text and "reachable" in text
+
+    monkeypatch.setattr("harness.backends.endpoint_alive_sync", lambda base, timeout=1.5: False)
+    (vault / "Home.md").write_text("nudge\n")  # move the vault so the pass renders
+    run(w)
+    assert "UNREACHABLE" in (vault / "Harness/Changes.md").read_text()
+
+
 def test_new_commits_appear_with_files_and_chat_attribution(vault, make_watcher):
     w = make_watcher(vault, registry=())
     run(w)

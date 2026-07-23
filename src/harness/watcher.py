@@ -20,7 +20,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import fcntl
+import hashlib
 import json
+import os
 import re
 from pathlib import Path
 
@@ -31,12 +33,13 @@ from obsidian_mcp.vault import Vault, VaultError
 from obsidian_mcp.vaultconfig import get_config
 
 from . import applier, changes, diffhtml, processors, proposals
-from .bootstrap import ROOT
+from .bootstrap import ROOT, apply_worker_profile
 from .corpus import record_dashboard
 from .processors import ProcessorSpec
 
 STATE_PATH = ROOT / "data" / "watcher_state.json"
-N_MAX = 5  # proposals drafted per pass: a big backlog drains over days
+# n_max (proposals drafted per pass) now lives in VaultConfig — one home,
+# user-editable per vault in Spec.md.
 
 DECISION_RE = re.compile(r"^- \[[xX]\] (approve|reject) (p-[0-9a-f]{12})\s*$", re.M)
 
@@ -59,6 +62,12 @@ auto_apply lists the processors trusted to act without a checkbox —
 honored only for mechanical transformations that pass a deterministic
 fidelity check (your words only, existing lines byte-identical); any
 doubt falls back to [[Review]]. Judgment calls always queue.
+
+`worker` picks which models.yaml profile drafts proposals — a profile
+NAME, never a URL (endpoints and keys stay in the repo config). `n_max`
+caps proposals drafted per pass; `disabled_processors` switches
+processors off entirely (the rollback flag). All read fresh each pass:
+swapping the worker model is a note edit, no restart.
 """
 
 
@@ -91,8 +100,8 @@ class Watcher:
         proposals_dir: Path | None = None,
         state_path: Path | None = None,
         drafter=None,
-        n_max: int = N_MAX,
-        disabled: tuple[str, ...] = (),
+        n_max: int | None = None,
+        disabled: tuple[str, ...] | None = None,
         registry: tuple[ProcessorSpec, ...] | None = None,
         grouping_drafter=None,
         capture_extractor=None,
@@ -100,23 +109,25 @@ class Watcher:
         self.vault_path = str(vault_path)
         self.vault = Vault(self.vault_path)  # stateless handle, built once
         self.proposals_dir = proposals_dir
-        self.state_path = Path(state_path) if state_path else STATE_PATH
-        self.n_max = n_max
+        if state_path:
+            self.state_path = Path(state_path)
+        else:
+            # Per-vault scan memo — and, via with_suffix(".lock"), a
+            # per-vault pass lock: two vaults run from one checkout must
+            # not share a fingerprint or serialize each other's passes.
+            digest = hashlib.sha1(self.vault_path.encode()).hexdigest()[:12]
+            self.state_path = STATE_PATH.with_name(f"watcher_state-{digest}.json")
         # Worker injection points (tests script these; prod uses the
         # bounded run_worker defaults). Processors reach them via `w.`.
         self.drafter = drafter or draft_schema_fix
         self.grouping_drafter = grouping_drafter or draft_grouping
         self.capture_extractor = capture_extractor or wk.extract_tasks
-        # The registry: explicit list wins (tests, future custom sets);
-        # otherwise the default set minus `disabled` (the rollback flag).
-        self.processors = registry if registry is not None else processors.registry(disabled)
-        self._by_kind = {p.name: p for p in self.processors}
-        cfg = get_config(self.vault_path)
-        self.review_rel = cfg.surfaces.get("review", "Harness/Review.md")
-        self.capture_rel = cfg.surfaces.get("capture", "")
-        self.changes_rel = cfg.surfaces.get("changes", "")
-        self.capture_inbox = cfg.capture_inbox
-        self.waiting_inbox = cfg.waiting_inbox
+        # Explicit constructor args (tests, CLI flags) pin these knobs;
+        # None means the vault's Spec.md decides, re-read every pass.
+        self._n_max_override = n_max
+        self._disabled_override = disabled
+        self._registry_override = registry
+        self._configure(get_config(self.vault_path))  # raises on a bad explicit arg
         # hashes of text last handed to the extractors: rejecting a
         # proposal must not re-draft the same text every pass
         self._capture_seen = ""
@@ -124,6 +135,27 @@ class Watcher:
         # HEAD sha at scan time, stamped into drafted proposals; set once
         # per pass so processors never re-run git themselves
         self._pass_sha = ""
+        # worker status line for Changes.md, probed at most once per pass
+        self._pass_status: str | None = None
+
+    def _configure(self, cfg) -> None:
+        """Resolve the per-pass knobs: explicit constructor args win,
+        otherwise Spec.md (n_max, disabled_processors, surfaces, inboxes).
+        Called at construction and again each full pass, so a Spec.md
+        edit takes effect without a restart."""
+        self.n_max = self._n_max_override if self._n_max_override is not None else cfg.n_max
+        if self._registry_override is not None:
+            self.processors = self._registry_override
+        else:
+            disabled = (self._disabled_override if self._disabled_override is not None
+                        else cfg.disabled_processors)
+            self.processors = processors.registry(disabled)
+        self._by_kind = {p.name: p for p in self.processors}
+        self.review_rel = cfg.surfaces.get("review", "Harness/Review.md")
+        self.capture_rel = cfg.surfaces.get("capture", "")
+        self.changes_rel = cfg.surfaces.get("changes", "")
+        self.capture_inbox = cfg.capture_inbox
+        self.waiting_inbox = cfg.waiting_inbox
 
     # ---- shared machinery processors ride on ----
 
@@ -160,6 +192,9 @@ class Watcher:
             "auto_apply": list(base.auto_apply),
             "fidelity": base.fidelity,
             "diff_style": base.diff_style,
+            "worker": base.worker,
+            "disabled_processors": list(base.disabled_processors),
+            "n_max": base.n_max,
         }
         self.write_surface(vc.SPEC_REL, md.join_frontmatter(fm, SPEC_BODY),
                            f"seed {vc.SPEC_REL}", action="seed_vault_spec")
@@ -177,10 +212,10 @@ class Watcher:
             return {}
         return saved if "fingerprint" in saved else {}
 
-    def _save_state(self) -> None:
+    def _save_state(self, fingerprint: dict | None = None) -> None:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         state = {
-            "fingerprint": self._vault_fingerprint(),
+            "fingerprint": fingerprint if fingerprint is not None else self._vault_fingerprint(),
             "capture_seen": self._capture_seen,
             "inbox_seen": self._inbox_seen,
         }
@@ -371,6 +406,7 @@ class Watcher:
             "drafted": 0, "auto": 0, "approved": 0, "rejected": 0, "stale": 0,
             "scanned": False, "locked": False,
         }
+        self._pass_status = None  # worker status probed at most once per pass
         lock_path = self.state_path.with_suffix(".lock")
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         lock_file = open(lock_path, "w")
@@ -382,16 +418,26 @@ class Watcher:
             summary["locked"] = True
             return summary
         try:
+            # Point obsidian_mcp's in-process singleton at THIS vault for the
+            # whole pass — scans, verifiers, and applies all resolve through
+            # it, and no processor may depend on a sibling having set it.
+            applier.use_vault(self.vault_path)
             state = self._load_state()
             self._capture_seen = state.get("capture_seen", "")
             self._inbox_seen = state.get("inbox_seen", "")
             if not decisions_only:
                 self._ensure_spec()
-                # Re-read the spec each pass: Spec.md edits (inboxes,
-                # exclusions) take effect without restarting the daemon.
+                # Re-read the spec each pass: Spec.md edits (worker model,
+                # n_max, disabled processors, inboxes) take effect without
+                # restarting the daemon. A bad value degrades to the
+                # current configuration, never a crashed pass.
                 cfg = get_config(self.vault_path)
-                self.capture_inbox = cfg.capture_inbox
-                self.waiting_inbox = cfg.waiting_inbox
+                try:
+                    self._configure(cfg)
+                except ValueError as e:
+                    print(f"Spec.md processor config ignored: {e}")
+                if cfg.worker:
+                    apply_worker_profile(cfg.worker)
                 for proc in self.processors:
                     if proc.ensure:
                         proc.ensure(self)
@@ -409,6 +455,7 @@ class Watcher:
                 return summary
             if sum(acted.values()):
                 self._render()  # visible feedback beats drafting latency
+            approved_pre_scan = summary["approved"]
             vs = applier.vault_state(self.vault_path)
             fingerprint = self._vault_fingerprint(vs)
             if state.get("fingerprint") != fingerprint:
@@ -433,8 +480,15 @@ class Watcher:
                 summary["scanned"] = True
             self._render()
             self._render_changes()
+            # The memo must only describe a tree whose changes were all
+            # scanned. Applies that landed AFTER the scan — auto-applies,
+            # decisions swept between drafting calls — violate that, so the
+            # memo is dropped and the next pass rescans. The sweep below is
+            # excluded the cheaper way: the fingerprint is captured first.
+            post_scan_applies = summary["auto"] + summary["approved"] - approved_pre_scan
+            fingerprint = {} if post_scan_applies else self._vault_fingerprint()
             self._sweep_late_decisions(summary)
-            self._save_state()
+            self._save_state(fingerprint)
             proposals.prune(self.proposals_dir)
             return summary
         finally:
@@ -458,13 +512,31 @@ class Watcher:
             self._render()
             self._render_changes()
 
+    def _worker_status(self) -> str:
+        """The Changes.md health line: which worker drafts proposals and
+        whether its endpoint answers right now. Probed once per pass (it
+        carries a network timeout); the text only changes when the worker
+        or its health does, so it never churns the surface."""
+        if self._pass_status is None:
+            from obsidian_mcp.workers import _worker_model
+
+            from .backends import endpoint_alive_sync
+
+            base = os.environ.get("WORKER_BASE_URL", "http://127.0.0.1:8081/v1")
+            up = endpoint_alive_sync(base)
+            self._pass_status = (
+                f"_Worker: `{_worker_model()}` @ {base} — "
+                + ("reachable_" if up else "**UNREACHABLE**_")
+            )
+        return self._pass_status
+
     def _render_changes(self) -> None:
         """Phase 10: the audit surface. Rendered every pass, written only
         on change; its own update commits are filtered from the listing,
         so a render can never feed the next one."""
         if not self.changes_rel:
             return
-        content = changes.render(self.vault, self.changes_rel)
+        content = changes.render(self.vault, self.changes_rel, status=self._worker_status())
         try:
             if self.vault.read(self.changes_rel) == content:
                 return
@@ -482,19 +554,22 @@ def main() -> None:
         description="One engine pass: act on Review.md checkboxes, scan, draft, re-render",
     )
     parser.add_argument("-v", "--vault", help="vault path (default: config, or $OBSIDIAN_VAULT_PATH)")
-    parser.add_argument("--n-max", type=int, default=N_MAX, help="max proposals drafted this pass")
+    parser.add_argument("--n-max", type=int, default=None,
+                        help="max proposals drafted this pass (default: Spec.md n_max)")
     parser.add_argument(
         "--decisions-only", action="store_true",
         help="fast lane: act on Review.md checkboxes and re-render; no scan/draft")
     parser.add_argument(
         "--disable", action="append", default=[], metavar="NAME",
-        help="disable a processor for this pass (repeatable); names: "
+        help="disable a processor for this pass, overriding Spec.md "
+        "disabled_processors (repeatable); names: "
         + ", ".join(p.name for p in processors.REGISTRY),
     )
     args = parser.parse_args()
     _config, vault, _servers = load_runtime(vault=args.vault)
     summary = asyncio.run(
-        Watcher(vault, n_max=args.n_max, disabled=tuple(args.disable))
+        Watcher(vault, n_max=args.n_max,
+                disabled=tuple(args.disable) if args.disable else None)
         .run_once(decisions_only=args.decisions_only)
     )
     if summary["locked"]:

@@ -3,9 +3,12 @@
 Every human judgment that flows through the harness — approve/deny on a
 gated write, a bug report, a git revert, a dashboard proposal decision —
 lands as one self-contained JSONL row under data/corpus/YYYY-MM.jsonl.
-Rows inline the full trajectory because data/chats/ prunes after 3 days;
-anything that reconstructs via chat_id would be broken by the time a
-fine-tune wants it. Capture only: no export or training pipeline here.
+Rows inline the full trajectory because chat transcripts are scratch
+(the vault is the archive); anything that reconstructs via chat_id would
+be broken by the time a fine-tune wants it. Capture only: no export or
+training pipeline here. Post-UI (2026-07-23) the live label source is
+record_dashboard; the chat-era writers stay as the schema of record for
+existing rows and any future interactive surface.
 
 Callers wrap every record_* call in `try/except OSError: pass` — corpus
 capture must never break a live chat (same convention as stats.record_run).

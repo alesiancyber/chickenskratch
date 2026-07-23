@@ -45,6 +45,18 @@ def load_env_file(path: Path = ENV_FILE) -> None:
             os.environ[key] = value
 
 
+# WORKER_* keys that were filled from config rather than set by the user
+# (shell/.env). Only these may be re-pointed by a Spec.md `worker:` choice —
+# precedence stays: explicit env > Spec.md worker > models.yaml worker.
+_config_filled: set[str] = set()
+
+
+def _fill_worker_env(key: str, value: str) -> None:
+    if key not in os.environ:
+        os.environ[key] = value
+        _config_filled.add(key)
+
+
 def resolve_worker_env(config: Config) -> None:
     """Fill WORKER_* env from the `worker:` profile in models.yaml, unless
     already set — shell/.env always wins. Makes models.yaml the single
@@ -53,10 +65,41 @@ def resolve_worker_env(config: Config) -> None:
     if not config.worker:
         return
     prof = config.profile(config.worker)  # fail-loud: a declared worker needs its key
-    os.environ.setdefault("WORKER_BASE_URL", prof.base_url)
-    os.environ.setdefault("WORKER_MODEL", prof.model)
+    _fill_worker_env("WORKER_BASE_URL", prof.base_url)
+    _fill_worker_env("WORKER_MODEL", prof.model)
     if prof.api_key and prof.api_key != "ollama":
-        os.environ.setdefault("WORKER_API_KEY", prof.api_key)
+        _fill_worker_env("WORKER_API_KEY", prof.api_key)
+
+
+def apply_worker_profile(name: str, config: Config | None = None) -> bool:
+    """Point the workers at a models.yaml profile by name — the vault's
+    Spec.md `worker:` choice, honored once per engine pass. Only env keys
+    that config filled are re-pointed (a user's explicit WORKER_MODEL
+    still wins), and a bad name warns and keeps the current worker: a
+    Spec.md typo must degrade, never break every pass."""
+    from obsidian_mcp import workers
+
+    config = config or load_config(DEFAULT_MODELS)
+    try:
+        prof = config.profile(name)
+    except (KeyError, ValueError) as e:
+        print(f"Spec.md worker {name!r} unusable, keeping current worker: {e}")
+        return False
+    changed = False
+    for key, value in (
+        ("WORKER_BASE_URL", prof.base_url),
+        ("WORKER_MODEL", prof.model),
+        ("WORKER_API_KEY", prof.api_key),
+    ):
+        if key in os.environ and key not in _config_filled:
+            continue  # user-set: env always wins
+        if os.environ.get(key) != value:
+            os.environ[key] = value
+            changed = True
+        _config_filled.add(key)
+    if changed:
+        workers._client = None  # rebuild against the new endpoint/key
+    return True
 
 
 def load_runtime(

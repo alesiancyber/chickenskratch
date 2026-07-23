@@ -7,7 +7,6 @@ from harness.mcp_client import (
     MultiServerClient,
     ToolInfo,
     digest_docs_search,
-    load_mcp_presets,
     sanitize_tool_name,
 )
 
@@ -31,14 +30,6 @@ def test_no_tool_filter_exposes_everything():
     client = MultiServerClient([])
     _tool(client, "add_task")
     assert len(client.openai_tools()) == 1
-
-
-def test_load_mcp_presets(tmp_path):
-    p = tmp_path / "mcp.yaml"
-    p.write_text("servers: {}\npresets:\n  Checklist: [add_task, list_tasks]\n  Notes: [read_note]\n")
-    assert load_mcp_presets(p) == {"Checklist": ["add_task", "list_tasks"], "Notes": ["read_note"]}
-    p.write_text("servers: {}\n")  # no presets key
-    assert load_mcp_presets(p) == {}
 
 
 def test_sanitize_tool_name():

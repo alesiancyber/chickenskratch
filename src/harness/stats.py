@@ -1,8 +1,8 @@
 """Persistent per-model usage totals (data/stats.json).
 
-Recorded from interactive surfaces (web UI, CLI) after each completed
-run; evals are deliberately excluded so benchmark traffic never pollutes
-real usage numbers. Stats are cosmetic — a failure to record must never
+Recorded from the interactive CLI after each completed run; evals are
+deliberately excluded so benchmark traffic never pollutes real usage
+numbers. Stats are cosmetic — a failure to record must never
 break a chat, so callers wrap record_run in a try/except OSError.
 """
 
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 from pathlib import Path
 
 from .bootstrap import ROOT
@@ -30,7 +31,11 @@ def record_run(model: str, run: dict, path: Path | None = None) -> None:
     if run.get("estimated"):
         m["estimated"] = True  # some counts were chars/4 estimates, not server-reported
     m["last_used"] = dt.datetime.now().isoformat(timespec="seconds")
-    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    # Temp + rename: concurrent recorders may still lose a fold (cosmetic),
+    # but a torn write must never corrupt the file and zero every total.
+    tmp = path.parent / (path.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def totals(path: Path | None = None) -> dict:

@@ -482,9 +482,9 @@ async def draft_spec_drift(w: Watcher, item: dict) -> dict | None:
 
 def scan_schema(w: Watcher) -> list[dict]:
     """Deterministic work items per nonconforming note. Harness/ and
-    Private/ are excluded by the validate_schema implementation itself;
+    Private/ are excluded by the validate_schema implementation itself
+    (the engine points obsidian_mcp at this vault at pass start);
     coverage dedupe and sha stamping are engine context."""
-    applier.use_vault(w.vault_path)
     from obsidian_mcp import server
 
     items = []
@@ -524,7 +524,7 @@ def scan_grouping(w: Watcher) -> list[dict]:
     """Groupable flat task lists (grouping.py's structural rules), one
     work item per note. Surfaces are machine-rendered, not knowledge —
     never candidates; Private/ is invisible to iter_notes already."""
-    surface_dirs = get_config().surface_dirs
+    surface_dirs = get_config(w.vault_path).surface_dirs
     v = w.vault
     items = []
     for p in v.iter_notes():

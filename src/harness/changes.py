@@ -47,10 +47,13 @@ def recent_commits(v: Vault, limit: int) -> list[dict]:
     return commits
 
 
-def render(v: Vault, changes_rel: str, limit: int = 20) -> str:
+def render(v: Vault, changes_rel: str, limit: int = 20, status: str = "") -> str:
     """Deterministic markdown for the surface: absolute times (relative
     ones would churn the note every pass), the surface's own update
-    commits filtered out so the render can never feed itself."""
+    commits filtered out so the render can never feed itself. `status`
+    is an optional health line (worker model + reachability) — stable
+    across passes unless something actually changed, so it never churns
+    the note either."""
     rows = []
     for c in recent_commits(v, limit + 10):  # headroom for filtered rows
         if c["files"] == [changes_rel]:
@@ -62,4 +65,5 @@ def render(v: Vault, changes_rel: str, limit: int = 20) -> str:
         rows.append(f"- **{when}** {c['subject']} — {files}{more}{chat}")
         if len(rows) >= limit:
             break
-    return HEADER + "\n" + "\n".join(rows) + "\n"
+    head = HEADER + (f"\n{status}\n" if status else "")
+    return head + "\n" + "\n".join(rows) + "\n"

@@ -115,9 +115,11 @@ def create_note(path: str, content: str = "") -> dict:
     """
     v = get_vault()
     p = v.resolve(path)
-    if p.exists():
-        raise VaultError(f"Note already exists: {v.rel(p)}")
     with v.locked():
+        # Existence is checked under the lock: two concurrent creators must
+        # collide here, not silently overwrite each other.
+        if p.exists():
+            raise VaultError(f"Note already exists: {v.rel(p)}")
         v.snapshot_before("create_note")
         v.write(v.rel(p), content if content.endswith("\n") else content + "\n")
         v.snapshot_after(f"create note {v.rel(p)}")
@@ -283,32 +285,35 @@ def set_task_status(path: str, task_text: str, done: bool = True) -> dict:
     Example: set_task_status(path="Tasks/Inbox", task_text="Renew domain", done=true)
     """
     v = get_vault()
-    text = v.read(path)
-    lines = text.splitlines()
-    needle = task_text.strip().lower()
-    hits = [t for t in tk.iter_tasks(text) if needle == t.text.lower()] or \
-           [t for t in tk.iter_tasks(text) if needle in t.text.lower()]
-    if not hits:
-        raise VaultError(f"No task matching {task_text!r} in {path}")
-    if len(hits) > 1:
-        raise VaultError(f"Ambiguous task text; matches: {[t.text for t in hits[:5]]}")
-    task = hits[0]
-    line = lines[task.line_no]
-    # Rebuild the checkbox from the parsed position: string replacement would
-    # miss nonstandard marks like [/] and touch brackets in the task text.
-    m = tk.TASK_RE.match(line)
-    mark_at = m.start("mark")
-    line = line[:mark_at] + ("x" if done else " ") + line[mark_at + 1 :]
-    if done:
-        if "✅" not in line:
-            # A block ref must stay the last token, so ✅ slots in before it.
-            core, ref = ids.split_block_ref(line)
-            line = f"{core} ✅ {_today()}"
-            if ref:
-                line = ids.attach_block_ref(line, ref)
-    else:
-        line = tk.DONE_RE.sub("", line).rstrip()
+    # Read and locate the task under the lock: parsing outside it would let
+    # a concurrent writer shift line numbers between read and write, and the
+    # write-back of pre-lock lines would clobber their change.
     with v.locked():
+        text = v.read(path)
+        lines = text.splitlines()
+        needle = task_text.strip().lower()
+        hits = [t for t in tk.iter_tasks(text) if needle == t.text.lower()] or \
+               [t for t in tk.iter_tasks(text) if needle in t.text.lower()]
+        if not hits:
+            raise VaultError(f"No task matching {task_text!r} in {path}")
+        if len(hits) > 1:
+            raise VaultError(f"Ambiguous task text; matches: {[t.text for t in hits[:5]]}")
+        task = hits[0]
+        line = lines[task.line_no]
+        # Rebuild the checkbox from the parsed position: string replacement would
+        # miss nonstandard marks like [/] and touch brackets in the task text.
+        m = tk.TASK_RE.match(line)
+        mark_at = m.start("mark")
+        line = line[:mark_at] + ("x" if done else " ") + line[mark_at + 1 :]
+        if done:
+            if "✅" not in line:
+                # A block ref must stay the last token, so ✅ slots in before it.
+                core, ref = ids.split_block_ref(line)
+                line = f"{core} ✅ {_today()}"
+                if ref:
+                    line = ids.attach_block_ref(line, ref)
+        else:
+            line = tk.DONE_RE.sub("", line).rstrip()
         v.snapshot_before("set_task_status")
         lines[task.line_no] = line
         v.write(path, "\n".join(lines) + "\n")

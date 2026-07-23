@@ -12,10 +12,11 @@ dependencies = [
 
 [project.scripts]
 harness = "harness.cli:main"
-harness-web = "harness.web:main"
 harness-eval = "harness.evals:main"
 harness-worker-eval = "harness.worker_evals:main"
 harness-watch = "harness.watcher:main"
+harness-revert = "harness.revert:main"
+harness-backends = "harness.backends:main"
 obsidian-mcp = "obsidian_mcp.server:main"
 files-mcp = "files_mcp.server:main"
 

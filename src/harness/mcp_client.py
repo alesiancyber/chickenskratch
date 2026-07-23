@@ -84,15 +84,6 @@ def load_mcp_config(path: str | Path, vault: str) -> list[ServerSpec]:
     return specs
 
 
-def load_mcp_presets(path: str | Path) -> dict[str, list[str]]:
-    """Named tool working-sets from mcp.yaml `presets:` — {name: [tool, ...]}.
-    A preset is just a list of tool names to select in the UI; unknown names
-    are ignored at apply time, so a preset can name tools from disabled servers."""
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
-    presets = raw.get("presets") or {}
-    return {str(k): [str(t) for t in (v or [])] for k, v in presets.items()}
-
-
 def digest_docs_search(text: str) -> str:
     """Deterministically reshape a docs server's JSON search results into a
     ranked link digest: one entry per page (fragments grouped as sections),
@@ -265,6 +256,9 @@ class MultiServerClient:
     def _lookup(self, qualified: str) -> ToolInfo | None:
         # tolerate model-side hyphen/underscore mangling in either direction
         return self.tools.get(qualified) or self.tools.get(sanitize_tool_name(qualified))
+
+    def is_known(self, qualified: str) -> bool:
+        return self._lookup(qualified) is not None
 
     def is_write(self, qualified: str) -> bool:
         info = self._lookup(qualified)
