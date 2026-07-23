@@ -188,12 +188,17 @@ class Watcher:
 
     # ---- stage 2: draft ----
 
-    async def _draft(self, items: list[tuple[ProcessorSpec, dict]]) -> tuple[int, int]:
+    async def _draft(self, items: list[tuple[ProcessorSpec, dict]],
+                     summary: dict) -> tuple[int, int]:
         """Draft up to n_max proposals; verified-safe drafts from trusted
         processors apply immediately. Returns (drafted, auto_applied)."""
         auto_trusted = set(get_config(self.vault_path).auto_apply)
         drafted = auto = 0
         for proc, item in items[: self.n_max]:
+            # Decisions never wait behind drafting: a slow worker phase
+            # holds the pass lock for minutes, so checked boxes are
+            # serviced between calls — latency bounded by ONE draft.
+            self._sweep_late_decisions(summary)
             try:
                 p = await proc.draft(self, item)
             except VaultError:
@@ -424,7 +429,7 @@ class Watcher:
                         if item["note"] not in seen_notes:
                             seen_notes.add(item["note"])
                             items.append((proc, item))
-                summary["drafted"], summary["auto"] = await self._draft(items)
+                summary["drafted"], summary["auto"] = await self._draft(items, summary)
                 summary["scanned"] = True
             self._render()
             self._render_changes()
@@ -436,10 +441,12 @@ class Watcher:
             lock_file.close()  # releases the flock
 
     def _sweep_late_decisions(self, summary: dict) -> None:
-        """Decisions checked WHILE this pass ran: act before releasing the
-        lock, or nobody would — the fast lane's trigger was consumed by
-        the pass lock, and re-baselining hides the check from the full
-        loop. The render guard preserved the box; this honors it."""
+        """Decisions checked WHILE this pass runs: act now — the fast
+        lane's trigger was consumed by the pass lock, and re-baselining
+        hides the check from the full loop. Called between drafting calls
+        (a slow worker phase must never queue a human) and again before
+        the lock releases. The render guard preserved the box; this
+        honors it."""
         for _ in range(3):
             pending_ids = {p["id"] for p in proposals.pending(self.proposals_dir)}
             late = [d for d in self._read_decisions() if d[0] in pending_ids]

@@ -193,6 +193,30 @@ def test_mid_pass_decision_is_acted_before_the_pass_ends(vault, watcher, make_wa
     assert f"approve {target['id']}" not in review.read_text()  # and re-rendered
 
 
+def test_decision_is_serviced_between_drafting_calls(vault, watcher, make_watcher):
+    """A slow drafting phase holds the pass lock for minutes; a checked
+    box must land after at most ONE draft call, not at pass end."""
+    run(watcher)  # leaves pending proposals
+    target = proposals.pending(watcher.proposals_dir)[0]
+    review = vault / "Harness/Review.md"
+    calls, acted_before_second_draft = [], []
+
+    async def slow_phase_drafter(item):
+        calls.append(item["note"])
+        if len(calls) == 1:  # the user decides during the first draft
+            review.write_text(review.read_text().replace(
+                f"- [ ] approve {target['id']}", f"- [x] approve {target['id']}"))
+        if len(calls) == 2:  # before the second draft, it must already be applied
+            acted_before_second_draft.append(
+                f"approve {target['id']}" not in review.read_text())
+        return await fake_drafter(item)
+
+    (vault / "Home.md").write_text((vault / "Home.md").read_text() + "\nnudge\n")
+    summary = run(make_watcher(vault, drafter=slow_phase_drafter, n_max=3))
+    assert summary["approved"] == 1
+    assert acted_before_second_draft == [True]
+
+
 def test_invalid_drafter_output_never_enters_queue(vault, tmp_path, monkeypatch):
     monkeypatch.setattr("harness.watcher.record_dashboard", lambda *a, **k: None)
 
