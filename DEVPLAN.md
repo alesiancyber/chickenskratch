@@ -221,7 +221,15 @@ a daily note, ack ≤15s, approve in Review.md, tasks land in the inbox,
 result line links there. `//research` typed anywhere yields
 `⚠ unknown command` — the scanner fails loud, not silent.
 
-## Phase 10 — `Harness/Changes.md` (visibility for a headless system)
+## Phase 10 — `Harness/Changes.md` (visibility for a headless system) ✅ BUILT (2026-07-23)
+
+**As built:** `src/harness/changes.py` (B13) — one git subprocess gets
+subject/ISO time/files/Chat-Id trailer for the last ~20 commits;
+rendered at the end of every pass via the `write_surface` choke point,
+written only on change. Absolute timestamps (relative ones would churn
+the note every pass); the surface's own update commits are filtered
+from the listing, so a render can never feed the next one (loop-proof,
+tested via mtime). No revert checkbox, per the cut list.
 
 - **10.1** B13 renderer: last ~20 vault commits — subject, relative
   time, files touched, chat/proposal attribution via the B4 trailer.

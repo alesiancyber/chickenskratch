@@ -31,6 +31,7 @@ schemas_dir: schemas
 surfaces:
   review: Harness/Review.md
   capture: Harness/Capture.md
+  changes: Harness/Changes.md
 
 # Where tasks extracted from the capture surface land when their
 # proposal is approved.

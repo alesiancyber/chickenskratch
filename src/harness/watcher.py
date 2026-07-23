@@ -30,7 +30,7 @@ from obsidian_mcp import workers as wk
 from obsidian_mcp.vault import Vault, VaultError
 from obsidian_mcp.vaultconfig import get_config
 
-from . import applier, processors, proposals
+from . import applier, changes, processors, proposals
 from .bootstrap import ROOT
 from .corpus import record_dashboard
 from .processors import ProcessorSpec
@@ -114,6 +114,7 @@ class Watcher:
         cfg = get_config(self.vault_path)
         self.review_rel = cfg.surfaces.get("review", "Harness/Review.md")
         self.capture_rel = cfg.surfaces.get("capture", "")
+        self.changes_rel = cfg.surfaces.get("changes", "")
         self.capture_inbox = cfg.capture_inbox
         self.waiting_inbox = cfg.waiting_inbox
         # hashes of text last handed to the extractors: rejecting a
@@ -388,11 +389,27 @@ class Watcher:
                 summary["drafted"], summary["auto"] = await self._draft(items)
                 summary["scanned"] = True
             self._render()
+            self._render_changes()
             self._save_state()
             proposals.prune(self.proposals_dir)
             return summary
         finally:
             lock_file.close()  # releases the flock
+
+    def _render_changes(self) -> None:
+        """Phase 10: the audit surface. Rendered every pass, written only
+        on change; its own update commits are filtered from the listing,
+        so a render can never feed the next one."""
+        if not self.changes_rel:
+            return
+        content = changes.render(self.vault, self.changes_rel)
+        try:
+            if self.vault.read(self.changes_rel) == content:
+                return
+        except VaultError:
+            pass
+        self.write_surface(self.changes_rel, content,
+                           f"update {self.changes_rel}", action="render_changes")
 
 
 def main() -> None:
