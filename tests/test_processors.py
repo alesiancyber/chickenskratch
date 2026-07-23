@@ -25,14 +25,15 @@ def run(w):
 
 
 def test_default_registry_order_is_priority_order():
-    # capture first: active user input must never be starved out of n_max
+    # typed input first (capture, then //commands): active user input must
+    # never be starved out of n_max by a maintenance backlog
     assert [p.name for p in processors.REGISTRY] == [
-        "capture", "inbox_extract", "spec_drift", "schema_fix", "grouping"]
+        "capture", "inline_command", "inbox_extract", "spec_drift", "schema_fix", "grouping"]
 
 
 def test_disable_is_per_processor_and_unknown_names_fail_loud(vault, make_watcher):
     w = make_watcher(
-        vault, disabled=("schema_fix", "grouping", "spec_drift", "inbox_extract"))
+        vault, disabled=("schema_fix", "grouping", "spec_drift", "inbox_extract", "inline_command"))
     assert [p.name for p in w.processors] == ["capture"]
     with pytest.raises(ValueError, match="groupnig"):
         processors.registry(disabled=("groupnig",))

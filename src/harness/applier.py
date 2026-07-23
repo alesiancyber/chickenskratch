@@ -32,6 +32,7 @@ from .proposals import content_hash
 ALLOWED_TOOLS = {
     "update_frontmatter", "replace_section", "append_to_note",
     "add_task", "set_task_status", "add_card", "move_card", "create_note",
+    "replace_line",
 }
 
 
@@ -121,6 +122,14 @@ def _simulate(text: str, step: dict) -> str | None:
         else:
             body = body.rstrip("\n") + "\n\n" + args["content"].strip("\n") + "\n"
         return md.join_frontmatter(fm, body)
+    if tool == "replace_line":
+        lines = body.splitlines()
+        anchor = str(args["line_text"]).rstrip()
+        hits = [i for i, ln in enumerate(lines) if ln.rstrip() == anchor]
+        if len(hits) != 1:
+            raise ValueError(f"line missing or ambiguous: {anchor!r}")
+        lines[hits[0] : hits[0] + 1] = str(args["content"]).splitlines()
+        return md.join_frontmatter(fm, "\n".join(lines) + "\n")
     return None
 
 

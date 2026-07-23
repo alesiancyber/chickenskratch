@@ -54,7 +54,8 @@ properties:
       properties:
         tool:
           enum: [update_frontmatter, replace_section, append_to_note,
-                 add_task, set_task_status, add_card, move_card, create_note]
+                 add_task, set_task_status, add_card, move_card, create_note,
+                 replace_line]
         args:
           type: object
   resolved:

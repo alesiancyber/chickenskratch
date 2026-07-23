@@ -50,6 +50,22 @@ def test_create_append_replace(vault):
     assert "Faster load times" in note["content"]  # neighboring section untouched
 
 
+def test_replace_line(vault):
+    server.create_note("Tasks/Cmd", "# Cmd\n\nabove\n\n//azure alert correlation\n\nbelow\n")
+    server.replace_line("Tasks/Cmd", "//azure alert correlation",
+                        "**//azure alert correlation**\n\n- link one\n- link two")
+    content = server.read_note("Tasks/Cmd")["content"]
+    assert "- link one\n- link two" in content
+    assert content.index("above") < content.index("- link one") < content.index("below")
+    assert "\n//azure" not in content  # the command line itself is gone
+
+    with pytest.raises(vault_mod.VaultError, match="not found"):
+        server.replace_line("Tasks/Cmd", "//azure alert correlation", "x")
+    server.append_to_note("Tasks/Cmd", "dupe\ndupe")
+    with pytest.raises(vault_mod.VaultError, match="must be unique"):
+        server.replace_line("Tasks/Cmd", "dupe", "x")
+
+
 def test_frontmatter(vault):
     result = server.update_frontmatter("Tasks/Reading List", "status", "active")
     assert result["frontmatter"] == {"type": "research", "status": "active"}

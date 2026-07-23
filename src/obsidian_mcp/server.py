@@ -174,6 +174,33 @@ def replace_section(path: str, heading: str, content: str) -> dict:
 
 
 @mcp.tool()
+def replace_line(path: str, line_text: str, content: str) -> dict:
+    """Replace ONE exact line of a note with new content (which may be
+    several lines). line_text must match a whole line exactly; the call
+    fails if the line is absent or appears more than once. This is the
+    precision tool for in-place rewrites — inline //commands ride on it.
+
+    Example: replace_line(path="Daily/2026-07-23", line_text="//azure alert correlation",
+                          content="**//azure alert correlation**\\n- ...")
+    """
+    v = get_vault()
+    with v.locked():
+        text = v.read(path)
+        lines = text.splitlines()
+        anchor = line_text.rstrip()
+        hits = [i for i, ln in enumerate(lines) if ln.rstrip() == anchor]
+        if not hits:
+            raise VaultError(f"Line not found in {path}: {line_text!r}")
+        if len(hits) > 1:
+            raise VaultError(f"Line appears {len(hits)} times in {path}; must be unique: {line_text!r}")
+        v.snapshot_before("replace_line")
+        lines[hits[0] : hits[0] + 1] = content.splitlines()
+        v.write(path, "\n".join(lines) + "\n")
+        v.snapshot_after(f"replace line in {path}")
+    return {"updated": path}
+
+
+@mcp.tool()
 def update_frontmatter(path: str, key: str, value: str) -> dict:
     """Set one frontmatter (YAML properties) field on a note. Value is parsed as
     YAML, so "true", "3", and "[a, b]" become their typed values.

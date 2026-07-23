@@ -245,11 +245,12 @@ class Watcher:
             except ValueError:
                 continue  # drafter emitted an invalid plan: never enters the queue
             drafted += 1
-            # Auto-apply: only processors the vault's Spec.md trusts, only
-            # with a verifier, only when it passes, only against an unmoved
-            # note. Any failure means the proposal simply keeps its
-            # checkbox — verification degrades to review, never blocks.
-            if proc.name in auto_trusted and proc.verify:
+            # Auto-apply: only processors the vault's Spec.md trusts — or
+            # user_invoked ones, where the typed command IS the approval —
+            # only with a verifier, only when it passes, only against an
+            # unmoved note. Any failure means the proposal simply keeps
+            # its checkbox — verification degrades to review, never blocks.
+            if (proc.name in auto_trusted or proc.user_invoked) and proc.verify:
                 if proc.verify(self, item, p) or applier.is_stale(p, self.vault_path):
                     continue
                 applier.apply(p, self.vault_path)

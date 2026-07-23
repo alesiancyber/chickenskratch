@@ -6,6 +6,7 @@ import asyncio
 
 import pytest
 
+from harness import processors as processors_module
 from harness import proposals
 from harness.processors import SPEC_DRIFT
 from obsidian_mcp import markdown as md
@@ -93,7 +94,7 @@ def test_spec_note_drives_engine_knobs_per_pass(vault, make_watcher, monkeypatch
     monkeypatch.setattr("harness.watcher.apply_worker_profile", lambda name: applied.append(name))
     run(w)
     assert w.n_max == 2
-    assert [p.name for p in w.processors] == ["capture", "inbox_extract", "spec_drift"]
+    assert [p.name for p in w.processors] == ["capture", "inline_command", "inbox_extract", "spec_drift"]
     assert applied == ["spec-picked"]
 
     # a pinned knob wins over the note
@@ -111,7 +112,7 @@ def test_spec_note_bad_processor_name_degrades_not_crashes(vault, make_watcher, 
     spec_path(vault).write_text(md.join_frontmatter(fm, body))
     run(w)  # pass completes on the previous processor set
     assert "no_such_processor" in capsys.readouterr().out
-    assert len(w.processors) == 5
+    assert len(w.processors) == len(processors_module.REGISTRY)
 
 
 def test_new_folder_drafts_a_spec_proposal_and_approval_updates_the_note(vault, make_watcher):
