@@ -1,30 +1,18 @@
-"""Smoke tests: every MCP tool exercised against a copy of the test vault."""
+"""Smoke tests: every MCP tool exercised against a copy of the test vault.
+The `vault` fixture comes from conftest.py."""
 
-import shutil
 import subprocess
-from pathlib import Path
 
 import pytest
 
 import obsidian_mcp.vault as vault_mod
 from obsidian_mcp import server
 
-TESTVAULT = Path(__file__).resolve().parent / "fixture_vault"
-
-
-@pytest.fixture()
-def vault(tmp_path, monkeypatch):
-    root = tmp_path / "vault"
-    shutil.copytree(TESTVAULT, root, ignore=shutil.ignore_patterns(".git"))
-    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(root))
-    monkeypatch.setattr(vault_mod, "_vault", None)
-    return root
-
 
 def test_list_and_read(vault):
     notes = server.list_notes()["notes"]
     assert "Tasks/Inbox.md" in notes
-    assert "Boards/Project Board.md" in notes
+    assert "Projects/Project Board.md" in notes
 
     note = server.read_note("Projects/Website Redesign", section="Goals")
     assert "pricing page" in note["content"]
@@ -39,7 +27,7 @@ def test_read_note_suggests_on_miss(vault):
 def test_search(vault):
     result = server.search_vault("DNS")
     hit_notes = {m["note"] for m in result["matches"]}
-    assert "Boards/Project Board.md" in hit_notes
+    assert "Projects/Project Board.md" in hit_notes
     assert "Meetings/2026-07-15 Sprint Planning.md" in hit_notes
 
     paged = server.search_vault("e", limit=3)
@@ -47,12 +35,12 @@ def test_search(vault):
 
 
 def test_create_append_replace(vault):
-    server.create_note("Research/Vector DBs", "# Vector DBs\n\n## Notes\n\n- start\n")
+    server.create_note("Tasks/Vector DBs", "# Vector DBs\n\n## Notes\n\n- start\n")
     with pytest.raises(vault_mod.VaultError, match="already exists"):
-        server.create_note("Research/Vector DBs")
+        server.create_note("Tasks/Vector DBs")
 
-    server.append_to_note("Research/Vector DBs", "- pgvector looks fine", section="Notes")
-    content = server.read_note("Research/Vector DBs")["content"]
+    server.append_to_note("Tasks/Vector DBs", "- pgvector looks fine", section="Notes")
+    content = server.read_note("Tasks/Vector DBs")["content"]
     assert content.index("- start") < content.index("- pgvector looks fine")
 
     server.replace_section("Projects/Website Redesign", "Status", "Brand guidelines arrived.")
@@ -63,7 +51,7 @@ def test_create_append_replace(vault):
 
 
 def test_frontmatter(vault):
-    result = server.update_frontmatter("Research/Reading List", "status", "active")
+    result = server.update_frontmatter("Tasks/Reading List", "status", "active")
     assert result["frontmatter"] == {"type": "research", "status": "active"}
 
 
@@ -76,7 +64,7 @@ def test_task_grouping(vault):
     assert counts["meeting"] >= 2         # frontmatter type wins
     assert counts["research"] >= 4
     assert counts["task"] >= 4            # vault.yaml folder→type map (Tasks: task)
-    assert counts["deliverable"] >= 2     # Deliverables/ maps to its own type
+    assert counts["deliverable"] >= 2     # Tasks/Owed.md is frontmatter-typed
 
     kanban_only = server.list_tasks(status="open", task_type="kanban")
     assert kanban_only["total"] == 4
@@ -115,42 +103,42 @@ def test_due_on(vault):
 
 
 def test_create_board(vault):
-    server.create_board("Boards/Marketing", columns="Ideas, Active, Shipped")
-    board = server.read_board("Boards/Marketing")
+    server.create_board("Projects/Marketing", columns="Ideas, Active, Shipped")
+    board = server.read_board("Projects/Marketing")
     assert [c["name"] for c in board["columns"]] == ["Ideas", "Active", "Shipped"]
-    server.add_card("Boards/Marketing", "Ideas", "Launch teaser")
-    raw = (vault / "Boards/Marketing.md").read_text()
+    server.add_card("Projects/Marketing", "Ideas", "Launch teaser")
+    raw = (vault / "Projects/Marketing.md").read_text()
     assert raw.startswith("---\nkanban-plugin: board\nid: b-")  # born stamped
 
     with pytest.raises(vault_mod.VaultError, match="already exists"):
-        server.create_board("Boards/Marketing")
+        server.create_board("Projects/Marketing")
 
 
 def test_kanban(vault):
-    board = server.read_board("Boards/Project Board")
+    board = server.read_board("Projects/Project Board")
     assert [c["name"] for c in board["columns"]] == ["Backlog", "Doing", "Done"]
 
-    server.add_card("Boards/Project Board", "Backlog", "Draft pricing page")
-    server.move_card("Boards/Project Board", "Draft pricing", to_column="Doing")
-    board = server.read_board("Boards/Project Board")
+    server.add_card("Projects/Project Board", "Backlog", "Draft pricing page")
+    server.move_card("Projects/Project Board", "Draft pricing", to_column="Doing")
+    board = server.read_board("Projects/Project Board")
     doing = next(c for c in board["columns"] if c["name"] == "Doing")
     moved = next(c for c in doing["cards"] if c["text"] == "Draft pricing page")
     assert moved["done"] is False
     assert moved["id"].startswith("c-")  # stamped at add_card, survives the move
 
-    server.move_card("Boards/Project Board", "DNS", to_column="Done")
-    board = server.read_board("Boards/Project Board")
+    server.move_card("Projects/Project Board", "DNS", to_column="Done")
+    board = server.read_board("Projects/Project Board")
     done = next(c for c in board["columns"] if c["name"] == "Done")
     assert {"text": "Migrate DNS to new registrar", "done": True} in done["cards"]
 
-    raw = (vault / "Boards/Project Board.md").read_text()
+    raw = (vault / "Projects/Project Board.md").read_text()
     assert raw.startswith("---\nkanban-plugin: board\n---")
     assert "%% kanban:settings" in raw
     assert "**Complete**" in raw
 
 
 def test_kanban_rewrite_preserves_unmodeled_content(vault):
-    board_path = vault / "Boards/Project Board.md"
+    board_path = vault / "Projects/Project Board.md"
     raw = board_path.read_text()
     # Enrich the board with everything the harness doesn't model: card
     # sub-content, indented subtasks, column prose, an archive-ish section.
@@ -163,8 +151,8 @@ def test_kanban_rewrite_preserves_unmodeled_content(vault):
     )
     board_path.write_text(raw)
 
-    server.add_card("Boards/Project Board", "Backlog", "Draft pricing page")
-    server.move_card("Boards/Project Board", "Design new logo", to_column="Doing")
+    server.add_card("Projects/Project Board", "Backlog", "Draft pricing page")
+    server.move_card("Projects/Project Board", "Design new logo", to_column="Doing")
 
     after = board_path.read_text()
     assert "  Brief: keep the old colors" in after
@@ -176,7 +164,7 @@ def test_kanban_rewrite_preserves_unmodeled_content(vault):
     assert "Brief: keep the old colors" in doing
 
     # indented subtasks are card details, never top-level cards
-    board = server.read_board("Boards/Project Board")
+    board = server.read_board("Projects/Project Board")
     all_cards = [c["text"] for col in board["columns"] for c in col["cards"]]
     assert "gather references" not in all_cards
 
@@ -214,7 +202,7 @@ def test_validate_schema_flags_fixture_nonconformance(vault):
     assert any("'id' is a required" in i for i in meeting["issues"])
 
     # deliverables missing [for:: ...] / due are nonconforming
-    owed = by_note["Deliverables/Owed.md"]
+    owed = by_note["Tasks/Owed.md"]
     assert owed["entity"] == "deliverable"
     assert any(any(i.startswith("for:") for i in t["issues"]) for t in owed["tasks"])
 
@@ -248,8 +236,8 @@ def test_new_tasks_and_cards_born_stamped(vault):
                 if "Stamped at birth" in ln)
     assert " ^t-" in line
 
-    server.add_card("Boards/Project Board", "Backlog", "Stamped card")
-    board = server.read_board("Boards/Project Board")
+    server.add_card("Projects/Project Board", "Backlog", "Stamped card")
+    board = server.read_board("Projects/Project Board")
     backlog = next(c for c in board["columns"] if c["name"] == "Backlog")
     card = next(c for c in backlog["cards"] if c["text"] == "Stamped card")
     assert card["id"].startswith("c-")   # read_board shows clean text + the id

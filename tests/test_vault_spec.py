@@ -1,26 +1,10 @@
 """Phase-0 foundations (DEVPLAN): jsonval, the vault spec's folder→type
 map, id/block-ref primitives, Private/ exclusions, Chat-Id trailers."""
 
-import shutil
-from pathlib import Path
-
 import pytest
 
 import obsidian_mcp.vault as vault_mod
 from obsidian_mcp import ids, jsonval, server, tasks, vaultconfig
-
-TESTVAULT = Path(__file__).resolve().parent / "fixture_vault"
-
-
-@pytest.fixture()
-def vault(tmp_path, monkeypatch):
-    root = tmp_path / "vault"
-    shutil.copytree(TESTVAULT, root, ignore=shutil.ignore_patterns(".git"))
-    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(root))
-    monkeypatch.delenv("HARNESS_CHAT_ID", raising=False)
-    monkeypatch.setattr(vault_mod, "_vault", None)
-    return root
-
 
 # ---- jsonval (B1) ----
 
@@ -37,11 +21,14 @@ def test_validate_returns_readable_paths():
 
 def test_folder_type_map_is_the_typing_source():
     assert server._note_type({}, "Tasks/Inbox.md") == "task"
-    assert server._note_type({}, "Deliverables/Owed.md") == "deliverable"
-    assert server._note_type({}, "Projects/X.md") == "projects"   # unmapped folder
+    assert server._note_type({}, "Projects/X.md") == "project"    # boards live here too
+    assert server._note_type({}, "Stuff/X.md") == "stuff"         # unmapped folder
     assert server._note_type({}, "Home.md") == "other"            # root note
+    # folders are broad categories: the note's own frontmatter carries the
+    # specific type (2026-07-22 folder cleanup)
+    assert server._note_type({"type": "deliverable"}, "Tasks/Owed.md") == "deliverable"
     assert server._note_type({"type": "Research"}, "Tasks/x.md") == "research"  # fm wins
-    assert server._note_type({"kanban-plugin": "board"}, "Tasks/x.md") == "kanban"
+    assert server._note_type({"kanban-plugin": "board"}, "Projects/x.md") == "kanban"
 
 
 def test_missing_config_file_defaults(tmp_path):
@@ -108,6 +95,35 @@ def test_private_read_and_write_rejected(vault):
     with pytest.raises(vault_mod.VaultError) as e:
         server.read_note("Client Notes")
     assert "Private" not in str(e.value)
+
+
+def test_private_case_variants_rejected(vault):
+    # macOS/Windows filesystems are case-insensitive: private/ IS Private/,
+    # and small models lowercase paths constantly.
+    for variant in ("private/Client Notes", "PRIVATE/Client Notes.md", "pRiVaTe/Client Notes"):
+        with pytest.raises(vault_mod.VaultError, match="excluded"):
+            server.read_note(variant)
+    with pytest.raises(vault_mod.VaultError, match="excluded"):
+        server.append_to_note("private/leak", "leak")
+
+
+def test_symlinked_notes_do_not_leak(vault):
+    outside = vault.parent / "outside.md"
+    outside.write_text("OUTSIDE-SECRET\n")
+    (vault / "Outside Link.md").symlink_to(outside)
+    (vault / "Private Link.md").symlink_to(vault / "Private" / "Client Notes.md")
+    assert not any("Link" in n for n in server.list_notes()["notes"])
+    assert server.search_vault("PRIVATE-FIXTURE-MARKER")["total"] == 0
+    assert server.search_vault("OUTSIDE-SECRET")["total"] == 0
+
+
+def test_write_is_atomic_and_leaves_no_litter(vault):
+    import obsidian_mcp.vault as vm
+    v = vm.get_vault()
+    v.write("Tasks/Atomic.md", "one\n")
+    v.write("Tasks/Atomic.md", "two\n")
+    assert (vault / "Tasks/Atomic.md").read_text() == "two\n"
+    assert not list((vault / "Tasks").glob("*.tmp"))
 
 
 # ---- Chat-Id trailer (B4, vault side) ----

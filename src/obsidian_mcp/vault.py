@@ -7,14 +7,21 @@ vault-relative; anything that resolves outside the root is rejected.
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
+import hashlib
 import os
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
 from .vaultconfig import get_config
 
 IGNORED_DIRS = {".git", ".obsidian", ".trash"}
+
+# repo roots ensure_repo() has already initialized this process (see there)
+_ensured_repos: set[str] = set()
 
 
 class VaultError(Exception):
@@ -30,7 +37,10 @@ class Vault:
         self.chat_id = chat_id
         # Top-level folders structurally invisible to every tool — reads,
         # searches, and writes all reject them (vault.yaml `exclude`).
-        self.exclude = tuple(exclude)
+        # Matching is case-insensitive: macOS/Windows filesystems are, so
+        # "private/x" and "Private/x" are the same folder on disk.
+        self._exclude_lower = frozenset(e.lower() for e in exclude)
+        self._ignored_lower = frozenset(d.lower() for d in IGNORED_DIRS)
 
     # ---- paths ----
 
@@ -45,7 +55,7 @@ class Vault:
         if p.suffix == "" and not p.is_dir():
             p = p.with_suffix(".md")
         top = p.relative_to(self.root).parts
-        if top and top[0] in self.exclude:
+        if top and top[0].lower() in self._exclude_lower:
             raise VaultError(f"{top[0]}/ is excluded from harness access (vault.yaml exclude)")
         if must_exist and not p.exists():
             hint = self._suggest(rel_path)
@@ -68,10 +78,19 @@ class Vault:
         pattern = "**/*.md" if recursive else "*.md"
         for p in sorted(base.glob(pattern)):
             parts = p.relative_to(self.root).parts
-            if any(part in IGNORED_DIRS for part in parts):
+            if any(part.lower() in self._ignored_lower for part in parts):
                 continue
-            if parts and parts[0] in self.exclude:
+            if parts and parts[0].lower() in self._exclude_lower:
                 continue
+            # glob follows symlinks: a link inside the vault must not smuggle
+            # in a target that resolve() would have rejected.
+            rp = p.resolve()
+            if rp != p:
+                if not rp.is_relative_to(self.root):
+                    continue
+                rtop = rp.relative_to(self.root).parts
+                if rtop and rtop[0].lower() in self._exclude_lower:
+                    continue
             yield p
 
     def read(self, rel_path: str) -> str:
@@ -80,8 +99,46 @@ class Vault:
     def write(self, rel_path: str, content: str) -> Path:
         p = self.resolve(rel_path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content, encoding="utf-8")
+        # Temp file + rename: an interrupted write (crash, disk full, kill)
+        # must never leave a note half-written — the git snapshots only
+        # protect content that made it to a commit intact.
+        fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=p.name + ".", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.replace(tmp, p)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
         return p
+
+    def append(self, rel_path: str, text: str) -> Path:
+        """Append to a note (creating it if missing) through the same atomic
+        rewrite as write(), so a torn append can't corrupt earlier content."""
+        p = self.resolve(rel_path)
+        existing = p.read_text(encoding="utf-8") if p.exists() else ""
+        return self.write(rel_path, existing + text)
+
+    # ---- cross-process lock ----
+
+    @contextlib.contextmanager
+    def locked(self):
+        """Mutex for a whole snapshot→mutate→snapshot sequence.
+
+        Several processes mutate one vault (MCP tools, capture, the watcher,
+        revert); without this, one writer's `git add -A` snapshot can sweep
+        another writer's half-finished edit into the wrong commit. The lock
+        lives outside the vault so snapshots never pick it up, and flock is
+        released automatically if the holder dies."""
+        digest = hashlib.sha1(str(self.root).encode()).hexdigest()[:12]
+        lock_path = Path(tempfile.gettempdir()) / f"obsidian-harness-{digest}.lock"
+        with open(lock_path, "w") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
 
     # ---- git snapshots ----
 
@@ -92,11 +149,21 @@ class Vault:
         )
 
     def ensure_repo(self) -> None:
+        # A vault nested inside a parent git repo (no .git of its own but
+        # tracked by an ancestor) gets its own repo here — snapshots must not
+        # land in, or depend on, an unrelated outer repo. A `.git` file
+        # (worktree/submodule) counts as a repo and is left alone.
+        # Idempotent and called before every git op, so the answer is cached
+        # per repo root — an engine pass otherwise pays 10+ `git config`
+        # subprocesses re-proving the same thing.
+        if str(self.root) in _ensured_repos:
+            return
         if not (self.root / ".git").exists():
             self._git("init", "-q")
         if self._git("config", "user.email").returncode != 0:
             self._git("config", "user.email", "harness@local")
             self._git("config", "user.name", "harness")
+        _ensured_repos.add(str(self.root))
 
     def commit_if_dirty(self, message: str) -> bool:
         """Commit any pending changes. Returns True if a commit was made.
@@ -166,16 +233,17 @@ class Vault:
         """Revert one commit as a new commit. On conflict, abort cleanly and
         report — the vault is never left in a half-reverted state."""
         self.ensure_repo()
-        try:
-            self.commit_if_dirty("manual edits (before revert)")
-        except VaultError as e:
-            return False, str(e)
-        r = self._git("revert", "--no-edit", sha)
-        if r.returncode != 0:
-            self._git("revert", "--abort")
-            detail = (r.stderr or r.stdout).strip().splitlines()
-            return False, detail[0] if detail else "revert failed"
-        return True, ""
+        with self.locked():
+            try:
+                self.commit_if_dirty("manual edits (before revert)")
+            except VaultError as e:
+                return False, str(e)
+            r = self._git("revert", "--no-edit", sha)
+            if r.returncode != 0:
+                self._git("revert", "--abort")
+                detail = (r.stderr or r.stdout).strip().splitlines()
+                return False, detail[0] if detail else "revert failed"
+            return True, ""
 
 
 _vault: Vault | None = None
@@ -190,6 +258,6 @@ def get_vault() -> Vault:
         _vault = Vault(
             root,
             chat_id=os.environ.get("HARNESS_CHAT_ID", ""),
-            exclude=get_config().exclude,
+            exclude=get_config(root).exclude,
         )
     return _vault

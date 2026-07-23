@@ -1,0 +1,14 @@
+[package]
+name = "tezcatd"
+version = "0.1.0"
+edition = "2024"
+description = "Headless trigger for the tezcat engine: watch the vault, wait for quiet, run one pass."
+
+# Zero dependencies on purpose: an mtime walk every few seconds is
+# imperceptible at vault scale (DESIGN-processors.md §2 — "no FSEvents
+# until the poll measurably costs something"), and std has everything a
+# watch-debounce-spawn loop needs.
+[dependencies]
+
+[profile.release]
+strip = true

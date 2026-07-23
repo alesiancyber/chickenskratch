@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 data/
 .env
+daemon/target/
 # runtime playground vault with its own git history (snapshots).
 # The tracked test fixture lives in tests/fixture_vault/.
 testvault/

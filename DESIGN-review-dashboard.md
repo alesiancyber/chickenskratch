@@ -1,12 +1,15 @@
 # Design: review dashboard — proposal queue, watcher, and scoped grouping
 
-*Status: **BUILT through D0/D1 machinery** (DEVPLAN Phase 4, 2026-07-22)
+*Status: **BUILT through D2 machinery** (DEVPLAN Phases 4–5, 2026-07-22)
 — queue (`src/harness/proposals.py`), applier (`applier.py`), watcher
 (`watcher.py`, `uv run harness-watch`, web-server poll), `schema_fix`
-drafter, and the `Harness/Review.md` checkbox flow are implemented and
-tested end-to-end with a scripted drafter. The D0/D1 **usage gates**
-(10 real proposals reviewed, a real stale occurrence) still need live
-mileage; D2/D3 grouping is not built. Depends on DESIGN-vault-schema.md
+drafter, the `Harness/Review.md` checkbox flow, the `Harness/Capture.md`
+intake surface, and grouping G1 (`grouping.py`: structural candidates,
+partition integrity, byte-identical rewrites, eval cases incl. the
+customer-boundary regression) are implemented and tested end-to-end with
+scripted drafters. The D0/D1/D2 **usage gates** (real proposals reviewed
+live, a real stale occurrence, a live grouping eval run) still need
+mileage; D3 (G2 cross-note consolidation) is not built. Depends on DESIGN-vault-schema.md
 as its substrate. Complements DESIGN-training-corpus.md: every dashboard
 decision is a corpus label (`source: "dashboard"`, wired). **§4 (web
 pane) is superseded by DESIGN-vault.md §5:** the dashboard renders as
@@ -271,7 +274,7 @@ proposal to `stale` (test + one real occurrence).
 Rollback: revert to manual `harness-watch`.
 
 **D2 — grouping G1 (within-note, tasks only, stamped scopes only).
-⏳ not built; gated on D0/D1 being dialed.**
+✅ machinery built and unit-tested (DEVPLAN 5.2); usage gate open.**
 Gate: grouping eval cases pass including the customer-boundary
 regression case; 5 real G1 proposals with ≥3 approved (if the user
 rejects most groupings, the drafter isn't dialed — stay in D2).

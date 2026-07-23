@@ -45,8 +45,23 @@
     Nadia will send the vendor contract, and someone on our side needs to
     review it in two weeks.
   expect:
-    - match: "(?i)vendor contract"
+    - match: "(?i)send the vendor contract"
+      owed_by: "Nadia"
+    - match: "(?i)review"
       due: "{plus14}"
+      owed_by: null
+  exact: true
+
+- name: owed-commitment-followup
+  text: |
+    Marcus said he'll get me the firewall logs by {tomorrow}. Once they
+    arrive I need to draft the Sigma detection rule.
+  expect:
+    - match: "(?i)firewall logs"
+      owed_by: "Marcus"
+      due: "{tomorrow}"
+    - match: "(?i)[Ss]igma detection rule"
+      owed_by: null
   exact: true
 
 - name: completed-item-excluded

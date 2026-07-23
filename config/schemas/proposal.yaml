@@ -12,9 +12,14 @@ properties:
     type: string
     pattern: "^p-[0-9a-f]{12}$"
   kind:
-    enum: [schema_fix, grouping]
+    # a processor name (the registry is the authority on which exist —
+    # enumerating them here would make a fourth processor a schema edit)
+    type: string
+    pattern: "^[a-z][a-z0-9_]*$"
   status:
-    enum: [pending, approved, rejected, stale]
+    # `auto` = applied without a checkbox: a Spec.md-trusted processor's
+    # draft that passed its deterministic verifier
+    enum: [pending, approved, rejected, stale, auto]
   created:
     type: string
   drafted_against:

@@ -25,7 +25,7 @@ can be dropped in unchanged.
 
 - Keep bodies short (~500 words). They share context with 15+ tool schemas
   on local models.
-- Instructions reference the vault's own templates (`Templates/*.md`) rather
+- Instructions reference the vault's own templates (`Harness/Templates/*.md`) rather
   than embedding formats — users change formats by editing their vault, not
   the skill.
 - Skills describe *procedure and judgment*, not tool mechanics — the tools
@@ -39,7 +39,7 @@ Stream-of-consciousness input needs zero latency and zero failure modes, so
 capture is model-free by design:
 
 1. Toggle **Capture** in the chat UI (or `harness capture` in the CLI).
-   Every line typed is appended verbatim to `Captures/{date}-{slug}.md` —
+   Every line typed is appended verbatim to `Meetings/{date}-{slug}.md` —
    no model round-trip, nothing to go wrong mid-meeting.
 2. Toggle off (or `/done`) → invokes the `meeting-capture` skill pointed at
    the capture note. The model structures it into a real meeting note.

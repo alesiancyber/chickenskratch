@@ -1,0 +1,112 @@
+[
+  {
+    "name": "urgent-priority-mapping",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: extract_tasks worker (gemini-3.1-pro) unavailable: Error code: 404 - [{'error': {'code': 404, 'message': 'models/gemini-3.1-pro is not found for API version v1main, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.', 'status': 'NOT_FOUND'}}]"
+    ],
+    "seconds": 0.6,
+    "last_reply": null
+  },
+  {
+    "name": "someday-item-kept",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: extract_tasks worker (gemini-3.1-pro) unavailable: Error code: 404 - [{'error': {'code': 404, 'message': 'models/gemini-3.1-pro is not found for API version v1main, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.', 'status': 'NOT_FOUND'}}]"
+    ],
+    "seconds": 0.3,
+    "last_reply": null
+  },
+  {
+    "name": "relative-date-two-weeks",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: extract_tasks worker (gemini-3.1-pro) unavailable: Error code: 404 - [{'error': {'code': 404, 'message': 'models/gemini-3.1-pro is not found for API version v1main, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.', 'status': 'NOT_FOUND'}}]"
+    ],
+    "seconds": 0.3,
+    "last_reply": null
+  },
+  {
+    "name": "completed-item-excluded",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: extract_tasks worker (gemini-3.1-pro) unavailable: Error code: 404 - [{'error': {'code': 404, 'message': 'models/gemini-3.1-pro is not found for API version v1main, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.', 'status': 'NOT_FOUND'}}]"
+    ],
+    "seconds": 0.3,
+    "last_reply": null
+  },
+  {
+    "name": "no-tasks-pure-status",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: extract_tasks worker (gemini-3.1-pro) unavailable: Error code: 404 - [{'error': {'code': 404, 'message': 'models/gemini-3.1-pro is not found for API version v1main, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.', 'status': 'NOT_FOUND'}}]"
+    ],
+    "seconds": 0.3,
+    "last_reply": null
+  },
+  {
+    "name": "decision-is-not-a-task",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: extract_tasks worker (gemini-3.1-pro) unavailable: Error code: 404 - [{'error': {'code': 404, 'message': 'models/gemini-3.1-pro is not found for API version v1main, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.', 'status': 'NOT_FOUND'}}]"
+    ],
+    "seconds": 0.3,
+    "last_reply": null
+  },
+  {
+    "name": "multiple-tasks-mixed",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: extract_tasks worker (gemini-3.1-pro) unavailable: Error code: 404 - [{'error': {'code': 404, 'message': 'models/gemini-3.1-pro is not found for API version v1main, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.', 'status': 'NOT_FOUND'}}]"
+    ],
+    "seconds": 0.2,
+    "last_reply": null
+  },
+  {
+    "name": "date-not-repeated-in-text",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: extract_tasks worker (gemini-3.1-pro) unavailable: Error code: 404 - [{'error': {'code': 404, 'message': 'models/gemini-3.1-pro is not found for API version v1main, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.', 'status': 'NOT_FOUND'}}]"
+    ],
+    "seconds": 0.2,
+    "last_reply": null
+  },
+  {
+    "name": "grouping-thematic-split",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: grouping worker (gemini-3.1-pro) unavailable: Error code: 404 - [{'error': {'code': 404, 'message': 'models/gemini-3.1-pro is not found for API version v1main, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.', 'status': 'NOT_FOUND'}}]"
+    ],
+    "seconds": 0.2,
+    "last_reply": null
+  },
+  {
+    "name": "grouping-customer-boundary",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: grouping worker (gemini-3.1-pro) unavailable: Error code: 404 - [{'error': {'code': 404, 'message': 'models/gemini-3.1-pro is not found for API version v1main, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.', 'status': 'NOT_FOUND'}}]"
+    ],
+    "seconds": 0.1,
+    "last_reply": null
+  }
+]

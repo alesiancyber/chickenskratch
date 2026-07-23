@@ -66,7 +66,7 @@ def validate_frontmatter(entity_type: str, fm: dict) -> list[str]:
 
 def line_kind(entity_type: str) -> str:
     """Which line schema applies to checkbox lines inside a note of this
-    type: cards on boards, deliverables in Deliverables/, tasks elsewhere."""
+    type: cards on boards, deliverables in notes typed `deliverable`, tasks elsewhere."""
     if entity_type == "kanban":
         return "card"
     if entity_type == "deliverable":

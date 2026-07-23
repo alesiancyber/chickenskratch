@@ -1,0 +1,24 @@
+[
+  {
+    "name": "owed-commitment-followup",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 28.8,
+    "last_reply": [
+      {
+        "text": "Provide the firewall logs",
+        "due": "2026-07-23",
+        "priority": null,
+        "owed_by": "Marcus"
+      },
+      {
+        "text": "Draft the Sigma detection rule",
+        "due": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  }
+]

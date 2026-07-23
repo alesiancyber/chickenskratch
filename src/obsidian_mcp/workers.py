@@ -40,7 +40,8 @@ def _worker_client() -> AsyncOpenAI:
     global _client
     if _client is None:
         base_url = os.environ.get("WORKER_BASE_URL", "http://127.0.0.1:8081/v1")
-        _client = AsyncOpenAI(base_url=base_url, api_key="ollama")
+        # Cloud worker endpoints need real auth; local servers ignore the key.
+        _client = AsyncOpenAI(base_url=base_url, api_key=os.environ.get("WORKER_API_KEY") or "ollama")
     return _client
 
 
@@ -107,11 +108,16 @@ person needs to do — not a decision already made, not a general topic, not \
 something that already happened.
 
 Return ONLY a JSON object of this shape, nothing else:
-{{"tasks": [{{"text": "...", "due": "YYYY-MM-DD or null", "priority": "highest|high|medium|low|lowest or null"}}]}}
+{{"tasks": [{{"text": "...", "due": "YYYY-MM-DD or null", "priority": "highest|high|medium|low|lowest or null", "owed_by": "name or null"}}]}}
 
 Rules:
 - due: a specific date only if stated or clearly implied by the text. Today is {today}.
 - priority: only if stated or strongly implied (e.g. "urgent" -> highest). Otherwise null.
+- owed_by: when someone ELSE committed to doing or providing something \
+("Nadia will send X", "Marcus said he'll get me Y"), extract it too — it is \
+a follow-up, with owed_by set to that person's name and text describing what \
+they owe. The reader's own actions (including "we" or "someone on our side") \
+have owed_by null.
 - text: the task itself, imperative mood, without repeating the date or priority word.
 - A decision already made, or a plan someone reviewed or approved, is NOT a \
 task unless the text asks someone to carry it out. But a suggestion for future \
@@ -147,6 +153,24 @@ Issues:
 
 Note content:
 {content}
+"""
+
+_GROUPING_PROMPT = """\
+Organize the flat task list below into a few thematic groups.
+
+Return ONLY a JSON object of this shape, nothing else:
+{{"groups": [{{"name": "Short group heading", "member_ids": ["t-..."]}}]}}
+
+Rules:
+- Every task id appears in exactly one group. Never invent, drop, or repeat ids.
+- Group by what the work is actually about. Tasks that belong to different
+  clients, projects, or systems must NEVER share a group, even when their
+  wording is similar.
+- Use 2 to 6 groups. A task that fits nowhere goes in a group named "Ungrouped".
+- Group names are short noun phrases, not sentences.
+
+Tasks (id: text):
+{tasks}
 """
 
 WORKERS: dict[str, WorkerSpec] = {
@@ -199,6 +223,34 @@ WORKERS: dict[str, WorkerSpec] = {
                             "priority": {
                                 "enum": ["highest", "high", "medium", "low", "lowest", None]
                             },
+                            "owed_by": {"type": ["string", "null"]},
+                        },
+                    },
+                }
+            },
+        },
+    ),
+    "grouping": WorkerSpec(
+        name="grouping",
+        prompt=_GROUPING_PROMPT,
+        temperature=0.1,
+        schema={
+            "type": "object",
+            "required": ["groups"],
+            "properties": {
+                "groups": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "required": ["name", "member_ids"],
+                        "properties": {
+                            "name": {"type": "string", "minLength": 1},
+                            "member_ids": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {"type": "string"},
+                            },
                         },
                     },
                 }
@@ -212,6 +264,11 @@ async def extract_tasks(text: str, today: str) -> list[dict]:
     """Pull structured tasks out of free text via the extract_tasks worker."""
     data = await run_worker(WORKERS["extract_tasks"], today=today, text=text.strip())
     return [
-        {"text": t["text"].strip(), "due": t.get("due") or None, "priority": t.get("priority") or None}
+        {
+            "text": t["text"].strip(),
+            "due": t.get("due") or None,
+            "priority": t.get("priority") or None,
+            "owed_by": (t.get("owed_by") or "").strip() or None,
+        }
         for t in data["tasks"]
     ]

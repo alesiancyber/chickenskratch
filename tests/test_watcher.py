@@ -5,17 +5,12 @@ stands in for the worker LLM, same philosophy as FakeOpenAI."""
 
 import asyncio
 import json
-import shutil
-from pathlib import Path
 
 import pytest
 
-import obsidian_mcp.vault as vault_mod
 from harness import proposals
 from harness.watcher import Watcher
 from obsidian_mcp.vault import Vault
-
-TESTVAULT = Path(__file__).resolve().parent / "fixture_vault"
 
 
 async def fake_drafter(item):
@@ -31,26 +26,16 @@ async def fake_drafter(item):
 
 
 @pytest.fixture()
-def vault(tmp_path, monkeypatch):
-    root = tmp_path / "vault"
-    shutil.copytree(TESTVAULT, root, ignore=shutil.ignore_patterns(".git"))
-    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(root))
-    monkeypatch.delenv("HARNESS_CHAT_ID", raising=False)
-    monkeypatch.setattr(vault_mod, "_vault", None)
-    Vault(root).commit_if_dirty("baseline")  # the memo needs a HEAD
-    return root
+def vault(gitvault):
+    # this suite tests the checkbox path — revoke auto-apply trust
+    (gitvault / "Harness").mkdir(exist_ok=True)
+    (gitvault / "Harness/Spec.md").write_text("---\nauto_apply: []\n---\n\n# Vault Spec\n")
+    return gitvault
 
 
 @pytest.fixture()
-def watcher(vault, tmp_path, monkeypatch):
-    monkeypatch.setattr("harness.watcher.record_dashboard", lambda *a, **k: None)
-    return Watcher(
-        str(vault),
-        proposals_dir=tmp_path / "proposals",
-        state_path=tmp_path / "watcher_state.json",
-        drafter=fake_drafter,
-        n_max=3,
-    )
+def watcher(vault, make_watcher):
+    return make_watcher(vault, drafter=fake_drafter, n_max=3)
 
 
 def run(watcher):

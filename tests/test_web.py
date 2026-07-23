@@ -87,11 +87,28 @@ def test_unknown_model_rejected_before_stream(tmp_path, monkeypatch):
     vault.mkdir()
     monkeypatch.setattr("harness.chats.CHATS_DIR", tmp_path / "chats")
     app = build_app(make_config(str(vault)), servers=[], vault=str(vault))
-    with TestClient(app) as tc:
+    with TestClient(app, base_url="http://127.0.0.1") as tc:
         r = tc.post("/api/chat", json={"message": "hi", "model": "nope"})
         assert r.status_code == 400
         assert "unknown model" in r.json()["error"]
         assert "fake" in r.json()["error"]  # tells the user what is available
+
+
+def test_cross_origin_and_dns_rebinding_rejected(tmp_path, monkeypatch):
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    monkeypatch.setattr("harness.chats.CHATS_DIR", tmp_path / "chats")
+    app = build_app(make_config(str(vault)), servers=[], vault=str(vault))
+    with TestClient(app, base_url="http://127.0.0.1") as tc:
+        # DNS rebinding: attacker.com resolving to 127.0.0.1 carries its own Host
+        assert tc.get("/", headers={"Host": "attacker.example"}).status_code == 403
+        # CSRF: a malicious page firing a no-preflight cross-origin POST
+        r = tc.post("/api/reset", headers={"Origin": "https://evil.example"})
+        assert r.status_code == 403
+        # the app's own origin and plain non-browser clients still work
+        assert tc.post("/api/reset", headers={"Origin": "http://127.0.0.1:8765"}).status_code == 200
+        assert tc.post("/api/reset").status_code == 200
+        assert tc.get("/", headers={"Host": "localhost:8765"}).status_code == 200
 
 
 def _catalog(monkeypatch, tmp_path, cat):
@@ -137,7 +154,7 @@ def test_mcp_endpoint_validates_tools(tmp_path, monkeypatch):
     specs = [ServerSpec(name="obsidian", transport="stdio")]
     app = build_app(make_config(str(vault)), servers=specs, vault=str(vault),
                     presets={"Checklist": ["add_task"]})
-    with TestClient(app) as tc:
+    with TestClient(app, base_url="http://127.0.0.1") as tc:
         assert tc.post("/api/mcp", json={"tools": []}).status_code == 400
         assert tc.post("/api/mcp", json={"tools": ["nonexistent"]}).status_code == 400
 
@@ -162,7 +179,7 @@ def test_report_issue_saves_conversation(tmp_path, monkeypatch):
     monkeypatch.setattr("harness.chats.CHATS_DIR", tmp_path / "chats")
     monkeypatch.setattr("harness.bugreports.REPORTS_DIR", tmp_path / "reports")
     app = build_app(make_config(str(vault)), servers=[], vault=str(vault))
-    with TestClient(app) as tc:
+    with TestClient(app, base_url="http://127.0.0.1") as tc:
         # no active conversation yet: still saves a (near-empty) report
         r = tc.post("/api/report", json={"description": "streaming stalled"})
         assert r.status_code == 200 and r.json()["ok"]
@@ -219,7 +236,7 @@ def test_report_issue_records_corpus_label(tmp_path, monkeypatch):
     captured = []
     monkeypatch.setattr("harness.web.record_bug_report", lambda *a, **k: captured.append(a))
     app = build_app(make_config(str(vault)), servers=[], vault=str(vault))
-    with TestClient(app) as tc:
+    with TestClient(app, base_url="http://127.0.0.1") as tc:
         assert tc.post("/api/report", json={"description": "wrong counts"}).json()["ok"]
     # no active conversation: called with an empty trajectory, which the
     # corpus layer no-ops on (test_corpus covers that guard)
@@ -244,7 +261,7 @@ def test_revert_records_corpus_label_via_trailer(tmp_path, monkeypatch):
         [{"role": "system", "content": "s"}, {"role": "user", "content": "hi"}],
     )
     app = build_app(make_config(str(tmp_path / "vault")), servers=[], vault=str(tmp_path / "vault"))
-    with TestClient(app) as tc:
+    with TestClient(app, base_url="http://127.0.0.1") as tc:
         assert tc.post("/api/revert", json={"sha": sha}).json()["ok"]
     (call,) = captured
     assert call[0] == "chat-777" and call[1] == "fake" and call[3] == sha
@@ -257,7 +274,7 @@ def test_revert_skips_pruned_chat_and_untrailered_commits(tmp_path, monkeypatch)
     captured = []
     monkeypatch.setattr("harness.web.record_revert", lambda *a, **k: captured.append(a))
     app = build_app(make_config(str(tmp_path / "vault")), servers=[], vault=str(tmp_path / "vault"))
-    with TestClient(app) as tc:
+    with TestClient(app, base_url="http://127.0.0.1") as tc:
         assert tc.post("/api/revert", json={"sha": sha}).json()["ok"]  # pruned: revert still works
         v = Vault(tmp_path / "vault")  # no chat_id: an untrailered commit
         (tmp_path / "vault" / "plain.md").write_text("x\n")
@@ -272,7 +289,7 @@ def test_server_endpoints_refuse_unknown_backends(tmp_path, monkeypatch):
     vault.mkdir()
     monkeypatch.setattr("harness.chats.CHATS_DIR", tmp_path / "chats")
     app = build_app(make_config(str(vault)), servers=[], vault=str(vault))
-    with TestClient(app) as tc:
+    with TestClient(app, base_url="http://127.0.0.1") as tc:
         assert tc.get("/api/servers").json() == {"servers": []}  # none configured
         assert tc.post("/api/servers/start", json={"name": "evil"}).status_code == 404
         assert tc.post("/api/servers/stop", json={"name": "evil"}).status_code == 404

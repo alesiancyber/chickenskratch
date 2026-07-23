@@ -27,10 +27,9 @@ import re
 import sys
 import time
 
-import yaml
-
 from obsidian_mcp import workers
 
+from . import evals, grouping
 from .bootstrap import ROOT
 from .evals import date_subs, fill
 
@@ -39,14 +38,7 @@ REPORTS_DIR = ROOT / "evals" / "reports" / "workers"
 
 
 def load_cases() -> list[dict]:
-    cases: list[dict] = []
-    for f in sorted(CASES_DIR.glob("*.yaml")):
-        cases.extend(yaml.safe_load(f.read_text(encoding="utf-8")) or [])
-    names = [c["name"] for c in cases]
-    dupes = {n for n in names if names.count(n) > 1}
-    if dupes:
-        raise SystemExit(f"duplicate case names: {sorted(dupes)}")
-    return cases
+    return evals.load_cases(CASES_DIR)
 
 
 def score(case: dict, tasks: list[dict], subs: dict[str, str]) -> list[str]:
@@ -61,7 +53,7 @@ def score(case: dict, tasks: list[dict], subs: dict[str, str]) -> list[str]:
             failures.append(f"no returned task matches {pattern!r}")
             continue
         remaining.remove(hit)
-        for field in ("due", "priority"):
+        for field in ("due", "priority", "owed_by"):
             if field not in want:
                 continue  # absent key = unchecked; explicit null = must be null
             want_val = fill(want[field], subs) if isinstance(want[field], str) else want[field]
@@ -78,16 +70,47 @@ def score(case: dict, tasks: list[dict], subs: dict[str, str]) -> list[str]:
     return failures
 
 
+def score_grouping(case: dict, reply: dict) -> list[str]:
+    """Structural check of one grouping reply. Partition integrity is
+    always enforced; cases then pin the judgment with `must_group` (id
+    lists that must share a group) and `must_separate` (id pairs that
+    must not) — group names are the model's choice and never scored."""
+    ids = [t["id"] for t in case["tasks"]]
+    groups = reply.get("groups", [])
+    failures = grouping.validate_partition(groups, ids)
+    member_of = {mid: str(g.get("name", "")) for g in groups for mid in g.get("member_ids", [])}
+    for id_list in case.get("must_group", []):
+        names = {member_of.get(i) for i in id_list}
+        if len(names) > 1:
+            failures.append(f"{id_list} should share a group; got {sorted(n or '?' for n in names)}")
+    for a, b in case.get("must_separate", []):
+        if member_of.get(a) is not None and member_of.get(a) == member_of.get(b):
+            failures.append(f"{a} and {b} must not share a group (both in {member_of[a]!r})")
+    return failures
+
+
+async def _run_worker_once(case: dict, subs: dict[str, str]) -> tuple[object, list[str]]:
+    """Dispatch one call to the case's worker (default extract_tasks) and
+    score its reply. Returns (reply, failures)."""
+    if case.get("worker") == "grouping":
+        reply = await workers.run_worker(
+            workers.WORKERS["grouping"],
+            tasks="\n".join(f"{t['id']}: {t['text']}" for t in case["tasks"]),
+        )
+        return reply, score_grouping(case, reply)
+    tasks = await workers.extract_tasks(fill(case["text"], subs), subs["{today}"])
+    return tasks, score(case, tasks, subs)
+
+
 async def run_case(case: dict, subs: dict[str, str], repeat: int) -> dict:
     runs = []
     for _ in range(repeat):
         start = time.monotonic()
         try:
-            tasks = await workers.extract_tasks(fill(case["text"], subs), subs["{today}"])
-            failures = score(case, tasks, subs)
+            reply, failures = await _run_worker_once(case, subs)
         except Exception as e:  # VaultError (junk output, server down) = failed run, not a crash
-            tasks, failures = [], [f"run error: {type(e).__name__}: {e}"]
-        runs.append({"failures": failures, "tasks": tasks, "seconds": round(time.monotonic() - start, 1)})
+            reply, failures = None, [f"run error: {type(e).__name__}: {e}"]
+        runs.append({"failures": failures, "reply": reply, "seconds": round(time.monotonic() - start, 1)})
     clean = sum(not r["failures"] for r in runs)
     first_bad = next((r for r in runs if r["failures"]), None)
     return {
@@ -97,7 +120,7 @@ async def run_case(case: dict, subs: dict[str, str], repeat: int) -> dict:
         "runs": repeat,
         "failures": first_bad["failures"] if first_bad else [],
         "seconds": round(sum(r["seconds"] for r in runs), 1),
-        "last_tasks": runs[-1]["tasks"],
+        "last_reply": runs[-1]["reply"],
     }
 
 
@@ -120,7 +143,7 @@ def write_report(model: str, results: list[dict], repeat: int):
     strict = sum(r["passed"] for r in results)
     clean = sum(r["clean_runs"] for r in results)
     lines = [
-        f"# Worker eval — extract_tasks — {model} — {stamp}",
+        f"# Worker eval — {model} — {stamp}",
         "",
         f"**{strict}/{len(results)} cases passed all {repeat} runs** "
         f"— {clean}/{repeat * len(results)} runs clean",
@@ -149,6 +172,13 @@ def main() -> None:
     parser.add_argument("--repeat", type=int, default=3, help="runs per case (default 3)")
     args = parser.parse_args()
 
+    from .bootstrap import DEFAULT_MODELS, load_env_file, resolve_worker_env
+    from .profiles import load_config
+
+    # Same worker resolution as every other entry point: .env fills gaps,
+    # the models.yaml `worker:` profile fills the rest, flags below win.
+    load_env_file()
+    resolve_worker_env(load_config(DEFAULT_MODELS))
     if args.model:
         os.environ["WORKER_MODEL"] = args.model
     if args.base_url:

@@ -1,16 +1,24 @@
-# Vault spec (DESIGN-vault.md) — the one source of folder→entity-type
-# mapping, harness surface paths, and model-context exclusions.
+# Vault spec DEFAULTS (DESIGN-vault.md). The vault describes itself:
+# once a vault has a `Harness/Spec.md`, that note's frontmatter is the
+# live source for folders/inboxes/exclusions (edited in Obsidian, read
+# every engine pass). This file seeds new vaults and covers the
+# no-vault-resolved case; surface paths and schemas_dir stay here
+# (machine concerns, not note edits).
 #
 # folders: maps a top-level vault folder to the entity type of the notes
 # and task lines inside it. A note's own signals still win: kanban-plugin
 # frontmatter => kanban, then frontmatter `type:`, then this map, then
 # the bare folder name lowercased.
+#
+# Folders are broad categories, not one per type (the 2026-07-22 cleanup):
+# research and deliverable notes live in Tasks/ typed by their own
+# frontmatter (`type: research` / `type: deliverable`); kanban boards live
+# in Projects/ typed by their kanban-plugin frontmatter; web captures land
+# in Meetings/. The folder map is only the fallback for untyped notes.
 folders:
   Tasks: task
-  Deliverables: deliverable
   Meetings: meeting
-  Research: research
-  Boards: kanban
+  Projects: project
   Daily: daily
   Scripts: script
 
@@ -23,6 +31,11 @@ schemas_dir: schemas
 surfaces:
   review: Harness/Review.md
   capture: Harness/Capture.md
+
+# Where tasks extracted from the capture surface land when their
+# proposal is approved.
+capture_inbox: Tasks/Inbox.md
+waiting_inbox: Tasks/Waiting.md   # follow-ups: things others committed to get you
 
 # Top-level folders that never enter model context. Enforced at the
 # vault layer (resolve/iter_notes), not by prompt convention: reads,

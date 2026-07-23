@@ -44,10 +44,23 @@ def _resolve_scope(root_arg: str) -> list[Path]:
         return roots
     p = Path(root_arg.strip()).expanduser()
     candidates = [p] if p.is_absolute() else [r / p for r in roots]
+    # Traversal prunes hidden dirs, so an explicit root must not re-open
+    # them: root="~/.ssh" under FILES_ROOTS="~" would read private keys.
+    # A dir the operator allowlisted directly (hidden parts at or above
+    # some root `r`) stays reachable through that root.
+    hidden = False
     for c in candidates:
         rc = c.resolve()
-        if rc.is_dir() and any(rc.is_relative_to(r) for r in roots):
-            return [rc]
+        if not rc.is_dir():
+            continue
+        for r in roots:
+            if rc.is_relative_to(r):
+                if any(part.startswith(".") for part in rc.relative_to(r).parts):
+                    hidden = True
+                else:
+                    return [rc]
+    if hidden:
+        raise ValueError(f"root {root_arg!r} is inside a hidden directory, which search never enters")
     raise ValueError(f"root must be an existing directory inside {[str(r) for r in roots]}")
 
 

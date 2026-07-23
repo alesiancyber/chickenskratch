@@ -5,8 +5,12 @@
 stamping, `Private/` tool-layer exclusion, the vault `.gitignore` venv
 rule, and the `Harness/Review.md` dashboard surface are all implemented
 and tested. Not yet built: `Harness/Capture.md`, `Harness/Changes.md`,
-the §4 opt-in entity menu, and grouping (see §9 progress). This is the
-**foundational** doc of the set: it defines what the vault IS.
+the §4 opt-in entity menu, and grouping (see §9 progress). This doc defines
+what the vault IS; the top-level principles now live in
+DESIGN-philosophy.md (adopted 2026-07-22), which supersedes §1's
+"stays in web" table — the web app is an admin console, and approvals
+are vault-side. DESIGN-processors.md carries the engine/commands
+direction forward.
 DESIGN-vault-schema.md supplies the schema/id mechanics for the entity
 types declared here; DESIGN-review-dashboard.md's pipeline stands, with
 its §4 web-pane UI superseded by the vault surfaces in §5 below.*
@@ -23,7 +27,9 @@ The user is in Obsidian while taking notes; changes should appear where
 the eyes already are (rule 1 already delivers live pickup of every harness
 write — this design just aims more of the product at it).
 
-What stays in the web UI — only the things Obsidian genuinely cannot be:
+What stays in the web UI — *table superseded by DESIGN-philosophy.md
+principle 1 (web = admin console: chat escape hatch, mid-chat confirm,
+servers, evals/stats, logs; approvals are vault-side via Review.md)*:
 
 | Stays in web/CLI                  | Why                                    |
 |-----------------------------------|----------------------------------------|
@@ -49,25 +55,41 @@ regenerated, never hand-merged.
 ```
 vault/
   Home.md          # user's own map-of-content — harness never writes it
-  Daily/           # daily notes (open_daily_note, DAILY_DIR)      [existing]
-  Meetings/        # meeting/capture notes (create_meeting_note)   [existing]
-  Tasks/           # todo lists; Tasks/Inbox.md is the default     [existing]
-  Deliverables/    # action items owed to a person (§3)            [new]
-  Boards/          # kanban                                        [existing]
-  Research/        # research notes (§3)                           [existing]
-  Scripts/         # scripts + their notes; venvs GITIGNORED (§6)  [existing]
-  Templates/       # note templates (create_meeting_note reads it) [existing]
-  Harness/         # machine-rendered surfaces: Review.md, Capture.md (§5) [new]
-  Private/         # never enters model context (§7)               [new]
-  Archive/         # graduation target for done/stale content      [new]
+  Daily/           # daily notes (open_daily_note)
+  Meetings/        # meetings AND their raw captures — one broad folder
+  Tasks/           # the task lists: Inbox.md, Waiting.md, Owed.md
+                   #   (type: deliverable), Reading List.md (type: research)
+  Projects/        # project notes + kanban boards (kanban-plugin typed)
+  Scripts/         # scripts + their notes; venvs GITIGNORED (§6)
+  Harness/         # machine surfaces: Review.md, Capture.md, Templates/ (§5)
+  Private/         # never enters model context (§7)
+  Archive/         # graduation target for done/stale content [when needed]
 ```
 
-`config/vault.yaml` (new) declares this: folder → entity type mapping
-(formalizing `_note_type()`'s folder fallback, server.py:187), schema file
-per type (`config/schemas/`), harness surface paths, and the `Private/`
-exclusion list. `_note_type` reads the mapping instead of hardcoding; an
-unmapped folder falls back to today's behavior, so a hand-grown vault
-keeps working — the config is a guarantee layer, not a straitjacket.
+**Folders are broad workspaces, not one-per-type** (the 2026-07-22
+consolidation). A folder-per-entity-type layout makes the sidebar a
+taxonomy instead of a workspace; instead the folder map supplies only
+the *default* type for untyped notes, and a note's own signals always
+win — `kanban-plugin` frontmatter ⇒ kanban, then frontmatter `type:`,
+then the map. So `Tasks/Owed.md` is a deliverable and `Tasks/Reading
+List.md` is research while sitting next to the inbox, and consolidation
+costs nothing mechanically. New entity types get a schema file and a
+`type:` value, not a folder.
+
+**The vault describes itself** (2026-07-23): the live source for the
+user-facing spec — the folder→type map, capture/waiting inboxes, and
+`Private/`-style exclusions — is the frontmatter of **`Harness/Spec.md`
+inside the vault**, edited in Obsidian like any note and re-read every
+engine pass (no restart; the note is seeded once from
+`config/vault.yaml`'s defaults and never regenerated). The repo YAML
+keeps only the defaults plus machine concerns (surface paths,
+`schemas_dir`). Drift closes in both directions: a new top-level folder
+with notes in it produces a `spec_drift` proposal in Review.md mapping
+it as `other` (a real entity type is a hand edit to Spec.md — that
+decision belongs to the user, not a worker). `_note_type` reads the
+effective mapping; an unmapped folder falls back to today's behavior,
+so a hand-grown vault keeps working — the spec is a guarantee layer,
+not a straitjacket.
 
 ## 3. Entity types (the 80% set)
 
@@ -78,8 +100,9 @@ DESIGN-vault-schema.md. Declared fields per type:
   emoji syntax, as today). Todo == task; one type, no alias.
 - **deliverable** — *a task with accountability made mechanical*: same
   line format plus **required** `for:` (a person) and **required** `due:`.
-  Lives in `Deliverables/` (or `for::` inline field elsewhere — pick one
-  in implementation; folder is simpler and wins ties). The distinction
+  Lives wherever it's useful — `Tasks/Owed.md` in practice — typed by
+  frontmatter `type: deliverable`, with `[for:: Name]` inline fields
+  marking per-line ownership (as built; the folder-based variant lost). The distinction
   exists **because the schema enforces something different**: a
   deliverable missing an owner or a date is nonconforming and lands in
   the review queue; a task missing them is fine. If that enforcement
@@ -147,7 +170,12 @@ inventories — the 20% tail, and the last one is banned outright (§7).
 - **`Harness/Capture.md`** — the capture button, retired to a note: type
   or paste into it (already in Obsidian, already typing); the watcher
   treats new content as capture input — extraction worker runs, proposed
-  tasks land in Review.md. The web capture buttons stay for
+  tasks land in Review.md. Extraction distinguishes ownership
+  (2026-07-22): the user's own actions go to `capture_inbox`
+  (`Tasks/Inbox.md`); commitments *other people* made ("Nadia will send
+  X") are follow-ups, rendered `Name: what they owe` in `waiting_inbox`
+  (`Tasks/Waiting.md`) — the incoming mirror of Owed.md's outgoing
+  deliverables. The web capture buttons stay for
   voice/CLI-side capture but gain no further development.
 - **`Harness/Changes.md`** — rendered view of recent harness commits
   (subject, time, files) so "what did it just do" is visible in Obsidian.
@@ -223,5 +251,7 @@ that makes two rules load-bearing:
    fuzzy suggestions.
 4. ✅ Watcher + queue + `Harness/Review.md` render + checkbox-approve
    (dashboard doc D0–D1 machinery; usage gates still open).
-5. ⏳ `Harness/Capture.md`; then Changes.md; then the §4 menu as needed —
-   gated behind the dashboard being dialed in real use.
+5. ✅ `Harness/Capture.md` (DEVPLAN 5.1: skeleton surface, extraction →
+   capture proposals, approve adds to `capture_inbox` and clears).
+   ⏳ Then Changes.md; then the §4 menu as needed — still gated behind
+   the dashboard being dialed in real use.

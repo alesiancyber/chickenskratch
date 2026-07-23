@@ -80,11 +80,14 @@ answer checks aren't perturbed.
 
 ## Vault spec: entity types, ids, and Private/
 
-`config/vault.yaml` declares what the vault *is*: which top-level folder
-holds which entity type (`Tasks/`→task, `Deliverables/`→deliverable,
-`Meetings/`, `Research/`, `Boards/`, `Daily/`), where the harness's
-rendered surfaces live (`Harness/`), and which folders are excluded from
-model context. Each entity type has a jsonschema in `config/schemas/`
+`config/vault.yaml` declares what the vault *is*: a small set of broad
+folders (`Tasks/`, `Meetings/`, `Projects/`, `Daily/`, `Scripts/`) that
+supply the *default* entity type, where the harness's rendered surfaces
+live (`Harness/`), and which folders are excluded from model context.
+Folders are workspaces, not a taxonomy — a note's own frontmatter always
+wins, so `Tasks/Owed.md` (`type: deliverable`) and `Tasks/Reading
+List.md` (`type: research`) sit beside the inbox, and kanban boards live
+in `Projects/` typed by their `kanban-plugin` key. Each entity type has a jsonschema in `config/schemas/`
 ([DESIGN-vault-schema.md](DESIGN-vault-schema.md)):
 
 - **Ids are review watermarks.** Everything the harness creates is born
@@ -176,6 +179,24 @@ uv run harness -i
 # different model profile / different vault
 uv run harness -m qwen3.5-9b -v ~/Vaults/personal "what's due today?"
 ```
+
+### Headless daemon (tezcatd)
+
+The Phase 8 trigger: a zero-dependency Rust binary that watches the
+whole vault, waits for typing to settle (3s), and runs one engine pass
+(`uv run harness-watch`) — so the system is fully ambient with nothing
+but Obsidian open. All intelligence stays in Python; the engine's pass
+lock makes it safe to run alongside `harness-web`.
+
+```sh
+cd daemon && cargo build --release
+./target/release/tezcatd --vault ../testvault --repo ..   # foreground
+```
+
+Login-start: fill in the absolute paths in
+[config/launchd/com.tezcat.watch.plist](config/launchd/com.tezcat.watch.plist),
+copy it to `~/Library/LaunchAgents/`, `launchctl load` it; logs land in
+`data/logs/tezcatd.log`.
 
 ### Chat UI
 
@@ -297,13 +318,14 @@ Only name + description ride in the system prompt; the body loads when
 invoked via `/skill-name` in chat or the model's `use_skill` tool.
 
 **Meeting capture:** hit **● Capture** in the chat UI, type freely during
-the meeting (lines append straight to a `Captures/` note — no model, no
-latency), hit **■ Stop** — the `meeting-capture` skill structures it into
-`Meetings/{date} {title}.md` with day/time, topics covered, and action
-items as real dated tasks. The raw capture is kept and linked, so a bad
-formatting pass is a free retry. Meeting format lives in
-`Templates/Meeting.md` (`{{title}} {{date}} {{day}} {{time}}`) — edit the
-template to change the format, no code.
+the meeting (lines append straight to a capture note in `Meetings/` — no
+model, no latency), hit **■ Stop** — the `meeting-capture` skill
+structures it into `Meetings/{date} {title}.md` with day/time, topics
+covered, and action items as real dated tasks. The raw capture is kept
+and linked, so a bad formatting pass is a free retry. Meeting format
+lives in `Harness/Templates/Meeting.md`
+(`{{title}} {{date}} {{day}} {{time}}`) — edit the template to change
+the format, no code.
 
 ## Tests
 
@@ -352,26 +374,36 @@ a scored answer instead of vibes.
 
 ## Status & roadmap
 
-Built and verified: everything above ([DEVPLAN.md](DEVPLAN.md) Phases 0–4,
-including the vault spec, entity schemas, review dashboard, and training
-corpus; the cloud escape hatch exists as the `gemini-3.5-flash-lite`
-profile, off unless explicitly picked). Remaining:
+Built and verified: the vault-as-UI plan's Phases 0–5 — vault spec,
+entity schemas, review dashboard, training corpus, the
+`Harness/Capture.md` intake surface, and grouping G1 (the cloud escape
+hatch exists as the `gemini-3.5-flash-lite` profile, off unless
+explicitly picked).
+
+**Direction as of 2026-07-22:** [DESIGN-philosophy.md](DESIGN-philosophy.md)
+is adopted — the vault is the interface, the AI is the maintenance
+layer, chat is a frozen escape hatch. The active plan is
+[DEVPLAN.md](DEVPLAN.md) (processor engine build-out): processor
+registry ([DESIGN-processors.md](DESIGN-processors.md)), headless
+daemon + launchd, inline `//commands`, `Harness/Changes.md`, then a
+gated `//research`. Remaining alongside it:
 
 - **Dashboard usage gates** — the machinery is built and tested; the
-  D0/D1 gates in [DESIGN-review-dashboard.md](DESIGN-review-dashboard.md)
-  want ~10 real proposals reviewed in Obsidian and one real stale
-  occurrence before anything is layered on top.
-- **`Harness/Capture.md` + `Harness/Changes.md`** — capture-as-a-note and
-  a rendered recent-commits view ([DESIGN-vault.md](DESIGN-vault.md) §5);
-  gated behind the dashboard being dialed.
-- **Grouping** — organize a brain-dump list (G1), then cross-note
-  duplicate consolidation (G2); scope-limited by entity boundaries,
-  gated per [DESIGN-review-dashboard.md](DESIGN-review-dashboard.md) §3.
+  D0/D1/D2 gates in [DESIGN-review-dashboard.md](DESIGN-review-dashboard.md)
+  want ~10 real schema proposals plus ~5 real grouping proposals reviewed
+  in Obsidian, one real stale occurrence, and a live
+  `harness-worker-eval -k grouping` run before anything is layered on top.
+- **Grouping G2** — cross-note duplicate consolidation with the tier-0
+  similarity pre-filter; gated on G1's D2 gate per
+  [DESIGN-review-dashboard.md](DESIGN-review-dashboard.md) §3.
 - **Mixed-model routing / b70 orchestrator** — proposed, not approved:
   [DESIGN-mixed-models.md](DESIGN-mixed-models.md) (its worker-contract
   piece is the part that already shipped).
-- **Real-vault onboarding** — `.obsidian/` snapshot hygiene, single
-  auto-committer decision, launchd auto-start.
-- **Jira via Atlassian's remote MCP** (OAuth 2.1) — endpoint already
-  configured but disabled; includes `enable_toolset` dynamic tool loading
-  to keep its ~25 tools out of context until needed.
+- **Real-vault onboarding** — `.obsidian/` snapshot hygiene and the
+  single auto-committer decision (launchd auto-start moved into
+  DEVPLAN Phase 8).
+- **Jira via Atlassian's remote MCP** (OAuth 2.1) — endpoint configured
+  but disabled, and now additionally gated behind the
+  external-service-processor exclusion in
+  [DESIGN-philosophy.md](DESIGN-philosophy.md): needs a
+  credentials/egress design before it comes back.

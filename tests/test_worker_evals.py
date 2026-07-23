@@ -7,7 +7,7 @@ counts, forbidden text) get pinned here.
 
 from __future__ import annotations
 
-from harness.worker_evals import score
+from harness.worker_evals import score, score_grouping
 
 SUBS = {"{today}": "2026-07-20", "{tomorrow}": "2026-07-21", "{plus14}": "2026-08-03"}
 
@@ -55,3 +55,41 @@ def test_forbidden_text_fails():
 def test_two_expectations_cannot_match_one_task():
     case = {"expect": [{"match": "(?i)report"}, {"match": "(?i)report"}]}
     assert score(case, [task("submit expense report")], SUBS)
+
+
+# ---- grouping scorer ----
+
+GCASE = {
+    "tasks": [{"id": "t-1", "text": "a"}, {"id": "t-2", "text": "b"},
+              {"id": "t-3", "text": "c"}, {"id": "t-4", "text": "d"}],
+    "must_group": [["t-1", "t-2"]],
+    "must_separate": [["t-1", "t-3"]],
+}
+
+
+def groups(*member_lists):
+    return {"groups": [{"name": f"G{i}", "member_ids": list(m)}
+                       for i, m in enumerate(member_lists)]}
+
+
+def test_grouping_pass():
+    assert score_grouping(GCASE, groups(["t-1", "t-2"], ["t-3", "t-4"])) == []
+
+
+def test_grouping_partition_integrity_always_enforced():
+    assert score_grouping(GCASE, groups(["t-1", "t-2"], ["t-3"]))          # dropped t-4
+    assert score_grouping(GCASE, groups(["t-1", "t-2"], ["t-3", "t-4", "t-9"]))  # invented
+
+
+def test_grouping_must_group_violation_fails():
+    assert score_grouping(GCASE, groups(["t-1", "t-3"], ["t-2", "t-4"]))
+
+
+def test_grouping_must_separate_violation_fails():
+    assert score_grouping(GCASE, groups(["t-1", "t-2", "t-3"], ["t-4"]))
+
+
+def test_grouping_names_are_never_scored():
+    reply = {"groups": [{"name": "anything at all", "member_ids": ["t-1", "t-2"]},
+                        {"name": "whatever", "member_ids": ["t-3", "t-4"]}]}
+    assert score_grouping(GCASE, reply) == []

@@ -42,19 +42,24 @@ def use_vault(vault_path: str) -> None:
     vault_mod._vault = None
 
 
-def vault_state(vault_path: str) -> tuple[str, bool]:
-    """(HEAD sha, tree is clean). Empty sha if the repo has no commits yet."""
+def vault_state(vault_path: str) -> tuple[str, str]:
+    """(HEAD sha, `git status --porcelain` text). Empty sha if the repo has
+    no commits yet; empty text = clean tree. Returning the porcelain output
+    lets callers derive both cleanliness and a dirty-state hash from the
+    one subprocess."""
     v = Vault(vault_path)
     v.ensure_repo()
     head = v._git("rev-parse", "HEAD")
     sha = head.stdout.strip() if head.returncode == 0 else ""
-    clean = not v._git("status", "--porcelain").stdout.strip()
-    return sha, clean
+    return sha, v._git("status", "--porcelain").stdout
 
 
-def is_stale(proposal: dict, vault_path: str) -> str:
-    """Why this proposal can't be applied, or "" if it's safe."""
-    sha, clean = vault_state(vault_path)
+def is_stale(proposal: dict, vault_path: str, state: tuple[str, str] | None = None) -> str:
+    """Why this proposal can't be applied, or "" if it's safe. Pass a
+    precomputed `vault_state` when checking many proposals against the
+    same unmoved tree."""
+    sha, dirty = state if state is not None else vault_state(vault_path)
+    clean = not dirty.strip()
     against = proposal["drafted_against"]
     if sha and sha == against["vault_sha"] and clean:
         return ""
@@ -81,6 +86,21 @@ def apply(proposal: dict, vault_path: str) -> list[dict]:
             raise ValueError(f"proposal {proposal['id']} names unlisted tool {tool!r}")
         results.append(getattr(server, tool)(**step["args"]))
     return results
+
+
+def simulate(note_text: str, proposal: dict) -> str | None:
+    """Apply the whole plan to note text in memory. None if any step can't
+    be simulated — verifiers must then treat the plan as unvouchable."""
+    current = note_text
+    for step in proposal["apply"]:
+        try:
+            nxt = _simulate(current, step)
+        except (ValueError, KeyError):
+            return None
+        if nxt is None:
+            return None
+        current = nxt
+    return current
 
 
 # ---- preview (pure text simulation for the diff in Review.md) ----

@@ -25,8 +25,8 @@
     - file_contains: {path: Projects/Website Redesign.md, pattern: "New pricing page"}
 
 - name: create-note-with-sections
-  turns: ["Create a research note at Research/Local LLM Serving.md with sections for MLX and vLLM"]
+  turns: ["Create a research note at Tasks/Local LLM Serving.md with sections for MLX and vLLM"]
   checks:
-    - file_exists: {path: Research/Local LLM Serving.md}
-    - file_contains: {path: Research/Local LLM Serving.md, pattern: '#+ *MLX', regex: true}
-    - file_contains: {path: Research/Local LLM Serving.md, pattern: '#+ *vLLM', regex: true}
+    - file_exists: {path: Tasks/Local LLM Serving.md}
+    - file_contains: {path: Tasks/Local LLM Serving.md, pattern: '#+ *MLX', regex: true}
+    - file_contains: {path: Tasks/Local LLM Serving.md, pattern: '#+ *vLLM', regex: true}

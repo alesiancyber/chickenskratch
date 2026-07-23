@@ -4,9 +4,8 @@ rendering, and context trimming."""
 import os
 import time
 
-from tests.test_agent_guarantees import make_agent, response, run
-
 from harness.chats import ChatStore, display_user_text, transcript
+from tests.test_agent_guarantees import make_agent, response, run
 
 MESSAGES = [
     {"role": "system", "content": "system prompt"},
@@ -63,9 +62,9 @@ def test_transcript_rendering():
 def test_display_user_text_collapses_workflows():
     expanded = (
         'Follow this workflow now.\n\n<workflow name="meeting-capture">\nbody\n</workflow>'
-        "\n\nUser input for this workflow: Captures/x.md"
+        "\n\nUser input for this workflow: Meetings/x.md"
     )
-    assert display_user_text(expanded) == "/meeting-capture Captures/x.md"
+    assert display_user_text(expanded) == "/meeting-capture Meetings/x.md"
     assert display_user_text("plain") == "plain"
 
 

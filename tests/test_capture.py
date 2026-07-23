@@ -19,7 +19,7 @@ def client(tmp_path, monkeypatch):
         models={"fake": Profile(name="fake", model="fake")},
     )
     app = build_app(config, servers=[], vault=str(vault))
-    with TestClient(app) as tc:
+    with TestClient(app, base_url="http://127.0.0.1") as tc:
         yield tc, vault
 
 
@@ -50,8 +50,8 @@ def test_empty_stop_never_deletes_preexisting_note(client):
     import datetime as dt
 
     tc, vault = client
-    (vault / "Captures").mkdir()
-    existing = vault / f"Captures/{dt.date.today().isoformat()} Old.md"
+    (vault / "Meetings").mkdir()
+    existing = vault / f"Meetings/{dt.date.today().isoformat()} Old.md"
     existing.write_text("precious notes\n")
 
     # starting a capture that resolves to the existing note (created=False)

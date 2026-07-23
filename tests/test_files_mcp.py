@@ -68,6 +68,22 @@ def test_root_scoping_and_escape_rejected(tree):
         server.find_file("passwd", root="/etc")
 
 
+def test_hidden_dirs_rejected_as_explicit_roots(tree):
+    # traversal already prunes dot-dirs; an explicit root must not re-open
+    # them (root="~/.ssh" under FILES_ROOTS="~" would read private keys)
+    with pytest.raises(ValueError, match="hidden"):
+        server.find_file("models", root=".hidden")
+    with pytest.raises(ValueError, match="hidden"):
+        server.search_text("hidden", root=str(tree / ".hidden"))
+
+
+def test_allowlisted_hidden_root_stays_searchable(tree, monkeypatch):
+    # the operator explicitly allowlisting a hidden dir wins
+    monkeypatch.setenv("FILES_ROOTS", str(tree / ".hidden"))
+    result = server.search_text("hidden too")
+    assert result["matches"]
+
+
 def test_list_dir(tree):
     result = server.list_dir("projects/alpha")
     assert result["dirs"] == []

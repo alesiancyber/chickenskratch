@@ -1,0 +1,214 @@
+[
+  {
+    "name": "urgent-priority-mapping",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 24.7,
+    "last_reply": [
+      {
+        "text": "Renew the cert on the mail server",
+        "due": "2026-07-22",
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "someday-item-kept",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 30.5,
+    "last_reply": [
+      {
+        "text": "Redesign the pricing page",
+        "due": null,
+        "priority": "lowest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "relative-date-two-weeks",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 43.4,
+    "last_reply": [
+      {
+        "text": "Send the vendor contract",
+        "due": null,
+        "priority": null,
+        "owed_by": "Nadia"
+      },
+      {
+        "text": "Review the vendor contract",
+        "due": "2026-08-05",
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "owed-commitment-followup",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 23.0,
+    "last_reply": [
+      {
+        "text": "Provide the firewall logs",
+        "due": "2026-07-23",
+        "priority": null,
+        "owed_by": "Marcus"
+      },
+      {
+        "text": "Draft the Sigma detection rule",
+        "due": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "completed-item-excluded",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 24.3,
+    "last_reply": [
+      {
+        "text": "Schedule the postmortem",
+        "due": "2026-07-23",
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "no-tasks-pure-status",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 15.5,
+    "last_reply": []
+  },
+  {
+    "name": "decision-is-not-a-task",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 15.7,
+    "last_reply": []
+  },
+  {
+    "name": "multiple-tasks-mixed",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 29.0,
+    "last_reply": [
+      {
+        "text": "File the quarterly taxes",
+        "due": "2026-07-27",
+        "priority": "high",
+        "owed_by": "Sam"
+      },
+      {
+        "text": "Update the onboarding doc",
+        "due": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Rotate the leaked API key",
+        "due": "2026-07-22",
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "date-not-repeated-in-text",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 28.3,
+    "last_reply": [
+      {
+        "text": "Submit the expense report",
+        "due": "2026-07-23",
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "grouping-thematic-split",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 23.8,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Pricing Page",
+          "member_ids": [
+            "t-aaaaaaaaaaa1",
+            "t-aaaaaaaaaaa2"
+          ]
+        },
+        {
+          "name": "Mail Server",
+          "member_ids": [
+            "t-aaaaaaaaaaa3",
+            "t-aaaaaaaaaaa4"
+          ]
+        },
+        {
+          "name": "Offsite Travel",
+          "member_ids": [
+            "t-aaaaaaaaaaa5"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-customer-boundary",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 30.5,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Acme Corp",
+          "member_ids": [
+            "t-acme00000001",
+            "t-acme00000002"
+          ]
+        },
+        {
+          "name": "Globex",
+          "member_ids": [
+            "t-glbx00000001",
+            "t-glbx00000002"
+          ]
+        }
+      ]
+    }
+  }
+]

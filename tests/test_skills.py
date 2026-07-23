@@ -23,10 +23,10 @@ def test_prompt_block_is_compact():
 
 def test_expand_slash():
     skills = load_skills()
-    expanded = expand_slash("/meeting-capture Captures/2026-07-17 Standup.md", skills)
+    expanded = expand_slash("/meeting-capture Meetings/2026-07-17 Standup.md", skills)
     assert expanded is not None
     assert "Organize, don't embellish" in expanded
-    assert "Captures/2026-07-17 Standup.md" in expanded
+    assert "Meetings/2026-07-17 Standup.md" in expanded
 
     assert expand_slash("/not-a-skill hello", skills) is None
     assert expand_slash("plain message", skills) is None
@@ -40,7 +40,7 @@ def test_unknown_slash_gets_deterministic_reply():
     assert reply is not None
     assert "/research" in reply  # lists real commands
 
-    assert unknown_slash("/meeting-capture Captures/x.md", skills) is None  # valid: no reply
+    assert unknown_slash("/meeting-capture Meetings/x.md", skills) is None  # valid: no reply
     assert unknown_slash("/Users/b4ndit/Desktop/file.md", skills) is None   # path, not command
     assert unknown_slash("plain message", skills) is None
 

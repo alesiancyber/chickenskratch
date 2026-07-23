@@ -20,7 +20,6 @@ import urllib.parse
 from pathlib import Path
 from types import SimpleNamespace
 
-import httpx
 from openai import AsyncOpenAI
 
 from .mcp_client import MultiServerClient, ServerSpec
@@ -142,16 +141,14 @@ class Agent:
         return SYSTEM_PROMPT.format(today=dt.date.today().isoformat()) + skills_prompt_block(self.skills)
 
     async def _check_endpoint(self) -> None:
-        url = self.profile.base_url.rstrip("/") + "/models"
-        try:
-            async with httpx.AsyncClient(timeout=3) as http:
-                await http.get(url)
-        except httpx.HTTPError:
+        from .backends import endpoint_alive
+
+        if not await endpoint_alive(self.profile.base_url, timeout=3):
             raise RuntimeError(
                 f"Model endpoint {self.profile.base_url} is not reachable. "
                 f"Is the model server running? (Ollama: `ollama serve`; "
                 f"MLX: `mlx_vlm.server --model {self.profile.model} --port 8080`)"
-            ) from None
+            )
 
     async def __aenter__(self) -> Agent:
         await self._check_endpoint()
@@ -301,7 +298,8 @@ class Agent:
         self.messages.append({"role": "user", "content": expanded or user_message})
         self._trim_history()
         self._executed_writes: dict[tuple, str] = {}  # loop guard, scoped to this run
-        self._doc_urls: list[str] = []  # docs URLs seen this run, for _with_sources
+        # docs URLs seen this run, for _with_sources (dict = ordered set)
+        self._doc_urls: dict[str, None] = {}
         self._doc_domains: set[str] = set()  # the docs domains those URLs came from
         self._cited: dict[str, set] = {}  # vault notes this run drew on -> line numbers
         self.last_run_stats = {"input_tokens": 0, "output_tokens": 0, "tool_calls": 0, "estimated": False}
@@ -314,21 +312,20 @@ class Agent:
                 # saved chat and the model's later context match what the
                 # user was shown.
                 content = self._with_sources(content)
-            msg = SimpleNamespace(content=content, tool_calls=tool_calls or None)
             self.messages.append(
                 {
                     "role": "assistant",
-                    "content": msg.content or "",
+                    "content": content or "",
                     **(
-                        {"tool_calls": [tc.model_dump() for tc in msg.tool_calls]}
-                        if msg.tool_calls
+                        {"tool_calls": [tc.model_dump() for tc in tool_calls]}
+                        if tool_calls
                         else {}
                     ),
                 }
             )
-            if not msg.tool_calls:
-                if msg.content:
-                    return msg.content
+            if not tool_calls:
+                if content:
+                    return content
                 # Thinking models (e.g. qwen3.5 via Ollama) sometimes spend
                 # the whole reply in the `reasoning` field, leaving content
                 # empty. Drop the empty turn — a persisted empty assistant
@@ -340,8 +337,8 @@ class Agent:
                     continue
                 self.messages.pop()  # the failed nudge, too
                 return "(no response)"
-            self.last_run_stats["tool_calls"] += len(msg.tool_calls)
-            for call in msg.tool_calls:
+            self.last_run_stats["tool_calls"] += len(tool_calls)
+            for call in tool_calls:
                 result_text = await self._execute(call)
                 self.messages.append(
                     {"role": "tool", "tool_call_id": call.id, "content": result_text}
@@ -373,7 +370,7 @@ class Agent:
         reads docs themselves and never wants an unlinked paraphrase).
         Which servers count as docs sources is config: ServerSpec.docs_domain."""
         if self._doc_urls and not any(domain in content for domain in self._doc_domains):
-            content += "\n\nSources:\n" + "\n".join(f"- {u}" for u in self._doc_urls[:8])
+            content += "\n\nSources:\n" + "\n".join(f"- {u}" for u in list(self._doc_urls)[:8])
         return self._with_vault_citations(content)
 
     def _with_vault_citations(self, content: str) -> str:
@@ -467,8 +464,7 @@ class Agent:
             self._doc_domains.add(domain)
             for url in re.findall(rf"https://{re.escape(domain)}[^\s)\"'<>\]]+", text):
                 base = url.split("#")[0].rstrip(".,;")
-                if base not in self._doc_urls:
-                    self._doc_urls.append(base)
+                self._doc_urls.setdefault(base)
         if not is_error:
             self._collect_citations(name, args, text)  # untruncated result
         limit = self.profile.max_tool_result_chars

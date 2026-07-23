@@ -1,0 +1,42 @@
+# Judgment cases for the grouping worker (DESIGN-review-dashboard.md §3,
+# gate D2). Run live:  uv run harness-worker-eval -k grouping
+#
+# Case schema (worker: grouping):
+#   tasks:         the candidate set, [{id, text}] — ids are what's scored
+#   must_group:    lists of ids that must end up sharing a group
+#   must_separate: [a, b] pairs that must NOT share a group
+#
+# Partition integrity (every id exactly once, none invented) is enforced
+# on every case automatically; group names are the model's choice and
+# never scored.
+
+- name: grouping-thematic-split
+  worker: grouping
+  tasks:
+    - {id: t-aaaaaaaaaaa1, text: "Draft the pricing page copy"}
+    - {id: t-aaaaaaaaaaa2, text: "Review pricing page mockups"}
+    - {id: t-aaaaaaaaaaa3, text: "Renew the TLS cert on mail server"}
+    - {id: t-aaaaaaaaaaa4, text: "Rotate the mail server DKIM keys"}
+    - {id: t-aaaaaaaaaaa5, text: "Book flights for the offsite"}
+  must_group:
+    - [t-aaaaaaaaaaa1, t-aaaaaaaaaaa2]
+    - [t-aaaaaaaaaaa3, t-aaaaaaaaaaa4]
+  must_separate:
+    - [t-aaaaaaaaaaa1, t-aaaaaaaaaaa3]
+
+# Regression #1 (the customer-boundary rule as an executable test):
+# similarly-worded work for two different clients must never share a
+# group, even though every task says "phishing detection".
+- name: grouping-customer-boundary
+  worker: grouping
+  tasks:
+    - {id: t-acme00000001, text: "Tune phishing detection rules for Acme Corp"}
+    - {id: t-acme00000002, text: "Report phishing detection coverage to Acme Corp"}
+    - {id: t-glbx00000001, text: "Tune phishing detection rules for Globex"}
+    - {id: t-glbx00000002, text: "Review Globex phishing detection false positives"}
+  must_group:
+    - [t-acme00000001, t-acme00000002]
+    - [t-glbx00000001, t-glbx00000002]
+  must_separate:
+    - [t-acme00000001, t-glbx00000001]
+    - [t-acme00000002, t-glbx00000002]

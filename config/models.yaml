@@ -10,7 +10,8 @@
 # 8192). Only used for the chat UI's ctx% meter — set it to match your
 # server setting or the percentage will lie.
 
-default: gemma4-12b-mlx
+default: gemini-3.1-pro   # explicit cloud switch 2026-07-22; local profiles below still work via -m
+worker: gemini-3.1-pro    # profile the background workers run on (WORKER_* env still overrides)
 vault: ../testvault   # relative to this config file
 
 # Local model servers the chat UI can start/stop (⚡ Servers panel).
@@ -62,12 +63,45 @@ models:
     confirm_writes: true
     servers: [obsidian]        # 4b gets the minimal tool surface
 
-  # Cloud escape hatch (DESIGN-mixed-models.md §5 Tier 4) — off by default,
-  # only reached via explicit `-m gemini-3.5-flash-lite` / model picker.
-  # Requires GEMINI_API_KEY exported in your shell; the harness never
-  # stores the key. gemini-2.5-flash-lite (2026-07) is no longer available
-  # to new users (live 404) — this is the current cheapest non-deprecated
-  # tier per ai.google.dev/gemini-api/docs/models.
+  # Cloud profiles (DESIGN-mixed-models.md §5 Tier 4). As of 2026-07-22
+  # the cloud switch is deliberately ON: gemini-3.1-pro is the default
+  # chat profile. Requires GEMINI_API_KEY exported in your shell; the
+  # harness never stores the key. Vault text (minus Private/, excluded in
+  # code) leaves the machine on these profiles — the no-secrets rule
+  # (DESIGN-philosophy.md I4) is load-bearing here.
+  #
+  # Background workers follow the top-level `worker:` profile reference;
+  # explicit WORKER_BASE_URL / WORKER_MODEL / WORKER_API_KEY env vars
+  # override it, and with neither set workers fall back to the local
+  # mlx-worker backend.
+
+  # Flagship (most capable). The Pro tier is preview-only on the API as of
+  # 2026-07-22 (verified against this key's /models list — no stable
+  # gemini-3.1-pro exists); revisit the id when it stabilizes.
+  gemini-3.1-pro:
+    model: gemini-3.1-pro-preview
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    api_key_env: GEMINI_API_KEY
+    temperature: 0.2
+    max_iterations: 25         # frontier model: allow longer agentic runs
+    max_tool_result_chars: 24000
+    confirm_writes: true       # capability doesn't waive the write gate
+    context_tokens: 1048576    # TODO verify: 1M assumed, docs page doesn't state it
+
+  # Fast mid-tier — the sensible worker/daily-driver alternative.
+  gemini-3.6-flash:
+    model: gemini-3.6-flash
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    api_key_env: GEMINI_API_KEY
+    temperature: 0.2
+    max_iterations: 15
+    max_tool_result_chars: 24000
+    confirm_writes: true
+    context_tokens: 1048576    # TODO verify
+
+  # Cheapest non-deprecated tier; kept for cost-sensitive one-offs.
+  # gemini-2.5-flash-lite (2026-07) is no longer available to new users
+  # (live 404).
   gemini-3.5-flash-lite:
     model: gemini-3.5-flash-lite
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/

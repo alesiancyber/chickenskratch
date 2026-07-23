@@ -44,9 +44,14 @@ def test_api_key_env_resolves_from_environment(tmp_path, monkeypatch):
     assert config.profile("local-model").api_key == "ollama"
 
 
-def test_api_key_env_missing_raises_at_load_time(tmp_path, monkeypatch):
+def test_api_key_env_resolves_at_use_not_load(tmp_path, monkeypatch):
+    # A cloud profile you never select must not demand its key at startup;
+    # selecting it without the key fails loud.
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     path = tmp_path / "models.yaml"
     path.write_text(CLOUD_YAML, encoding="utf-8")
+    config = load_config(path)  # no raise
     with pytest.raises(ValueError, match="GEMINI_API_KEY"):
-        load_config(path)
+        config.profile("cloud-model")
+    monkeypatch.setenv("GEMINI_API_KEY", "k-123")
+    assert config.profile("cloud-model").api_key == "k-123"

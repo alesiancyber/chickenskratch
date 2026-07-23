@@ -1,0 +1,186 @@
+[
+  {
+    "name": "urgent-priority-mapping",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 22.4,
+    "last_reply": [
+      {
+        "text": "Renew the cert on the mail server",
+        "due": "2026-07-22",
+        "priority": "highest"
+      }
+    ]
+  },
+  {
+    "name": "someday-item-kept",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 27.3,
+    "last_reply": [
+      {
+        "text": "Redesign the pricing page",
+        "due": null,
+        "priority": "lowest"
+      }
+    ]
+  },
+  {
+    "name": "relative-date-two-weeks",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "'(?i)vendor contract': due=None, expected '2026-08-05'",
+      "expected exactly 1 task(s), got 2; extra: ['Review the vendor contract']"
+    ],
+    "seconds": 35.8,
+    "last_reply": [
+      {
+        "text": "Send the vendor contract",
+        "due": null,
+        "priority": null
+      },
+      {
+        "text": "Review the vendor contract",
+        "due": "2026-08-05",
+        "priority": null
+      }
+    ]
+  },
+  {
+    "name": "completed-item-excluded",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 22.1,
+    "last_reply": [
+      {
+        "text": "Schedule the postmortem",
+        "due": "2026-07-23",
+        "priority": null
+      }
+    ]
+  },
+  {
+    "name": "no-tasks-pure-status",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 23.8,
+    "last_reply": []
+  },
+  {
+    "name": "decision-is-not-a-task",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 20.6,
+    "last_reply": []
+  },
+  {
+    "name": "multiple-tasks-mixed",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 23.8,
+    "last_reply": [
+      {
+        "text": "File the quarterly taxes",
+        "due": "2026-07-27",
+        "priority": "high"
+      },
+      {
+        "text": "Update the onboarding doc",
+        "due": null,
+        "priority": null
+      },
+      {
+        "text": "Rotate the leaked API key",
+        "due": "2026-07-22",
+        "priority": "highest"
+      }
+    ]
+  },
+  {
+    "name": "date-not-repeated-in-text",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 25.6,
+    "last_reply": [
+      {
+        "text": "Submit the expense report",
+        "due": "2026-07-23",
+        "priority": null
+      }
+    ]
+  },
+  {
+    "name": "grouping-thematic-split",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 38.3,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Pricing Page",
+          "member_ids": [
+            "t-aaaaaaaaaaa1",
+            "t-aaaaaaaaaaa2"
+          ]
+        },
+        {
+          "name": "Mail Server",
+          "member_ids": [
+            "t-aaaaaaaaaaa3",
+            "t-aaaaaaaaaaa4"
+          ]
+        },
+        {
+          "name": "Ungrouped",
+          "member_ids": [
+            "t-aaaaaaaaaaa5"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-customer-boundary",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 33.3,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Acme Corp",
+          "member_ids": [
+            "t-acme00000001",
+            "t-acme00000002"
+          ]
+        },
+        {
+          "name": "Globex",
+          "member_ids": [
+            "t-glbx00000001",
+            "t-glbx00000002"
+          ]
+        }
+      ]
+    }
+  }
+]

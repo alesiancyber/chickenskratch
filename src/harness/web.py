@@ -1,9 +1,12 @@
-"""Lightweight local chat UI for the harness.
+"""The harness's local server: engine trigger first, admin console second.
 
-One Starlette app (already a dependency via mcp), one static HTML page,
-no build step. Tool calls stream to the browser as SSE events while the
-model works; gated write tools surface as approve/deny prompts in the
-chat and block until answered.  Run with: uv run harness-web
+While it runs, a background loop polls the vault surfaces and fires
+engine passes (checkbox approvals, capture extraction — the primary UX
+per DESIGN-philosophy.md); `harness-watch` covers the server-not-running
+case until the Phase 8 daemon lands. The same Starlette app serves the
+admin console: chat (the frozen escape hatch, streaming over SSE with
+approve/deny prompts), server management, evals/stats.
+Run with: uv run harness-web
 """
 
 from __future__ import annotations
@@ -14,14 +17,16 @@ import dataclasses
 import datetime as dt
 import json
 import re
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
-import httpx
 import uvicorn
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
 from starlette.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
@@ -29,7 +34,7 @@ from starlette.staticfiles import StaticFiles
 from obsidian_mcp.vault import Vault, VaultError
 
 from .agent import Agent
-from .backends import BackendManager
+from .backends import BackendManager, endpoint_alive
 from .bootstrap import DEFAULT_MCP, DEFAULT_MODELS, ROOT, load_runtime
 from .bugreports import save_report
 from .chats import ChatStore, transcript
@@ -44,6 +49,64 @@ REPORTS_DIR = ROOT / "evals" / "reports"
 CATALOG_PATH = ROOT / "data" / "tool_catalog.json"
 
 CONFIRM_TIMEOUT = 600  # seconds before an unanswered approval is treated as deny
+
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+class LocalOnlyMiddleware:
+    """Keep the unauthenticated local app out of reach of the browser's
+    cross-origin machinery.
+
+    - Host check: a DNS-rebinding page (attacker.com resolving to 127.0.0.1)
+      sends its own hostname in Host — reject it, killing rebinding reads.
+    - Origin check on mutating methods: a malicious website can fire
+      "simple" cross-origin POSTs (text/plain, no preflight) at every
+      endpoint; any Origin that isn't this app is rejected. Requests
+      without an Origin (curl, the SDK, same-origin fetches in older
+      browsers) pass — they aren't governed by a browser's cookie/ambient
+      authority model and can hit 127.0.0.1 directly anyway.
+    """
+
+    def __init__(self, app, extra_hosts: tuple[str, ...] = ()):
+        self.app = app
+        self.allowed = LOCAL_HOSTS | {h.lower() for h in extra_hosts if h}
+
+    @staticmethod
+    def _hostname(host_header: str) -> str:
+        # urlsplit handles ports and bracketed IPv6 for us
+        try:
+            return (urlsplit("//" + host_header).hostname or "").lower()
+        except ValueError:
+            return ""
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = {k.decode("latin-1").lower(): v.decode("latin-1")
+                       for k, v in scope.get("headers", [])}
+            if self._hostname(headers.get("host", "")) not in self.allowed:
+                await self._reject(send, "unrecognized Host header")
+                return
+            if scope.get("method") not in ("GET", "HEAD", "OPTIONS"):
+                origin = headers.get("origin", "")
+                if origin:
+                    try:
+                        o_host = (urlsplit(origin).hostname or "").lower()
+                    except ValueError:
+                        o_host = ""
+                    if o_host not in self.allowed:
+                        await self._reject(send, "cross-origin request rejected")
+                        return
+        await self.app(scope, receive, send)
+
+    @staticmethod
+    async def _reject(send, message: str) -> None:
+        body = json.dumps({"error": message}).encode()
+        await send({
+            "type": "http.response.start", "status": 403,
+            "headers": [(b"content-type", b"application/json"),
+                        (b"content-length", str(len(body)).encode())],
+        })
+        await send({"type": "http.response.body", "body": body})
 
 
 def load_catalog() -> dict:
@@ -240,13 +303,17 @@ class Manager:
         self.tool_override: list[str] | None = None
         self.lock = asyncio.Lock()
 
+    def default_servers(self, model_name: str | None) -> list[str]:
+        """Servers a profile connects by default: enabled ∩ profile allowlist."""
+        prof = self.config.profile(model_name)
+        return [s.name for s in self.servers
+                if s.enabled and (prof.servers is None or s.name in prof.servers)]
+
     def effective_filters(self, model_name: str | None) -> tuple[list[str] | None, list[str] | None]:
         """Resolve the sticky tool selection into (server_filter, tool_filter):
         connect only servers that own a selected tool, expose only those tools.
         None/None means profile defaults (connect all, expose all)."""
-        prof = self.config.profile(model_name)
-        enabled = [s.name for s in self.servers if s.enabled]
-        default_servers = [n for n in enabled if prof.servers is None or n in prof.servers]
+        default_servers = self.default_servers(model_name)
         if self.tool_override is None:
             return None, None
         catalog = load_catalog()
@@ -329,6 +396,7 @@ def build_app(
     vault: str,
     presets: dict | None = None,
     watch: bool = False,
+    extra_hosts: tuple[str, ...] = (),
 ) -> Starlette:
     store = ChatStore()
     store.prune()
@@ -342,14 +410,9 @@ def build_app(
         UI mark dead backends instead of letting a chat walk into one."""
         if time.monotonic() - reach_cache["ts"] < 30 and reach_cache["map"]:
             return reach_cache["map"]
-        by_url: dict[str, bool] = {}
-        async with httpx.AsyncClient(timeout=1.5) as http:
-            for url in {p.base_url for p in config.models.values()}:
-                try:
-                    await http.get(url.rstrip("/") + "/models")
-                    by_url[url] = True
-                except httpx.HTTPError:
-                    by_url[url] = False
+        urls = sorted({p.base_url for p in config.models.values()})
+        alive = await asyncio.gather(*(endpoint_alive(u) for u in urls))
+        by_url = dict(zip(urls, alive, strict=True))
         result = {name: by_url[p.base_url] for name, p in config.models.items()}
         reach_cache.update(ts=time.monotonic(), map=result)
         return result
@@ -368,9 +431,8 @@ def build_app(
         """Per-tool selection state grouped by server, plus presets — the UI's
         whole picture for the tool working-set. Tools come from the on-disk
         catalog so selection works before this session reconnects."""
-        prof = config.profile(manager.worker.model_name if manager.worker else None)
-        enabled = [s.name for s in servers if s.enabled]
-        default_servers = [n for n in enabled if prof.servers is None or n in prof.servers]
+        default_servers = manager.default_servers(
+            manager.worker.model_name if manager.worker else None)
         catalog = load_catalog()
         live = manager.worker.status if manager.worker and manager.worker.status else {}
         override = set(manager.tool_override) if manager.tool_override is not None else None
@@ -474,14 +536,17 @@ def build_app(
         v = _vault()
         now = dt.datetime.now()
         title = re.sub(r'[\\/:*?"<>|]', "", (data.get("title") or "").strip()) or now.strftime("%H.%M")
-        rel = f"Captures/{now.date().isoformat()} {title}.md"
+        # Captures are meeting-shaped raw notes; they live with meetings
+        # (one broad folder, not a bifurcated Captures/ — 2026-07-22 cleanup).
+        rel = f"Meetings/{now.date().isoformat()} {title}.md"
         created = not v.resolve(rel).exists()
         if created:
-            try:
-                v.snapshot_before("capture")
-            except VaultError as e:
-                return JSONResponse({"error": str(e)}, status_code=500)
-            v.write(rel, f"# Capture: {title}\n\n_{now.strftime('%A %Y-%m-%d %H:%M')}_\n\n")
+            with v.locked():
+                try:
+                    v.snapshot_before("capture")
+                except VaultError as e:
+                    return JSONResponse({"error": str(e)}, status_code=500)
+                v.write(rel, f"# Capture: {title}\n\n_{now.strftime('%A %Y-%m-%d %H:%M')}_\n\n")
         capture.update(path=rel, lines=0, created=created)
         return JSONResponse({"path": rel})
 
@@ -492,9 +557,8 @@ def build_app(
         line = (data.get("text") or "").rstrip()
         if line:
             v = _vault()
-            p = v.resolve(capture["path"])
-            with open(p, "a", encoding="utf-8") as f:
-                f.write(line + "\n")
+            with v.locked():
+                v.append(capture["path"], line + "\n")
             capture["lines"] += 1
         return JSONResponse({"ok": True, "path": capture["path"]})
 
@@ -504,12 +568,13 @@ def build_app(
         if path:
             v = _vault()
             try:
-                if lines == 0 and capture["created"]:
-                    # Nothing captured and we made the note: leave no litter.
-                    v.resolve(path).unlink(missing_ok=True)
-                    v.snapshot_after(f"discard empty capture {path}")
-                else:
-                    v.snapshot_after(f"capture session {path}")
+                with v.locked():
+                    if lines == 0 and capture["created"]:
+                        # Nothing captured and we made the note: leave no litter.
+                        v.resolve(path).unlink(missing_ok=True)
+                        v.snapshot_after(f"discard empty capture {path}")
+                    else:
+                        v.snapshot_after(f"capture session {path}")
             except VaultError as e:
                 error = str(e)  # captured text is on disk; only the snapshot failed
         capture.update(path=None, lines=0, created=False)
@@ -624,22 +689,18 @@ def build_app(
     # --- local model-backend control (config-declared commands only) ---
 
     async def servers_list(request):
+        items = list(config.backends.items())
+        alive = await asyncio.gather(*(endpoint_alive(spec.url) for _, spec in items))
         out = []
-        async with httpx.AsyncClient(timeout=1.5) as http:
-            for name, spec in config.backends.items():
-                try:
-                    await http.get(spec.url + "/models")
-                    reachable = True
-                except httpx.HTTPError:
-                    reachable = False
-                pid = backend_mgr.managed_pid(name)
-                out.append({
-                    "name": name, "url": spec.url, "reachable": reachable,
-                    "managed": pid is not None, "pid": pid,
-                    # which profiles ride on this backend, for the UI
-                    "profiles": [n for n, p in config.models.items()
-                                 if p.base_url.rstrip("/") == spec.url],
-                })
+        for (name, spec), reachable in zip(items, alive, strict=True):
+            pid = backend_mgr.managed_pid(name)
+            out.append({
+                "name": name, "url": spec.url, "reachable": reachable,
+                "managed": pid is not None, "pid": pid,
+                # which profiles ride on this backend, for the UI
+                "profiles": [n for n, p in config.models.items()
+                             if p.base_url.rstrip("/") == spec.url],
+            })
         return JSONResponse({"servers": out})
 
     async def servers_start(request):
@@ -682,25 +743,37 @@ def build_app(
         return JSONResponse({"runs": runs})
 
     async def _watch_loop():
-        # Review.md is the dashboard (DESIGN-vault.md §5): a checked box is
-        # the approval, and this poll is what notices it while the server
-        # runs. One cheap stat per tick; a full pass only when the file
-        # changed. `harness-watch` covers the server-not-running case.
+        # The engine's trigger while the server runs: one cheap stat per
+        # configured surface per tick, a full pass only when one changed.
+        # The pass itself is git-subprocess-heavy, so it runs on a
+        # dedicated thread with its own event loop — SSE streams and
+        # request handlers never stall behind it (the pass lock already
+        # serializes passes across threads and processes).
         from .watcher import Watcher
 
         w = Watcher(vault)
-        review = Path(vault) / w.review_rel
+        surfaces = w.trigger_paths()
+
+        def mtimes():
+            return tuple(p.stat().st_mtime if p.exists() else None for p in surfaces)
+
+        engine_loop = asyncio.new_event_loop()
+        threading.Thread(target=engine_loop.run_forever, name="engine-pass", daemon=True).start()
         last = None
-        while True:
-            try:
-                mtime = review.stat().st_mtime if review.exists() else None
-                if last is None or mtime != last:
-                    await w.run_once()
-                    mtime = review.stat().st_mtime if review.exists() else None
-                last = mtime
-            except Exception:
-                pass  # the watcher must never take the chat server down
-            await asyncio.sleep(5)
+        try:
+            while True:
+                try:
+                    stamp = mtimes()
+                    if last is None or stamp != last:
+                        pass_future = asyncio.run_coroutine_threadsafe(w.run_once(), engine_loop)
+                        await asyncio.wrap_future(pass_future)
+                        stamp = mtimes()
+                    last = stamp
+                except Exception:
+                    pass  # the watcher must never take the server down
+                await asyncio.sleep(5)
+        finally:
+            engine_loop.call_soon_threadsafe(engine_loop.stop)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -736,6 +809,7 @@ def build_app(
             Route("/api/capture/stop", capture_stop, methods=["POST"]),
             Mount("/static", StaticFiles(directory=STATIC)),
         ],
+        middleware=[Middleware(LocalOnlyMiddleware, extra_hosts=extra_hosts)],
         lifespan=lifespan,
     )
 
@@ -756,7 +830,7 @@ def main() -> None:
     print(f"servers: {', '.join(s.name + ('' if s.enabled else ' (disabled)') for s in servers)}")
     print(f"chat UI: http://{args.host}:{args.port}")
     uvicorn.run(
-        build_app(config, servers, vault, presets, watch=True),
+        build_app(config, servers, vault, presets, watch=True, extra_hosts=(args.host,)),
         host=args.host, port=args.port, log_level="warning",
     )
 

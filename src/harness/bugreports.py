@@ -82,15 +82,3 @@ def save_report(
 
     path.write_text("\n".join(head) + "\n" + format_transcript(messages) + "\n", encoding="utf-8")
     return path
-
-
-def list_reports(reports_dir: Path | None = None) -> list[dict]:
-    reports_dir = reports_dir or REPORTS_DIR
-    if not reports_dir.is_dir():
-        return []
-    out = []
-    for p in sorted(reports_dir.glob("*.md"), reverse=True):
-        first = p.read_text(encoding="utf-8").splitlines()[:1]
-        title = first[0].lstrip("# ").strip() if first else p.stem
-        out.append({"file": p.name, "title": title, "updated": dt.datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec="seconds")})
-    return out

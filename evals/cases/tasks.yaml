@@ -27,4 +27,4 @@
   turns: ["Add a task 'Prep quarterly review' to my inbox due {plus7}, and also add a card 'Quarterly review deck' to the Backlog column of the project board"]
   checks:
     - file_contains: {path: Tasks/Inbox.md, pattern: 'Prep quarterly review.*📅 {plus7}', regex: true, count: 1}
-    - card_in_column: {board: Boards/Project Board.md, card: Quarterly review deck, column: Backlog}
+    - card_in_column: {board: Projects/Project Board.md, card: Quarterly review deck, column: Backlog}

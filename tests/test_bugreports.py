@@ -1,6 +1,6 @@
 """Bug reports: a saved conversation is a complete, readable example."""
 
-from harness.bugreports import format_transcript, list_reports, save_report
+from harness.bugreports import format_transcript, save_report
 
 MESSAGES = [
     {"role": "system", "content": "you are an assistant"},
@@ -39,8 +39,6 @@ def test_save_report_writes_readable_file(tmp_path):
     assert "obsidian" in text and "files" not in text.split("## Conversation")[0]  # only connected
     assert "You have 8 open tasks." in text
 
-    listed = list_reports(tmp_path)
-    assert len(listed) == 1 and listed[0]["title"] == "Bug report: counts are wrong"
 
 
 def test_save_report_survives_empty_conversation(tmp_path):

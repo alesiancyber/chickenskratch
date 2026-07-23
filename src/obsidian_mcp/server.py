@@ -111,15 +111,16 @@ def create_note(path: str, content: str = "") -> dict:
     """Create a new note. Fails if the note already exists (use append_to_note or
     replace_section to change existing notes). Folders are created as needed.
 
-    Example: create_note(path="Research/Vector DBs.md", content="# Vector DBs\\n\\n- ...")
+    Example: create_note(path="Tasks/Vector DBs.md", content="# Vector DBs\\n\\n- ...")
     """
     v = get_vault()
     p = v.resolve(path)
     if p.exists():
         raise VaultError(f"Note already exists: {v.rel(p)}")
-    v.snapshot_before("create_note")
-    v.write(v.rel(p), content if content.endswith("\n") else content + "\n")
-    v.snapshot_after(f"create note {v.rel(p)}")
+    with v.locked():
+        v.snapshot_before("create_note")
+        v.write(v.rel(p), content if content.endswith("\n") else content + "\n")
+        v.snapshot_after(f"create note {v.rel(p)}")
     return {"created": v.rel(p)}
 
 
@@ -132,19 +133,20 @@ def append_to_note(path: str, content: str, section: str = "") -> dict:
     """
     v = get_vault()
     p = v.resolve(path)  # validate before snapshotting
-    v.snapshot_before("append_to_note")
-    if not p.exists():
-        v.write(v.rel(p), content.strip("\n") + "\n")
-        v.snapshot_after(f"create note {v.rel(p)}")
-        return {"created": v.rel(p)}
-    text = v.read(path)
-    fm, body = md.split_frontmatter(text)
-    if section:
-        body = md.append_to_section(body, section, content)
-    else:
-        body = body.rstrip("\n") + "\n\n" + content.strip("\n") + "\n"
-    v.write(v.rel(p), md.join_frontmatter(fm, body))
-    v.snapshot_after(f"append to {v.rel(p)}")
+    with v.locked():
+        v.snapshot_before("append_to_note")
+        if not p.exists():
+            v.write(v.rel(p), content.strip("\n") + "\n")
+            v.snapshot_after(f"create note {v.rel(p)}")
+            return {"created": v.rel(p)}
+        text = v.read(path)
+        fm, body = md.split_frontmatter(text)
+        if section:
+            body = md.append_to_section(body, section, content)
+        else:
+            body = body.rstrip("\n") + "\n\n" + content.strip("\n") + "\n"
+        v.write(v.rel(p), md.join_frontmatter(fm, body))
+        v.snapshot_after(f"append to {v.rel(p)}")
     return {"updated": v.rel(p)}
 
 
@@ -159,12 +161,13 @@ def replace_section(path: str, heading: str, content: str) -> dict:
                              content="On track. Launch moved to Aug 3.")
     """
     v = get_vault()
-    text = v.read(path)
-    fm, body = md.split_frontmatter(text)
-    v.snapshot_before("replace_section")
-    body = md.replace_section_text(body, heading, content)
-    v.write(path, md.join_frontmatter(fm, body))
-    v.snapshot_after(f"replace section {heading!r} in {path}")
+    with v.locked():
+        text = v.read(path)
+        fm, body = md.split_frontmatter(text)
+        v.snapshot_before("replace_section")
+        body = md.replace_section_text(body, heading, content)
+        v.write(path, md.join_frontmatter(fm, body))
+        v.snapshot_after(f"replace section {heading!r} in {path}")
     return {"updated": path, "section": heading}
 
 
@@ -173,15 +176,16 @@ def update_frontmatter(path: str, key: str, value: str) -> dict:
     """Set one frontmatter (YAML properties) field on a note. Value is parsed as
     YAML, so "true", "3", and "[a, b]" become their typed values.
 
-    Example: update_frontmatter(path="Research/Vector DBs", key="status", value="in-progress")
+    Example: update_frontmatter(path="Tasks/Vector DBs", key="status", value="in-progress")
     """
     v = get_vault()
-    text = v.read(path)
-    fm, body = md.split_frontmatter(text)
-    v.snapshot_before("update_frontmatter")
-    fm[key] = yaml.safe_load(value)
-    v.write(path, md.join_frontmatter(fm, body))
-    v.snapshot_after(f"set frontmatter {key} on {path}")
+    with v.locked():
+        text = v.read(path)
+        fm, body = md.split_frontmatter(text)
+        v.snapshot_before("update_frontmatter")
+        fm[key] = yaml.safe_load(value)
+        v.write(path, md.join_frontmatter(fm, body))
+        v.snapshot_after(f"set frontmatter {key} on {path}")
     return {"updated": path, "frontmatter": fm}
 
 
@@ -304,10 +308,11 @@ def set_task_status(path: str, task_text: str, done: bool = True) -> dict:
                 line = ids.attach_block_ref(line, ref)
     else:
         line = tk.DONE_RE.sub("", line).rstrip()
-    v.snapshot_before("set_task_status")
-    lines[task.line_no] = line
-    v.write(path, "\n".join(lines) + "\n")
-    v.snapshot_after(f"{'complete' if done else 'reopen'} task in {path}")
+    with v.locked():
+        v.snapshot_before("set_task_status")
+        lines[task.line_no] = line
+        v.write(path, "\n".join(lines) + "\n")
+        v.snapshot_after(f"{'complete' if done else 'reopen'} task in {path}")
     return {"updated": path, "task": task.text, "done": done}
 
 
@@ -333,6 +338,26 @@ async def extract_tasks(text: str) -> dict:
 
 # --------------- entity schemas ---------------
 
+def note_text_issues(rel: str, text: str) -> tuple[str, list[str], list[dict], bool]:
+    """The per-note core of validate_schema, callable on any text —
+    including a simulated post-fix version that isn't on disk yet.
+    Returns (entity, note_issues, bad_tasks, unmarked)."""
+    fm, body = md.split_frontmatter(text)
+    etype = _note_type(fm, rel)
+    note_issues = sc.validate_frontmatter(etype, fm)
+    if etype == "research":
+        note_issues = note_issues + sc.validate_research_body(body)
+    bad_tasks, any_unstamped = [], False
+    for task in tk.iter_tasks(body):
+        t_issues = sc.validate_line(task, etype)
+        if t_issues:
+            bad_tasks.append({"line": task.line_no + 1, "text": task.text, "issues": t_issues})
+            any_unstamped = any_unstamped or task.block_id is None
+    has_note_schema = etype in sc.load_schemas() and etype not in sc.LINE_TYPES
+    unmarked = (has_note_schema and not fm.get("id")) or any_unstamped
+    return etype, note_issues, bad_tasks, unmarked
+
+
 @mcp.tool(annotations=READ_ONLY)
 def validate_schema(folder: str = "", limit: int = 50, offset: int = 0) -> dict:
     """Check notes and their tasks/cards against the vault's entity schemas
@@ -349,7 +374,7 @@ def validate_schema(folder: str = "", limit: int = 50, offset: int = 0) -> dict:
                           "tasks": [{"line": 14, "text": "...", "issues": [...]}]}]}
     """
     v = get_vault()
-    surface_dirs = {s.split("/")[0] for s in vc.get_config().surfaces.values()}
+    surface_dirs = vc.get_config().surface_dirs
     rows = []
     checked = 0
     for p in v.iter_notes(folder):
@@ -357,24 +382,14 @@ def validate_schema(folder: str = "", limit: int = 50, offset: int = 0) -> dict:
         if rel.split("/")[0] in surface_dirs:
             continue  # machine-rendered surfaces are not entities
         checked += 1
-        fm, body = md.split_frontmatter(p.read_text(encoding="utf-8"))
-        etype = _note_type(fm, rel)
-        note_issues = sc.validate_frontmatter(etype, fm)
-        if etype == "research":
-            note_issues = note_issues + sc.validate_research_body(body)
-        bad_tasks, any_unstamped_task = [], False
-        for task in tk.iter_tasks(body):
-            t_issues = sc.validate_line(task, etype)
-            if t_issues:
-                bad_tasks.append({"line": task.line_no + 1, "text": task.text, "issues": t_issues})
-                any_unstamped_task = any_unstamped_task or task.block_id is None
+        etype, note_issues, bad_tasks, unmarked = note_text_issues(
+            rel, p.read_text(encoding="utf-8"))
         if not note_issues and not bad_tasks:
             continue
-        has_note_schema = etype in sc.load_schemas() and etype not in sc.LINE_TYPES
         rows.append({
             "note": rel,
             "entity": etype,
-            "unmarked": (has_note_schema and not fm.get("id")) or any_unstamped_task,
+            "unmarked": unmarked,
             **({"issues": note_issues} if note_issues else {}),
             **({"tasks": bad_tasks} if bad_tasks else {}),
         })
@@ -399,7 +414,7 @@ def create_board(path: str, columns: str = "Backlog, Doing, Done") -> dict:
     column names; a column named Done/Complete becomes the completion column.
     Fails if the board already exists.
 
-    Example: create_board(path="Boards/Marketing.md", columns="Ideas, Active, Shipped")
+    Example: create_board(path="Projects/Marketing.md", columns="Ideas, Active, Shipped")
     """
     v = get_vault()
     p = v.resolve(path)
@@ -416,9 +431,10 @@ def create_board(path: str, columns: str = "Backlog, Doing, Done") -> dict:
         ],
         settings="",
     )
-    v.snapshot_before("create_board")
-    v.write(v.rel(p), kb.render_board(board))
-    v.snapshot_after(f"create board {v.rel(p)}")
+    with v.locked():
+        v.snapshot_before("create_board")
+        v.write(v.rel(p), kb.render_board(board))
+        v.snapshot_after(f"create board {v.rel(p)}")
     return {"created": v.rel(p), "columns": names}
 
 
@@ -426,7 +442,7 @@ def create_board(path: str, columns: str = "Backlog, Doing, Done") -> dict:
 def read_board(path: str) -> dict:
     """Read a Kanban plugin board as structured columns and cards.
 
-    Example: read_board(path="Boards/Project Board") ->
+    Example: read_board(path="Projects/Project Board") ->
       {"columns": [{"name": "Backlog", "cards": [{"text": "...", "done": false}]}, ...]}
     """
     v = get_vault()
@@ -437,16 +453,17 @@ def read_board(path: str) -> dict:
 def add_card(path: str, column: str, text: str) -> dict:
     """Add a card to a column of a Kanban board.
 
-    Example: add_card(path="Boards/Project Board", column="Backlog", text="Draft pricing page")
+    Example: add_card(path="Projects/Project Board", column="Backlog", text="Draft pricing page")
     """
     v = get_vault()
-    board = kb.parse_board(v.read(path))
-    v.snapshot_before("add_card")
-    board.column(column).cards.append(
-        {"text": text.strip(), "done": False, "id": ids.stamp_id("c")}
-    )
-    v.write(path, kb.render_board(board))
-    v.snapshot_after(f"add card to {column!r} on {path}")
+    with v.locked():
+        board = kb.parse_board(v.read(path))
+        v.snapshot_before("add_card")
+        board.column(column).cards.append(
+            {"text": text.strip(), "done": False, "id": ids.stamp_id("c")}
+        )
+        v.write(path, kb.render_board(board))
+        v.snapshot_after(f"add card to {column!r} on {path}")
     return {"board": path, "column": column, "added": text.strip()}
 
 
@@ -455,18 +472,19 @@ def move_card(path: str, card: str, to_column: str) -> dict:
     """Move a card (matched by exact text or unique substring) to another column.
     Moving into a column named Done/Complete also checks the card off.
 
-    Example: move_card(path="Boards/Project Board", card="Draft pricing page", to_column="Doing")
+    Example: move_card(path="Projects/Project Board", card="Draft pricing page", to_column="Doing")
     """
     v = get_vault()
-    board = kb.parse_board(v.read(path))
-    src, found = board.find_card(card)
-    dest = board.column(to_column)
-    v.snapshot_before("move_card")
-    src.cards.remove(found)
-    found["done"] = dest.complete_marker or dest.name.lower() in ("done", "complete", "completed")
-    dest.cards.append(found)
-    v.write(path, kb.render_board(board))
-    v.snapshot_after(f"move card {found['text']!r} to {dest.name!r} on {path}")
+    with v.locked():
+        board = kb.parse_board(v.read(path))
+        src, found = board.find_card(card)
+        dest = board.column(to_column)
+        v.snapshot_before("move_card")
+        src.cards.remove(found)
+        found["done"] = dest.complete_marker or dest.name.lower() in ("done", "complete", "completed")
+        dest.cards.append(found)
+        v.write(path, kb.render_board(board))
+        v.snapshot_after(f"move card {found['text']!r} to {dest.name!r} on {path}")
     return {"board": path, "card": found["text"], "from": src.name, "to": dest.name}
 
 
@@ -484,17 +502,18 @@ def open_daily_note(date: str = "") -> dict:
     rel = f"{DAILY_DIR}/{day}.md"
     created = not v.resolve(rel).exists()
     if created:
-        v.snapshot_before("open_daily_note")
-        v.write(rel, f"# {day}\n\n## Tasks\n\n## Notes\n")
-        v.snapshot_after(f"create daily note {day}")
+        with v.locked():
+            v.snapshot_before("open_daily_note")
+            v.write(rel, f"# {day}\n\n## Tasks\n\n## Notes\n")
+            v.snapshot_after(f"create daily note {day}")
     return {"path": rel, "content": v.read(rel), "created": created}
 
 
 @mcp.tool()
 def create_meeting_note(title: str, date: str = "", attendees: str = "") -> dict:
     """Create a meeting note under Meetings/ using the vault's meeting template if
-    one exists (Templates/Meeting.md), else a standard skeleton. attendees is a
-    comma-separated list. Returns the new note's path.
+    one exists (Harness/Templates/Meeting.md), else a standard skeleton. attendees
+    is a comma-separated list. Returns the new note's path.
 
     Example: create_meeting_note(title="Sprint Planning", date="2026-07-17", attendees="Sam, Rio")
     """
@@ -506,7 +525,7 @@ def create_meeting_note(title: str, date: str = "", attendees: str = "") -> dict
     if p.exists():
         raise VaultError(f"Meeting note already exists: {rel}")
     try:
-        template = md.split_frontmatter(v.read("Templates/Meeting.md"))[1]
+        template = md.split_frontmatter(v.read("Harness/Templates/Meeting.md"))[1]
         weekday = dt.date.fromisoformat(day).strftime("%A")
         body = (template.replace("{{title}}", title.strip())
                         .replace("{{date}}", day)
@@ -517,9 +536,10 @@ def create_meeting_note(title: str, date: str = "", attendees: str = "") -> dict
         attendee_lines = "".join(f"- {a}\n" for a in people)
         body = f"# {title.strip()}\n\n## Attendees\n\n{attendee_lines}\n## Agenda\n\n## Notes\n\n## Action items\n"
     fm = {"id": ids.stamp_id("m"), "date": day, "type": "meeting", "attendees": people}
-    v.snapshot_before("create_meeting_note")
-    v.write(rel, md.join_frontmatter(fm, body))
-    v.snapshot_after(f"create meeting note {rel}")
+    with v.locked():
+        v.snapshot_before("create_meeting_note")
+        v.write(rel, md.join_frontmatter(fm, body))
+        v.snapshot_after(f"create meeting note {rel}")
     return {"created": rel}
 
 

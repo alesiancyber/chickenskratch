@@ -5,7 +5,7 @@ description: Structure a raw meeting capture note (stream-of-consciousness fragm
 
 # Meeting capture → structured meeting note
 
-You are given the path of a raw capture note (usually under `Captures/`).
+You are given the path of a raw capture note (usually under `Meetings/`).
 It contains unedited fragments typed during a live meeting: half sentences,
 typos, shorthand. Turn it into a simple, consistent meeting note.
 

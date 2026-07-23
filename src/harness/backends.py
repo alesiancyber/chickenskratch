@@ -25,12 +25,26 @@ import subprocess
 import time
 from pathlib import Path
 
+import httpx
+
 from .bootstrap import ROOT
 from .profiles import BackendSpec
 
 STATE_PATH = ROOT / "data" / "backends.json"
 LOGS_DIR = ROOT / "data" / "logs"
 STOP_GRACE_S = 5.0
+
+
+async def endpoint_alive(base_url: str, timeout: float = 1.5) -> bool:
+    """The one probe for "is an OpenAI-compatible server answering?":
+    GET {base}/models. Every reachability check goes through here so the
+    contract (path, error handling) exists once."""
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as http:
+            await http.get(base_url.rstrip("/") + "/models")
+        return True
+    except httpx.HTTPError:
+        return False
 
 
 def _pid_alive(pid: int) -> bool:
