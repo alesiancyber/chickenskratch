@@ -302,7 +302,9 @@ class Watcher:
                 "",
                 "---",
                 "",
-                f"## {p['title']}",
+                # note stem in the heading: several proposals can share a
+                # title ("Fix meeting schema issues" × 3 in real use)
+                f"## {p['title']} · {Path(p['drafted_against']['note']).stem}",
                 "",
                 f"`{p['drafted_against']['note']}` — {p['summary']}",
                 "",
@@ -398,6 +400,7 @@ class Watcher:
                 if sum(acted.values()):
                     self._render()
                     self._render_changes()
+                self._sweep_late_decisions(summary)
                 return summary
             if sum(acted.values()):
                 self._render()  # visible feedback beats drafting latency
@@ -425,11 +428,28 @@ class Watcher:
                 summary["scanned"] = True
             self._render()
             self._render_changes()
+            self._sweep_late_decisions(summary)
             self._save_state()
             proposals.prune(self.proposals_dir)
             return summary
         finally:
             lock_file.close()  # releases the flock
+
+    def _sweep_late_decisions(self, summary: dict) -> None:
+        """Decisions checked WHILE this pass ran: act before releasing the
+        lock, or nobody would — the fast lane's trigger was consumed by
+        the pass lock, and re-baselining hides the check from the full
+        loop. The render guard preserved the box; this honors it."""
+        for _ in range(3):
+            pending_ids = {p["id"] for p in proposals.pending(self.proposals_dir)}
+            late = [d for d in self._read_decisions() if d[0] in pending_ids]
+            if not late:
+                return
+            acted, _ = self._act(late, proposals.pending(self.proposals_dir))
+            for k, v in acted.items():
+                summary[k] = summary.get(k, 0) + v
+            self._render()
+            self._render_changes()
 
     def _render_changes(self) -> None:
         """Phase 10: the audit surface. Rendered every pass, written only

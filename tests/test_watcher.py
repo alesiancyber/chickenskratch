@@ -173,6 +173,26 @@ def test_render_never_clobbers_unacted_checked_boxes(vault, watcher):
     assert run(watcher)["approved"] == 1  # and the next pass honors it
 
 
+def test_mid_pass_decision_is_acted_before_the_pass_ends(vault, watcher, make_watcher):
+    """The live deadlock of 2026-07-23: a box checked while a slow pass
+    drafts must be honored by THAT pass — its trigger was consumed by the
+    pass lock and re-baselining hides it from the loops."""
+    run(watcher)  # leaves pending proposals
+    target = proposals.pending(watcher.proposals_dir)[0]
+    review = vault / "Harness/Review.md"
+
+    async def checking_drafter(item):
+        # the user's decision arrives mid-draft
+        review.write_text(review.read_text().replace(
+            f"- [ ] approve {target['id']}", f"- [x] approve {target['id']}"))
+        return await fake_drafter(item)
+
+    (vault / "Home.md").write_text((vault / "Home.md").read_text() + "\nnudge\n")
+    summary = run(make_watcher(vault, drafter=checking_drafter, n_max=3))
+    assert summary["approved"] == 1  # the late decision was swept in-pass
+    assert f"approve {target['id']}" not in review.read_text()  # and re-rendered
+
+
 def test_invalid_drafter_output_never_enters_queue(vault, tmp_path, monkeypatch):
     monkeypatch.setattr("harness.watcher.record_dashboard", lambda *a, **k: None)
 
