@@ -202,7 +202,14 @@ async def _azure_docs(args: str, vault_path: str) -> str | None:
     lines = text.splitlines()
     if lines and lines[0].startswith("Documentation pages found"):
         lines = lines[1:]  # model-facing instruction, not note content
-    return "\n".join(lines).strip()[:6000] or None
+    # Cap the block at a LINE boundary: a mid-line cut would sever a link.
+    kept, size = [], 0
+    for ln in lines:
+        size += len(ln) + 1
+        if size > 6000:
+            break
+        kept.append(ln)
+    return "\n".join(kept).strip() or None
 
 
 # command name -> async (args, vault_path) -> result markdown | None.

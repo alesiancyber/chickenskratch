@@ -106,13 +106,21 @@ def digest_docs_search(text: str) -> str:
         if not url:
             continue
         base, _, fragment = url.partition("#")
-        # Excerpts are flattened to one line with heading markers stripped:
-        # docs chunks open with "# Title\n## Section" and raw markdown here
-        # would render as actual headings when the digest lands in a note
-        # (//azure writes it in place) or in a chat transcript. Truncation
-        # lands on a word boundary — a mid-word cut reads as a glitch.
-        flat = " ".join(w for w in str(r.get("content") or "").split() if w.strip("#"))
-        excerpt = flat if len(flat) <= 200 else flat[:200].rsplit(" ", 1)[0] + " …"
+        # Excerpt: body prose only. Chunks open with their own headings
+        # (the visible title again) and may carry markdown tables that
+        # flatten into "| --- |" junk — both line types are dropped. The
+        # cut prefers a sentence boundary so an excerpt ends as a complete
+        # thought; only when no sentence fits does it fall back to a word
+        # boundary with an ellipsis.
+        flat = " ".join(" ".join(
+            ln.strip() for ln in str(r.get("content") or "").splitlines()
+            if ln.strip() and not ln.lstrip().startswith(("#", "|"))
+        ).split())
+        if len(flat) > 200:
+            cut = flat[:200]
+            dot = cut.rfind(". ")
+            flat = cut[: dot + 1] if dot >= 60 else cut.rsplit(" ", 1)[0] + " …"
+        excerpt = flat
         page = pages.setdefault(
             base,
             {"title": str(r.get("title") or base), "sections": [], "count": 0,
