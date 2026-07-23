@@ -241,6 +241,21 @@ tested via mtime). No revert checkbox, per the cut list.
 
 **Done when:** "what did it just do" is answerable in Obsidian alone.
 
+## Phase 10.5 — Side-by-side Review diffs ✅ BUILT (2026-07-23)
+
+User request (GitHub/GitLab habits): `diff_style: split | unified` in
+Spec.md, default split. `src/harness/diffhtml.py` renders a
+side-by-side HTML table — line numbers, row coloring, word-level marks,
+unchanged runs >7 collapsed to "⋯ N unchanged" — inside Review.md;
+Obsidian's reading view renders embedded HTML, and Review.md is a
+machine view, so HTML is fair game there (checkbox lines stay plain
+markdown). Styled with Obsidian CSS vars + low-alpha GitHub hues, so it
+follows light/dark themes; content HTML-escaped; emitted with no blank
+lines (markdown would end the HTML block). Steps that can't be
+simulated for the note (e.g. add_task to another note) are listed as
+"not previewed" bullets, same disclosure rule as unified
+(`applier.simulate_for_note`, shared with preview()).
+
 ## Phase 11 — `//research` + direct result blocks (v2) — GATED
 
 *Gate: D0/D1/D2 usage gates passed AND v1 commands used in real notes

@@ -29,7 +29,7 @@ async def fake_drafter(item):
 def vault(gitvault):
     # this suite tests the checkbox path — revoke auto-apply trust
     (gitvault / "Harness").mkdir(exist_ok=True)
-    (gitvault / "Harness/Spec.md").write_text("---\nauto_apply: []\n---\n\n# Vault Spec\n")
+    (gitvault / "Harness/Spec.md").write_text('---\nauto_apply: []\ndiff_style: unified\n---\n\n# Vault Spec\n')
     return gitvault
 
 

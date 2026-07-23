@@ -14,6 +14,9 @@ from obsidian_mcp.vault import Vault
 
 @pytest.fixture()
 def vault(gitvault):
+    # unified diffs + no auto: this suite asserts the queue path literally
+    (gitvault / "Harness").mkdir(exist_ok=True)
+    (gitvault / "Harness/Spec.md").write_text('---\nauto_apply: []\ndiff_style: unified\n---\n\n# Vault Spec\n')
     return gitvault
 
 

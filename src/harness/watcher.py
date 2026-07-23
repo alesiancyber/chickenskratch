@@ -30,7 +30,7 @@ from obsidian_mcp import workers as wk
 from obsidian_mcp.vault import Vault, VaultError
 from obsidian_mcp.vaultconfig import get_config
 
-from . import applier, changes, processors, proposals
+from . import applier, changes, diffhtml, processors, proposals
 from .bootstrap import ROOT
 from .corpus import record_dashboard
 from .processors import ProcessorSpec
@@ -159,6 +159,7 @@ class Watcher:
             "exclude": list(base.exclude),
             "auto_apply": list(base.auto_apply),
             "fidelity": base.fidelity,
+            "diff_style": base.diff_style,
         }
         self.write_surface(vc.SPEC_REL, md.join_frontmatter(fm, SPEC_BODY),
                            f"seed {vc.SPEC_REL}", action="seed_vault_spec")
@@ -309,12 +310,7 @@ class Watcher:
             ]
             spec = self._by_kind.get(p["kind"])
             if spec is None or spec.render_diff:
-                try:
-                    note_text = v.read(p["drafted_against"]["note"])
-                    diff = applier.preview(note_text, p)
-                except VaultError:
-                    diff = "# (target note unreadable — proposal will go stale)"
-                lines += ["", "```diff", diff, "```"]
+                lines += self._diff_block(p)
             lines += [
                 "",
                 f"- [ ] approve {p['id']}",
@@ -330,7 +326,27 @@ class Watcher:
                            f"update {self.review_rel}", action="render_review")
         return True
 
-    # ---- one pass ----
+    def _diff_block(self, p: dict) -> list[str]:
+        """A proposal's diff for Review.md. `diff_style: split` (Spec.md)
+        renders a GitHub-style side-by-side HTML table — Obsidian's
+        reading view renders embedded HTML, and Review.md is a machine
+        view, so HTML is fair game here. `unified` keeps the classic
+        ```diff fence."""
+        try:
+            note_text = self.vault.read(p["drafted_against"]["note"])
+        except VaultError:
+            return ["", "```diff", "# (target note unreadable — proposal will go stale)", "```"]
+        if get_config(self.vault_path).diff_style == "split":
+            after, skipped = applier.simulate_for_note(note_text, p)
+            table = diffhtml.split_diff(note_text, after)
+            out = [""]
+            if table:
+                out.append(table)
+            out += [f"- not previewed: `{s}`" for s in skipped]
+            if len(out) > 1:
+                return out
+            # nothing previewable at all: fall through to unified's notes
+        return ["", "```diff", applier.preview(note_text, p), "```"]
 
     async def run_once(self) -> dict:
         summary = {

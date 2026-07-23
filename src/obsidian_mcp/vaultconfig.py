@@ -43,6 +43,9 @@ class VaultConfig:
     # must sequence-match its source line. Verification failure keeps
     # the checkbox either way.
     fidelity: str = "close"
+    # Review.md diff rendering: "split" = GitHub-style side-by-side HTML
+    # (Obsidian reading view renders it); "unified" = classic ```diff.
+    diff_style: str = "split"
 
     @property
     def surface_dirs(self) -> frozenset[str]:
@@ -88,6 +91,8 @@ def _spec_overrides(base: VaultConfig, fm: dict) -> VaultConfig:
         out = replace(out, auto_apply=tuple(str(n) for n in fm["auto_apply"]))
     if fm.get("fidelity") in ("strict", "close"):
         out = replace(out, fidelity=str(fm["fidelity"]))
+    if fm.get("diff_style") in ("split", "unified"):
+        out = replace(out, diff_style=str(fm["diff_style"]))
     return out
 
 

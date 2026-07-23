@@ -124,9 +124,10 @@ def _simulate(text: str, step: dict) -> str | None:
     return None
 
 
-def preview(note_text: str, proposal: dict) -> str:
-    """Unified diff of the plan against the CURRENT note text; steps that
-    can't be simulated are listed so nothing looks hidden."""
+def simulate_for_note(note_text: str, proposal: dict) -> tuple[str, list[str]]:
+    """Best-effort simulation of the plan against one note's text: steps
+    that can't be simulated (other-note writes, unknown tools) are skipped
+    and described, so nothing looks hidden. Returns (after, skipped)."""
     current, unpreviewable = note_text, []
     for step in proposal["apply"]:
         try:
@@ -138,6 +139,13 @@ def preview(note_text: str, proposal: dict) -> str:
             unpreviewable.append(f"{step['tool']}({json_args(step)})")
         else:
             current = simulated
+    return current, unpreviewable
+
+
+def preview(note_text: str, proposal: dict) -> str:
+    """Unified diff of the plan against the CURRENT note text; steps that
+    can't be simulated are listed so nothing looks hidden."""
+    current, unpreviewable = simulate_for_note(note_text, proposal)
     diff = "\n".join(
         difflib.unified_diff(
             note_text.splitlines(), current.splitlines(),
