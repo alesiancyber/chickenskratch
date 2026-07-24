@@ -4,10 +4,13 @@ commitments route to the waiting list; intra-pass dedup means schema_fix
 never fights it for the same note."""
 
 import asyncio
+import datetime as _dt
 
 import pytest
 
 from harness import proposals
+
+TODAY = _dt.date.today().isoformat()
 
 EXTRACTED = [
     {"text": "Buy a car", "due": None, "priority": None, "owed_by": None},
@@ -81,8 +84,8 @@ def test_inbox_free_text_round_trip(vault, watcher):
     for ln in before_tasks:
         assert ln in after.splitlines()  # pre-existing tasks byte-identical
     assert "buy a car" not in after  # prose rewritten, not duplicated
-    assert "- [ ] Buy a car ^t-" in after
-    assert "- [ ] Investigate Azure docs 📅 2026-07-28 ^t-" in after
+    assert f"- [ ] Buy a car ➕ {TODAY} ^t-" in after
+    assert f"- [ ] Investigate Azure docs 📅 2026-07-28 ➕ {TODAY} ^t-" in after
     assert "Follow up about the Northwind" not in after  # owed item not in inbox
     assert "Alex: Follow up about the Northwind requests" in (
         vault / "Tasks/Waiting.md").read_text()

@@ -106,7 +106,7 @@ def test_tasks(vault):
 
     server.set_task_status("Tasks/Inbox", "Renew domain")
     inbox = (vault / "Tasks/Inbox.md").read_text()
-    assert "- [x] Renew domain ⏫ 📅 2026-07-25 ✅" in inbox
+    assert re.search(r"- \[x\] Renew domain ⏫ 📅 2026-07-25 ➕ \d{4}-\d{2}-\d{2} ✅", inbox)
 
     server.set_task_status("Tasks/Inbox", "Renew domain", done=False)
     assert "- [ ] Renew domain" in (vault / "Tasks/Inbox.md").read_text()
@@ -344,8 +344,8 @@ def test_add_task_joins_the_list_not_a_new_paragraph(vault):
     server.add_task("Tasks/Fresh", "third task", due="2026-07-30")
     body = (vault / "Tasks/Fresh.md").read_text()
     assert "prose\n\n- [ ] first task" in body          # prose -> one blank
-    assert re.search(r"first task \^t-\w+\n- \[ \] second task", body)   # task -> adjacent
-    assert re.search(r"second task \^t-\w+\n- \[ \] third task", body)
+    assert re.search(r"first task ➕ [\d-]+ \^t-\w+\n- \[ \] second task", body)   # task -> adjacent
+    assert re.search(r"second task ➕ [\d-]+ \^t-\w+\n- \[ \] third task", body)
     assert "\n\n\n" not in body                          # never a blank run
 
 

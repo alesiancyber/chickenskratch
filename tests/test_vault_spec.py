@@ -63,7 +63,14 @@ def test_parse_task_line_strips_block_ref():
 
 def test_format_task_with_block_id():
     line = tasks.format_task("Ship it", due="2026-07-25", priority="high", block_id="t-abc123")
-    assert line == "- [ ] Ship it ⏫ 📅 2026-07-25 ^t-abc123"
+    import datetime as dt
+    today = dt.date.today().isoformat()
+    # ➕ birth date stamps at the choke point: every harness-born task
+    # carries lifecycle metadata globally (2026-07-23 principle)
+    assert line == f"- [ ] Ship it ⏫ 📅 2026-07-25 ➕ {today} ^t-abc123"
+    parsed = tasks.parse_task_line(line)
+    assert parsed.created == today and parsed.text == "Ship it"
+    assert tasks.format_task("Bare", created=None) == "- [ ] Bare"
     t = tasks.parse_task_line(line)
     assert t.text == "Ship it" and t.block_id == "t-abc123"
 

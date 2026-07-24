@@ -90,3 +90,20 @@ def test_today_is_stable_and_never_feeds_itself(vault, make_watcher):
     run(w)
     assert surface.read_text() == text
     assert surface.stat().st_mtime == stamp
+
+
+def test_waiting_age_and_stranded_meeting_actions(vault, make_watcher):
+    """Views powered by lifecycle metadata: ➕ ages on waiting items, and
+    open UNDATED action items rotting in old meeting notes."""
+    (vault / "Tasks/Waiting.md").write_text(
+        f"# Waiting\n\n- [ ] Marcus: firewall logs ➕ {day(-12)}\n")
+    (vault / "Meetings" / f"{day(-10)} Vendor Sync.md").write_text(
+        "# Vendor Sync\n\n## Action items\n\n- [ ] chase the SOW redlines\n")
+    w = make_watcher(vault, registry=())
+    run(w)
+    text = (vault / "Harness/Today.md").read_text()
+    assert "Marcus: firewall logs (12d waiting)" in text
+    assert "## Stranded in meetings" in text
+    assert "chase the SOW redlines — 10d old" in text
+    # dated meeting items are Due-section business, not stranded
+    assert text.count("chase the SOW redlines") == 1

@@ -3,11 +3,14 @@
 verifier can't vouch for keeps its checkbox in Review.md."""
 
 import asyncio
+import datetime as _dt
 
 import pytest
 
 from harness import proposals
 from harness.processors import CAPTURE_SKELETON
+
+TODAY = _dt.date.today().isoformat()
 
 
 @pytest.fixture()
@@ -37,7 +40,7 @@ def test_faithful_inbox_extraction_applies_without_checkbox(vault, make_watcher)
     summary = run(w)
     assert summary["auto"] == 1
     after = inbox.read_text()
-    assert "- [ ] buy a car ^t-" in after
+    assert f"- [ ] buy a car ➕ {TODAY} ^t-" in after
     assert after.count("buy a car") == 1  # rewritten in place, not duplicated
     assert proposals.pending(w.proposals_dir) == []
     (row,) = [r for r in proposals.load_all(w.proposals_dir) if r["kind"] == "inbox_extract"]
@@ -83,7 +86,7 @@ def test_grammar_and_punctuation_improvements_auto_apply(vault, make_watcher):
     summary = run(w)
     assert summary["auto"] == 1  # capitalization, period, and "the" all allowed
     after = inbox.read_text()
-    assert "- [ ] Buy a car. ^t-" in after
+    assert f"- [ ] Buy a car. ➕ {TODAY} ^t-" in after
     assert "Follow up with Alex about the Northwind requests" in after
 
 

@@ -103,7 +103,7 @@ def _collect(v: Vault, surface_dirs: frozenset[str]):
     return dated, boards
 
 
-def _waiting_rows(v: Vault, waiting_inbox: str) -> list[str]:
+def _waiting_rows(v: Vault, waiting_inbox: str, today: dt.date) -> list[str]:
     try:
         text = v.read(waiting_inbox)
     except VaultError:
@@ -113,7 +113,33 @@ def _waiting_rows(v: Vault, waiting_inbox: str) -> list[str]:
         if task.done:
             continue
         due = f" — due {task.due}" if task.due else ""
-        rows.append(f"- {task.text}{due} · {_link(waiting_inbox)}")
+        age = ""
+        if task.created:  # ➕ birth dates stamp at format_task; aging accrues
+            days = (today - dt.date.fromisoformat(task.created)).days
+            if days >= 3:
+                age = f" ({days}d waiting)"
+        rows.append(f"- {task.text}{due}{age} · {_link(waiting_inbox)}")
+    return rows
+
+
+def _stranded_meeting_actions(v: Vault, today: dt.date, max_age_days: int = 7) -> list[str]:
+    """Open, UNDATED action items in old meeting notes — invisible to the
+    Due section, rotting quietly. Dated ones already surface in Due."""
+    try:
+        notes = list(v.iter_notes("Meetings", recursive=False))
+    except VaultError:
+        return []
+    rows = []
+    for p in notes:
+        try:
+            met = dt.date.fromisoformat(p.stem[:10])
+        except ValueError:
+            continue
+        if (today - met).days < max_age_days:
+            continue
+        for t in tk.iter_tasks(p.read_text(encoding="utf-8")):
+            if not t.done and not t.due:
+                rows.append(f"- {t.text} — {(today - met).days}d old · {_link(v.rel(p))}")
     return rows
 
 
@@ -178,9 +204,13 @@ def render(v: Vault, cfg, pending_decisions: int, today: dt.date | None = None) 
 
     lines += ["", "## Due", *_due_section(dated, today)]
 
-    waiting = _waiting_rows(v, cfg.waiting_inbox)
+    waiting = _waiting_rows(v, cfg.waiting_inbox, today)
     if waiting:
         lines += ["", "## Waiting on", *_cap(waiting)]
+
+    stranded = _stranded_meeting_actions(v, today)
+    if stranded:
+        lines += ["", "## Stranded in meetings", *_cap(stranded, 5)]
 
     meetings = _meetings_today(v, today)
     if meetings:
