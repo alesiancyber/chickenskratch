@@ -200,6 +200,9 @@ class Watcher:
             "worker": base.worker,
             "disabled_processors": list(base.disabled_processors),
             "n_max": base.n_max,
+            "callout_type": base.callout_type,
+            "link_scheme": base.link_scheme,
+            "daily_dir": base.daily_dir,
         }
         self.write_surface(vc.SPEC_REL, md.join_frontmatter(fm, SPEC_BODY),
                            f"seed {vc.SPEC_REL}", action="seed_vault_spec")
@@ -239,7 +242,8 @@ class Watcher:
             return
         from obsidian_mcp import server
 
-        for item in commands.scan(self.vault, get_config(self.vault_path).surface_dirs):
+        cfg = get_config(self.vault_path)
+        for item in commands.scan(self.vault, cfg.surface_dirs):
             # a slow search must never queue a human decision
             self._sweep_late_decisions(summary)
             result = await commands.INLINE_COMMANDS[item["command"]](item["args"], self.vault_path)
@@ -247,7 +251,7 @@ class Watcher:
                 continue  # transient failure: the line stays armed, retried next scan
             try:
                 server.replace_line(item["note"], item["line"],
-                                    commands.render_callout(item, result))
+                                    commands.render_callout(item, result, cfg.callout_type))
             except VaultError:
                 continue  # the line was edited away mid-flight: the user's edit wins
             summary["commands"] += 1

@@ -164,3 +164,18 @@ def test_stdio_env_carries_chat_id():
     assert with_id["HARNESS_CHAT_ID"] == "chat-42" and with_id["A"] == "1"
     without = MultiServerClient([spec])._stdio_env(spec)
     assert "HARNESS_CHAT_ID" not in without
+
+
+def test_editor_knobs_override_and_validate():
+    from pathlib import Path
+
+    base = vaultconfig.VaultConfig(
+        folder_types={}, exclude=(), surfaces={}, schemas_dir=Path("."))
+    out = vaultconfig._spec_overrides(
+        base, {"callout_type": "TIP", "link_scheme": "vscode", "daily_dir": "journal/"})
+    assert out.callout_type == "TIP"
+    assert out.link_scheme == "vscode"
+    assert out.daily_dir == "journal"          # trailing slash normalized
+    bad = vaultconfig._spec_overrides(base, {"link_scheme": "emacs", "callout_type": "  "})
+    assert bad.link_scheme == "obsidian"       # unknown scheme ignored
+    assert bad.callout_type == "NOTE"          # blank ignored, default holds

@@ -52,7 +52,7 @@ def test_typed_command_replaced_in_place_no_queue_no_artifacts(vault, make_watch
     assert summary["commands"] == 1 and summary["drafted"] == 0
     assert fake_azure == ["alert correlation"]
     text = note.read_text()
-    assert "> [!example] //azure alert correlation" in text  # callout, echo as title
+    assert "> [!NOTE] //azure alert correlation" in text  # callout, echo as title
     assert "> - Alert correlation" in text
     assert text.index("above") < text.index("learn.microsoft.com") < text.index("below")
     assert not re.search(r"^//azure", text, re.M)  # no re-trigger anchor left
@@ -202,7 +202,7 @@ def test_command_results_in_the_inbox_are_not_task_intent():
     still is."""
     section = [
         "- [ ] existing task ^t-aaaaaaaaaaaa",
-        "> [!example] //azure alert correlation",
+        "> [!NOTE] //azure alert correlation",
         "> - Alert correlation — https://learn.microsoft.com/x",
         ">   covers: correlating alerts into incidents",
         "call the vendor tomorrow",
@@ -211,3 +211,12 @@ def test_command_results_in_the_inbox_are_not_task_intent():
     heading, _lines, _idx, prose = found
     assert heading == "Tasks"
     assert prose == ["call the vendor tomorrow"]
+
+
+def test_callout_type_knob_is_a_spec_edit(vault, make_watcher, fake_azure):
+    (vault / "Harness/Spec.md").write_text(
+        "---\nauto_apply: []\ncallout_type: TIP\n---\n\n# Vault Spec\n")
+    note = vault / "Tasks/detections.md"
+    note.write_text("//azure alert correlation\n")
+    assert run(make_watcher(vault, registry=()))["commands"] == 1
+    assert "> [!TIP] //azure alert correlation" in note.read_text()

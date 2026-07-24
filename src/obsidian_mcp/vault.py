@@ -18,7 +18,10 @@ from pathlib import Path
 
 from .vaultconfig import get_config
 
-IGNORED_DIRS = {".git", ".obsidian", ".trash"}
+# Every dot-directory is editor/tool machinery, never notes: .git,
+# .obsidian, .trash, Foam's .foam, VSCode's .vscode — enumerating them
+# was a losing game (Foam templates under .foam/ were being scanned as
+# vault notes).
 
 # repo roots ensure_repo() has already initialized this process (see there)
 _ensured_repos: set[str] = set()
@@ -40,7 +43,6 @@ class Vault:
         # Matching is case-insensitive: macOS/Windows filesystems are, so
         # "private/x" and "Private/x" are the same folder on disk.
         self._exclude_lower = frozenset(e.lower() for e in exclude)
-        self._ignored_lower = frozenset(d.lower() for d in IGNORED_DIRS)
 
     # ---- paths ----
 
@@ -78,8 +80,8 @@ class Vault:
         pattern = "**/*.md" if recursive else "*.md"
         for p in sorted(base.glob(pattern)):
             parts = p.relative_to(self.root).parts
-            if any(part.lower() in self._ignored_lower for part in parts):
-                continue
+            if any(part.startswith(".") for part in parts):
+                continue  # dot-dirs/files are editor machinery, never notes
             if parts and parts[0].lower() in self._exclude_lower:
                 continue
             # glob follows symlinks: a link inside the vault must not smuggle

@@ -539,3 +539,21 @@ def test_slash_command_expands_before_model_sees_it():
     user_msg = next(m for m in sent if m["role"] == "user")
     assert "THE SECRET PROCEDURE" in user_msg["content"]
     assert "some input" in user_msg["content"]
+
+
+def test_vault_citations_use_vscode_scheme_when_configured(monkeypatch):
+    from pathlib import Path
+
+    from obsidian_mcp import vaultconfig as vc
+
+    cfg = vc.VaultConfig(folder_types={}, exclude=(), surfaces={},
+                         schemas_dir=Path("."), link_scheme="vscode")
+    monkeypatch.setattr(vc, "get_config", lambda *a, **k: cfg)
+    agent = make_agent([
+        response(tool_calls=[FakeToolCall("read_note", '{"path": "Projects/Website Redesign"}')]),
+        response(content="The launch moved to Aug 3."),
+    ])
+    agent.vault = "/vault"
+    out = run(agent)
+    assert "vscode://file//vault/Projects/Website%20Redesign.md" in out
+    assert "obsidian://" not in out

@@ -15,7 +15,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{env, fs, io, process, thread};
 
 /// Never scanned: vault-internal machinery and build junk whose mtimes
-/// are noise (mirrors vault.py's IGNORED_DIRS plus the vault .gitignore
+/// are noise (mirrors vault.py's dot-dir rule plus the vault .gitignore
 /// venv rule). Hidden directories are skipped wholesale.
 const SKIP_DIRS: &[&str] = &[".venv", "__pycache__", "target", "node_modules"];
 

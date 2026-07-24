@@ -102,11 +102,11 @@ def scan(vault: Vault, surface_dirs: frozenset[str]) -> list[dict]:
     return items
 
 
-def render_callout(item: dict, result: str) -> str:
-    """The result as an Obsidian callout: a visually distinct titled
-    block in reading AND live-preview views, collapsible by hand, plain
-    text on disk. The title echoes the command (provenance) and, being
-    blockquoted, can never re-match the command scan or read as inbox
-    task intent."""
+def render_callout(item: dict, result: str, callout_type: str = "NOTE") -> str:
+    """The result as a callout: a visually distinct titled block in both
+    Obsidian and VSCode/GitHub previews (Spec.md `callout_type` picks the
+    flavor), plain text on disk. The title echoes the command
+    (provenance) and, being blockquoted, can never re-match the command
+    scan or read as inbox task intent."""
     quoted = "\n".join("> " + ln for ln in result.splitlines())
-    return f"> [!example] //{item['command']} {item['args']}\n{quoted}"
+    return f"> [!{callout_type}] //{item['command']} {item['args']}\n{quoted}"

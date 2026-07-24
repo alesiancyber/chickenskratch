@@ -29,7 +29,8 @@ READ_ONLY = ToolAnnotations(readOnlyHint=True)
 
 mcp = FastMCP("obsidian-vault")
 
-DAILY_DIR = "Daily"
+# Daily-note folder comes from the vault spec (`daily_dir`), so Foam's
+# dailyNotes.directory and this harness can agree by config, not code.
 MEETINGS_DIR = "Meetings"
 
 
@@ -531,7 +532,7 @@ def open_daily_note(date: str = "") -> dict:
     """
     v = get_vault()
     day = _valid_date(date) if date else _today()
-    rel = f"{DAILY_DIR}/{day}.md"
+    rel = f"{vc.get_config().daily_dir}/{day}.md"
     created = not v.resolve(rel).exists()
     if created:
         with v.locked():

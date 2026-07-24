@@ -57,6 +57,17 @@ class VaultConfig:
     disabled_processors: tuple[str, ...] = ()
     # Proposals drafted per engine pass; a big backlog drains over days.
     n_max: int = 5
+    # ---- cross-editor rendering knobs (Obsidian vs Foam/VSCode) ----
+    # Callout type for //command results. "NOTE" renders as a styled
+    # block in BOTH Obsidian and VSCode/GitHub previews (GitHub alerts
+    # require uppercase); any Obsidian callout type also works here.
+    callout_type: str = "NOTE"
+    # URI scheme for the vault citations appended to chat answers:
+    # "obsidian" -> obsidian://open?path=..., "vscode" -> vscode://file/...
+    link_scheme: str = "obsidian"
+    # Folder for daily notes (align with Foam's dailyNotes.directory or
+    # Obsidian's daily-note folder — the harness follows, either way).
+    daily_dir: str = "Daily"
 
     @property
     def surface_dirs(self) -> frozenset[str]:
@@ -110,6 +121,12 @@ def _spec_overrides(base: VaultConfig, fm: dict) -> VaultConfig:
         out = replace(out, disabled_processors=tuple(str(n) for n in fm["disabled_processors"]))
     if isinstance(fm.get("n_max"), int) and not isinstance(fm.get("n_max"), bool) and fm["n_max"] >= 1:
         out = replace(out, n_max=int(fm["n_max"]))
+    if isinstance(fm.get("callout_type"), str) and fm["callout_type"].strip():
+        out = replace(out, callout_type=fm["callout_type"].strip())
+    if fm.get("link_scheme") in ("obsidian", "vscode"):
+        out = replace(out, link_scheme=str(fm["link_scheme"]))
+    if isinstance(fm.get("daily_dir"), str) and fm["daily_dir"].strip():
+        out = replace(out, daily_dir=fm["daily_dir"].strip().strip("/"))
     return out
 
 

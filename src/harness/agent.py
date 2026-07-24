@@ -376,10 +376,14 @@ class Agent:
 
     def _with_vault_citations(self, content: str) -> str:
         """Same guarantee, turned inward: an answer built on vault reads carries
-        the notes it came from, as clickable obsidian:// links. Notes the model
+        the notes it came from, as clickable links (Spec.md `link_scheme`
+        picks obsidian:// or vscode://file for Foam users). Notes the model
         already named inline are skipped, so citing never duplicates."""
         if not self.vault or not self._cited:
             return content
+        from obsidian_mcp.vaultconfig import get_config
+
+        scheme = get_config(self.vault).link_scheme
         lines = []
         for note in list(self._cited)[:8]:
             if note in content:  # the model already referenced it
@@ -387,7 +391,9 @@ class Agent:
             nums = sorted(self._cited[note])
             where = f" (line {nums[0]})" if len(nums) == 1 else (
                 f" (lines {', '.join(str(n) for n in nums[:5])})" if nums else "")
-            href = "obsidian://open?path=" + urllib.parse.quote(str(Path(self.vault) / note))
+            quoted = urllib.parse.quote(str(Path(self.vault) / note))
+            href = (f"vscode://file/{quoted}" if scheme == "vscode"
+                    else f"obsidian://open?path={quoted}")
             lines.append(f"- [{note}{where}]({href})")
         return content + "\n\nFrom your vault:\n" + "\n".join(lines) if lines else content
 

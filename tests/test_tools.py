@@ -310,3 +310,24 @@ def test_history_and_revert(vault):
     ok, _ = v.revert(v.history()[0]["sha"])
     assert ok
     assert "revert me" in (vault / "Tasks/Inbox.md").read_text()
+
+
+def test_dot_dirs_are_never_notes(vault):
+    """Foam/VSCode machinery (.foam templates, .vscode) must be invisible
+    to every read path — enumerating dot-dirs by name was a losing game."""
+    (vault / ".foam" / "templates").mkdir(parents=True)
+    (vault / ".foam" / "templates" / "daily.md").write_text("# a template, not a note\n")
+    (vault / ".vscode").mkdir(exist_ok=True)
+    (vault / ".vscode" / "notes.md").write_text("machinery\n")
+    notes = server.list_notes()["notes"]
+    assert not any(n.startswith(".") for n in notes)
+    hits = server.search_vault("a template, not a note")["matches"]
+    assert hits == []
+
+
+def test_daily_dir_follows_the_spec(vault):
+    (vault / "Harness").mkdir(exist_ok=True)
+    (vault / "Harness" / "Spec.md").write_text("---\ndaily_dir: journal\n---\n")
+    result = server.open_daily_note()
+    assert result["path"].startswith("journal/")
+    assert (vault / result["path"]).exists()
