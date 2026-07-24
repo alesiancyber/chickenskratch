@@ -199,35 +199,6 @@ def test_unknown_tool_never_prompts_for_approval():
     assert tool_msg["content"].startswith("Error:")
 
 
-def test_override_disables_gate_despite_profile():
-    async def bomb(name, args):
-        raise AssertionError("gate must not fire when overridden off")
-
-    agent = make_agent(
-        [response(tool_calls=[FakeToolCall("write_thing")]), response(content="ok")],
-        confirm=bomb, confirm_writes=True,
-    )
-    agent.confirm_writes_override = False
-    run(agent)
-    assert agent.client.calls == [("write_thing", {})]
-
-
-def test_override_enables_gate_despite_profile():
-    asked = []
-
-    async def approve(name, args):
-        asked.append(name)
-        return True
-
-    agent = make_agent(
-        [response(tool_calls=[FakeToolCall("write_thing")]), response(content="ok")],
-        confirm=approve, confirm_writes=False,
-    )
-    agent.confirm_writes_override = True
-    run(agent)
-    assert asked == ["write_thing"]
-
-
 # --------------- empty-reply recovery ---------------
 
 def test_empty_reply_nudged_and_history_kept_clean():
@@ -358,100 +329,6 @@ def test_no_sources_appended_when_model_already_linked():
     assert "Sources:" not in out  # model included links; no duplication
 
 
-# --------------- streaming assembly ---------------
-
-def chunk(content=None, tool_deltas=None, usage=None):
-    delta = SimpleNamespace(content=content, tool_calls=tool_deltas)
-    return SimpleNamespace(choices=[SimpleNamespace(delta=delta)], usage=usage)
-
-
-def tool_delta(index=0, call_id=None, name=None, arguments=None, extra_content=None):
-    return SimpleNamespace(
-        index=index, id=call_id,
-        function=SimpleNamespace(name=name, arguments=arguments),
-        extra_content=extra_content,
-    )
-
-
-class FakeStreamOpenAI:
-    """create(stream=True) yields scripted chunk lists, one list per request."""
-
-    def __init__(self, chunk_lists):
-        self._lists = [list(c) for c in chunk_lists]
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
-
-    async def _create(self, stream=False, **kwargs):
-        assert stream, "streaming agent must request stream=True"
-        chunks = self._lists.pop(0)
-
-        async def gen():
-            for c in chunks:
-                yield c
-
-        return gen()
-
-
-def test_streaming_content_deltas_reach_callback():
-    seen = []
-    agent = make_agent([])
-    agent.on_delta = seen.append
-    agent._openai = FakeStreamOpenAI([[chunk("Hel"), chunk("lo"), chunk(" there")]])
-    assert run(agent) == "Hello there"
-    assert seen == ["Hel", "lo", " there"]
-
-
-def test_streaming_tool_call_assembled_across_deltas():
-    agent = make_agent([])
-    agent.on_delta = lambda t: None
-    agent._openai = FakeStreamOpenAI([
-        [  # tool call split across three deltas
-            chunk(tool_deltas=[tool_delta(0, call_id="c9", name="write_thing", arguments='{"a"')]),
-            chunk(tool_deltas=[tool_delta(0, arguments=": 1")]),
-            chunk(tool_deltas=[tool_delta(0, arguments="}")]),
-        ],
-        [chunk("done")],
-    ])
-    assert run(agent) == "done"
-    assert agent.client.calls == [("write_thing", {"a": 1})]
-    dumped = next(m for m in agent.messages if m.get("tool_calls"))["tool_calls"][0]
-    assert dumped["id"] == "c9"
-    assert dumped["function"]["arguments"] == '{"a": 1}'
-    assert "extra_content" not in dumped  # absent unless the backend sent one
-
-
-def test_streaming_preserves_gemini_thought_signature():
-    # Gemini 3.x signs each function call via extra_content and 400s the
-    # next request if the signature is missing from history
-    sig = {"google": {"thought_signature": "EjQKMg=="}}
-    agent = make_agent([])
-    agent.on_delta = lambda t: None
-    agent._openai = FakeStreamOpenAI([
-        [chunk(tool_deltas=[tool_delta(
-            index=None, call_id="g1", name="read_thing", arguments="{}", extra_content=sig,
-        )])],
-        [chunk("done")],
-    ])
-    assert run(agent) == "done"
-    dumped = next(m for m in agent.messages if m.get("tool_calls"))["tool_calls"][0]
-    assert dumped["extra_content"] == sig
-
-
-def test_streaming_indexless_deltas_form_separate_calls():
-    # Gemini's compat layer streams whole tool calls with index=None: each
-    # delta bearing an id must become its own call, not overwrite slot None
-    agent = make_agent([])
-    agent.on_delta = lambda t: None
-    agent._openai = FakeStreamOpenAI([
-        [
-            chunk(tool_deltas=[tool_delta(index=None, call_id="g1", name="read_thing", arguments='{"a": 1}')]),
-            chunk(tool_deltas=[tool_delta(index=None, call_id="g2", name="read_thing", arguments='{"a": 2}')]),
-        ],
-        [chunk("done")],
-    ])
-    assert run(agent) == "done"
-    assert agent.client.calls == [("read_thing", {"a": 1}), ("read_thing", {"a": 2})]
-
-
 # --------------- token stats ---------------
 
 def test_reported_usage_accumulates_exactly():
@@ -462,7 +339,7 @@ def test_reported_usage_accumulates_exactly():
     run(agent)
     # input/output accumulate across requests; context is the LAST request
     assert agent.stats == {
-        "input_tokens": 250, "output_tokens": 15, "context_tokens": 155, "estimated": False,
+        "input_tokens": 250, "output_tokens": 15, "estimated": False,
     }
     assert agent.last_run_stats == {
         "input_tokens": 250, "output_tokens": 15, "tool_calls": 1, "estimated": False,
@@ -485,18 +362,7 @@ def test_run_stats_are_per_run_but_chat_stats_accumulate():
     run(agent)
     run(agent, "again")
     assert agent.stats["input_tokens"] == 130
-    assert agent.stats["context_tokens"] == 86     # last request's footprint
     assert agent.last_run_stats["input_tokens"] == 80  # second run only
-
-
-def test_streaming_usage_captured_from_final_chunk():
-    agent = make_agent([])
-    agent.on_delta = lambda t: None
-    agent._openai = FakeStreamOpenAI([[chunk("hi"), chunk(usage=usage(40, 2))]])
-    assert run(agent) == "hi"
-    assert agent.stats == {
-        "input_tokens": 40, "output_tokens": 2, "context_tokens": 42, "estimated": False,
-    }
 
 
 # --------------- skills ---------------

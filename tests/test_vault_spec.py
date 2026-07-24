@@ -155,17 +155,6 @@ def test_no_chat_id_env_no_trailer(vault):
     assert "Chat-Id" not in v.commit_message(v.history()[0]["sha"])
 
 
-# ---- Chat-Id env (B4, harness side) ----
-
-def test_stdio_env_carries_chat_id():
-    from harness.mcp_client import MultiServerClient, ServerSpec
-    spec = ServerSpec(name="obsidian", transport="stdio", command=["x"], env={"A": "1"})
-    with_id = MultiServerClient([spec], chat_id="chat-42")._stdio_env(spec)
-    assert with_id["HARNESS_CHAT_ID"] == "chat-42" and with_id["A"] == "1"
-    without = MultiServerClient([spec])._stdio_env(spec)
-    assert "HARNESS_CHAT_ID" not in without
-
-
 def test_editor_knobs_override_and_validate():
     from pathlib import Path
 

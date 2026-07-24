@@ -18,7 +18,6 @@ import json
 import re
 import urllib.parse
 from pathlib import Path
-from types import SimpleNamespace
 
 from openai import AsyncOpenAI
 
@@ -66,30 +65,6 @@ def _usage_dict(response) -> dict | None:
     return {"input": usage.prompt_tokens or 0, "output": usage.completion_tokens or 0}
 
 
-class _AssembledToolCall:
-    """Tool call reassembled from streaming deltas; mirrors the OpenAI type's
-    surface (.id, .function.name/.arguments, .model_dump()).
-
-    extra_content carries provider-side data that must round-trip in history
-    (Gemini 3.x signs each function call with a thought_signature there and
-    rejects the next request if it's missing)."""
-
-    def __init__(self, call_id: str, name: str, arguments: str, extra_content=None):
-        self.id = call_id
-        self.function = SimpleNamespace(name=name, arguments=arguments)
-        self.extra_content = extra_content
-
-    def model_dump(self) -> dict:
-        dump = {
-            "id": self.id,
-            "type": "function",
-            "function": {"name": self.function.name, "arguments": self.function.arguments},
-        }
-        if self.extra_content is not None:
-            dump["extra_content"] = self.extra_content
-        return dump
-
-
 class Agent:
     """One set of MCP sessions + one model endpoint, reusable across turns.
 
@@ -105,36 +80,23 @@ class Agent:
         log=_print_tool_call,
         confirm=None,
         skills: list[Skill] | None = None,
-        on_delta=None,
         vault: str = "",
-        tool_filter: list[str] | None = None,
-        chat_id: str = "",
     ):
         self.profile = profile
         self.log = log
         self.confirm = confirm
         self.skills = skills or []
         # Absolute vault path, if known. Enables vault citations (clickable
-        # obsidian:// links back to the notes an answer drew on). Empty in
-        # evals, where appending citations would perturb answer checks.
+        # links back to the notes an answer drew on). Empty in evals, where
+        # appending citations would perturb answer checks.
         self.vault = vault
-        # When set, completions stream and each content fragment is passed
-        # to on_delta(text) as it generates (live rendering for any
-        # interactive surface; the CLI prints whole replies and leaves it unset).
-        self.on_delta = on_delta
-        # Per-session approvals override: None = use profile.confirm_writes.
-        self.confirm_writes_override: bool | None = None
-        # Chat-cumulative token stats. input/output accumulate across requests;
-        # context_tokens is the LAST request's footprint (≈ current context
-        # occupancy); estimated flips when any count is a chars/4 estimate
+        # Chat-cumulative token stats. input/output accumulate across
+        # requests; estimated flips when any count is a chars/4 estimate
         # because the backend didn't report usage.
-        self.stats: dict = {"input_tokens": 0, "output_tokens": 0, "context_tokens": 0, "estimated": False}
+        self.stats: dict = {"input_tokens": 0, "output_tokens": 0, "estimated": False}
         self.last_run_stats: dict = {"input_tokens": 0, "output_tokens": 0, "tool_calls": 0, "estimated": False}
-        self._stream_usage = True  # ask streaming requests to report usage, until refused
         self.messages: list[dict] = [{"role": "system", "content": self._system_content()}]
-        self.client = MultiServerClient(
-            servers, server_filter=profile.servers, tool_filter=tool_filter, chat_id=chat_id
-        )
+        self.client = MultiServerClient(servers, server_filter=profile.servers)
         self._openai = AsyncOpenAI(base_url=profile.base_url, api_key=profile.api_key)
         self._tools: list[dict] = []
 
@@ -185,69 +147,15 @@ class Agent:
     async def _complete(self) -> tuple[str, list, dict | None]:
         """One model request. Returns (content, tool_calls, usage); usage is
         {"input", "output"} token counts when the backend reports them, else
-        None. Streams when on_delta is set, assembling tool-call deltas by
-        index."""
-        kwargs = dict(
+        None."""
+        response = await self._openai.chat.completions.create(
             model=self.profile.model,
             messages=self.messages,
             tools=self._tools,
             temperature=self.profile.temperature,
         )
-        if self.on_delta is None:
-            response = await self._openai.chat.completions.create(**kwargs)
-            msg = response.choices[0].message
-            return msg.content or "", list(msg.tool_calls or []), _usage_dict(response)
-
-        try:
-            return await self._stream(kwargs, include_usage=self._stream_usage)
-        except Exception:
-            if not self._stream_usage:
-                raise
-            # Some servers reject stream_options. Completions have no side
-            # effects, so retry once without it and stop asking this session
-            # (token counts degrade to estimates).
-            self._stream_usage = False
-            return await self._stream(kwargs, include_usage=False)
-
-    async def _stream(self, kwargs: dict, include_usage: bool) -> tuple[str, list, dict | None]:
-        if include_usage:
-            kwargs = dict(kwargs, stream_options={"include_usage": True})
-        parts: list[str] = []
-        slots: dict[int, dict] = {}
-        usage = None
-        stream = await self._openai.chat.completions.create(stream=True, **kwargs)
-        async for chunk in stream:
-            usage = _usage_dict(chunk) or usage  # rides the final chunk
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            if delta is None:
-                continue
-            if delta.content:
-                parts.append(delta.content)
-                self.on_delta(delta.content)
-            for tc in delta.tool_calls or []:
-                # Gemini's compat layer omits index and sends each call whole:
-                # an index-less delta with an id opens a new slot; without an
-                # id it continues the latest one.
-                if tc.index is not None:
-                    key = tc.index
-                else:
-                    key = len(slots) if tc.id or not slots else max(slots)
-                slot = slots.setdefault(key, {"id": "", "name": "", "arguments": "", "extra": None})
-                if tc.id:
-                    slot["id"] = tc.id
-                if tc.function:
-                    slot["name"] += tc.function.name or ""
-                    slot["arguments"] += tc.function.arguments or ""
-                extra = getattr(tc, "extra_content", None)
-                if extra is not None:
-                    slot["extra"] = extra
-        calls = [
-            _AssembledToolCall(s["id"] or f"call_{i}", s["name"], s["arguments"], s["extra"])
-            for i, s in sorted(slots.items())
-        ]
-        return "".join(parts), calls, usage
+        msg = response.choices[0].message
+        return msg.content or "", list(msg.tool_calls or []), _usage_dict(response)
 
     def _history_chars(self) -> int:
         # tool_calls arguments can dwarf content (e.g. replace_section
@@ -361,7 +269,6 @@ class Agent:
             self.last_run_stats["estimated"] = True
         self.stats["input_tokens"] += usage["input"]
         self.stats["output_tokens"] += usage["output"]
-        self.stats["context_tokens"] = usage["input"] + usage["output"]
         self.last_run_stats["input_tokens"] += usage["input"]
         self.last_run_stats["output_tokens"] += usage["output"]
 
@@ -456,12 +363,7 @@ class Agent:
                 "ALREADY DONE: this exact call was executed earlier in this turn — "
                 "do not repeat it. Its result was: " + self._executed_writes[write_key]
             )
-        gate_on = (
-            self.confirm_writes_override
-            if self.confirm_writes_override is not None
-            else self.profile.confirm_writes
-        )
-        if gate_on and self.confirm is not None and is_write:
+        if self.profile.confirm_writes and self.confirm is not None and is_write:
             if not await self.confirm(name, args):
                 return (
                     "DECLINED: the user rejected this tool call, so it was NOT executed "

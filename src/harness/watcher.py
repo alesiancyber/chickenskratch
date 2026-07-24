@@ -177,15 +177,6 @@ class Watcher:
             self.vault.write(rel, content)
             self.vault.snapshot_after(message)
 
-    def trigger_paths(self) -> list[Path]:
-        """Files a serving client polls between passes: every configured
-        surface (checkbox decisions and capture input live there) plus the
-        vault's own Spec.md, so a spec edit takes effect promptly. The
-        daemon covers whole-vault change detection."""
-        root = Path(self.vault_path)
-        paths = [root / rel for rel in get_config(self.vault_path).surfaces.values()]
-        return paths + [root / vc.SPEC_REL]
-
     def _ensure_spec(self) -> None:
         """Seed Harness/Spec.md from the repo defaults on a vault that
         lacks one. Written exactly once — from then on the note is the

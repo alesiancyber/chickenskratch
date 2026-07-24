@@ -36,9 +36,9 @@ def test_unknown_slash_gets_deterministic_reply():
     from harness.skills import unknown_slash
 
     skills = load_skills()
-    reply = unknown_slash("/reserch azure stuff", skills)
+    reply = unknown_slash("/weekly-reviw", skills)
     assert reply is not None
-    assert "/research" in reply  # lists real commands
+    assert "/weekly-review" in reply  # lists real commands
 
     assert unknown_slash("/meeting-capture Meetings/x.md", skills) is None  # valid: no reply
     assert unknown_slash("/Users/b4ndit/Desktop/file.md", skills) is None   # path, not command

@@ -29,7 +29,6 @@ class Profile:
     servers: list[str] | None = None     # MCP server allowlist; None = all enabled
     confirm_writes: bool = False         # gate mutating tool calls on user approval
     max_history_chars: int = 36000       # trim oldest turns beyond this (~9k tokens)
-    context_tokens: int = 8192           # the server's real context window; drives the ctx% meter
 
 
 @dataclass

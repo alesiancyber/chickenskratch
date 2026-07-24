@@ -157,8 +157,6 @@ class MultiServerClient:
         self,
         specs: list[ServerSpec],
         server_filter: list[str] | None = None,
-        tool_filter: list[str] | None = None,
-        chat_id: str = "",
     ):
         if server_filter is not None:
             unknown = set(server_filter) - {s.name for s in specs}
@@ -166,14 +164,6 @@ class MultiServerClient:
                 raise ValueError(f"Profile references unknown MCP servers: {sorted(unknown)}")
             specs = [s for s in specs if s.name in server_filter]
         self.specs = specs
-        # Conversation id, exported to stdio subprocesses as HARNESS_CHAT_ID.
-        # A subprocess lives exactly one chat, so one env var at launch is
-        # full attribution (vault commits gain a Chat-Id trailer from it).
-        self.chat_id = chat_id
-        # None = expose every connected tool; a set narrows what the model
-        # sees (fewer schemas = less context, better small-model selection).
-        # Filters exposure only; tools stay registered so writes still route.
-        self.tool_filter = set(tool_filter) if tool_filter is not None else None
         self.tools: dict[str, ToolInfo] = {}
         self.status: dict[str, dict] = {}
         self._sessions: dict[str, ClientSession] = {}
@@ -196,16 +186,10 @@ class MultiServerClient:
     async def __aexit__(self, *exc) -> None:
         await self._stack.aclose()
 
-    def _stdio_env(self, spec: ServerSpec) -> dict:
-        env = {**os.environ, **spec.env}
-        if self.chat_id:
-            env["HARNESS_CHAT_ID"] = self.chat_id
-        return env
-
     async def _connect(self, spec: ServerSpec) -> None:
         if spec.transport == "stdio":
             params = StdioServerParameters(
-                command=spec.command[0], args=spec.command[1:], env=self._stdio_env(spec)
+                command=spec.command[0], args=spec.command[1:], env={**os.environ, **spec.env}
             )
             read, write = await self._stack.enter_async_context(stdio_client(params))
         elif spec.transport == "http":
@@ -256,17 +240,7 @@ class MultiServerClient:
                 "function": {"name": t.qualified, "description": t.description, "parameters": t.schema},
             }
             for t in self.tools.values()
-            if self.tool_filter is None or t.qualified in self.tool_filter
         ]
-
-    def catalog(self) -> dict[str, list[dict]]:
-        """Every connected tool grouped by server: {server: [{name, read_only}]}.
-        Persisted so the UI can offer per-tool selection before a fresh session
-        has reconnected."""
-        out: dict[str, list[dict]] = {}
-        for t in self.tools.values():
-            out.setdefault(t.server, []).append({"name": t.qualified, "read_only": t.read_only})
-        return out
 
     def _lookup(self, qualified: str) -> ToolInfo | None:
         # tolerate model-side hyphen/underscore mangling in either direction

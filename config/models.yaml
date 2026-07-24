@@ -6,7 +6,6 @@
 # Raise it globally with `OLLAMA_CONTEXT_LENGTH=16384 ollama serve`, or
 # bake it into a Modelfile.
 #
-# context_tokens: the context window the SERVER actually runs with (default
 # 8192). Only used for the chat UI's ctx% meter — set it to match your
 # server setting or the percentage will lie.
 
@@ -27,7 +26,7 @@ backends:
     url: http://localhost:11434/v1
     command: "ollama serve"
     # env:
-    #   OLLAMA_CONTEXT_LENGTH: "16384"   # if set, match context_tokens in the profiles below
+    #   OLLAMA_CONTEXT_LENGTH: "16384"
   mlx-worker:
     # Dedicated worker model (task extraction — src/obsidian_mcp/workers.py).
     # --chat-template-args disables Qwen3.5's default thinking mode: with it
@@ -86,7 +85,6 @@ models:
     max_iterations: 25         # frontier model: allow longer agentic runs
     max_tool_result_chars: 24000
     confirm_writes: true       # capability doesn't waive the write gate
-    context_tokens: 1048576    # TODO verify: 1M assumed, docs page doesn't state it
 
   # Fast mid-tier — the sensible worker/daily-driver alternative.
   gemini-3.6-flash:
@@ -97,7 +95,6 @@ models:
     max_iterations: 15
     max_tool_result_chars: 24000
     confirm_writes: true
-    context_tokens: 1048576    # TODO verify
 
   # Cheapest non-deprecated tier; kept for cost-sensitive one-offs.
   # gemini-2.5-flash-lite (2026-07) is no longer available to new users
@@ -109,7 +106,6 @@ models:
     temperature: 0.2
     max_iterations: 15
     confirm_writes: true
-    context_tokens: 1048576   # TODO verify: unconfirmed for this model, carried over from 2.5 Pro's window
 
   # Example future entry for the 32GB network server:
   # homelab-70b:
@@ -117,4 +113,3 @@ models:
   #   base_url: http://192.168.1.50:8000/v1
   #   max_iterations: 25
   #   max_tool_result_chars: 12000
-  #   context_tokens: 32768

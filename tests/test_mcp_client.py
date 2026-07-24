@@ -16,20 +16,11 @@ def _tool(client, name, server="obsidian", read_only=False):
                                   description="", schema={}, read_only=read_only)
 
 
-def test_tool_filter_narrows_exposed_tools_but_not_catalog():
-    client = MultiServerClient([], tool_filter=["add_task", "list_tasks"])
-    for n in ("add_task", "list_tasks", "delete_everything"):
-        _tool(client, n)
-    exposed = {t["function"]["name"] for t in client.openai_tools()}
-    assert exposed == {"add_task", "list_tasks"}  # third tool hidden from the model
-    # catalog still lists all tools so the picker can offer them
-    assert {t["name"] for t in client.catalog()["obsidian"]} == {"add_task", "list_tasks", "delete_everything"}
-
-
-def test_no_tool_filter_exposes_everything():
+def test_all_registered_tools_are_exposed():
     client = MultiServerClient([])
-    _tool(client, "add_task")
-    assert len(client.openai_tools()) == 1
+    for n in ("add_task", "list_tasks"):
+        _tool(client, n)
+    assert {t["function"]["name"] for t in client.openai_tools()} == {"add_task", "list_tasks"}
 
 
 def test_sanitize_tool_name():
