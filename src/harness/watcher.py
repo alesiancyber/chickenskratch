@@ -31,7 +31,7 @@ from obsidian_mcp import workers as wk
 from obsidian_mcp.vault import Vault, VaultError
 from obsidian_mcp.vaultconfig import get_config
 
-from . import applier, changes, commands, diffhtml, processors, proposals
+from . import applier, changes, commands, diffhtml, processors, proposals, today
 from .bootstrap import ROOT, apply_worker_profile
 from .corpus import record_dashboard
 from .processors import ProcessorSpec
@@ -106,7 +106,6 @@ class Watcher:
         capture_extractor=None,
     ):
         self.vault_path = str(vault_path)
-        self.vault = Vault(self.vault_path)  # stateless handle, built once
         self.proposals_dir = proposals_dir
         if state_path:
             self.state_path = Path(state_path)
@@ -142,6 +141,11 @@ class Watcher:
         otherwise Spec.md (n_max, disabled_processors, surfaces, inboxes).
         Called at construction and again each full pass, so a Spec.md
         edit takes effect without a restart."""
+        # The engine's own vault handle carries the exclusions (I4): every
+        # watcher-side scan — grouping, commands, the Today surface — must
+        # be as blind to Private/ as the MCP server's singleton is. Rebuilt
+        # per pass so a Spec.md exclude edit takes effect without restart.
+        self.vault = Vault(self.vault_path, exclude=cfg.exclude)
         self.n_max = self._n_max_override if self._n_max_override is not None else cfg.n_max
         disabled = tuple(self._disabled_override if self._disabled_override is not None
                          else cfg.disabled_processors)
@@ -158,6 +162,7 @@ class Watcher:
         self.review_rel = cfg.surfaces.get("review", "Harness/Review.md")
         self.capture_rel = cfg.surfaces.get("capture", "")
         self.changes_rel = cfg.surfaces.get("changes", "")
+        self.today_rel = cfg.surfaces.get("today", "")
         self.capture_inbox = cfg.capture_inbox
         self.waiting_inbox = cfg.waiting_inbox
 
@@ -492,6 +497,7 @@ class Watcher:
                 if sum(acted.values()):
                     self._render()
                     self._render_changes()
+                    self._render_today()
                 self._sweep_late_decisions(summary)
                 return summary
             if sum(acted.values()):
@@ -525,6 +531,7 @@ class Watcher:
                 summary["scanned"] = True
             self._render()
             self._render_changes()
+            self._render_today()
             # The memo must only describe a tree whose changes were all
             # scanned. Applies that landed AFTER the scan — auto-applies,
             # decisions swept between drafting calls — violate that, so the
@@ -556,6 +563,7 @@ class Watcher:
                 summary[k] = summary.get(k, 0) + v
             self._render()
             self._render_changes()
+            self._render_today()
 
     def _worker_status(self) -> str:
         """The Changes.md health line: which worker drafts proposals and
@@ -581,7 +589,9 @@ class Watcher:
         so a render can never feed the next one."""
         if not self.changes_rel:
             return
-        content = changes.render(self.vault, self.changes_rel, status=self._worker_status())
+        content = changes.render(
+            self.vault, self.changes_rel, status=self._worker_status(),
+            surface_rels=set(get_config(self.vault_path).surfaces.values()))
         try:
             if self.vault.read(self.changes_rel) == content:
                 return
@@ -589,6 +599,24 @@ class Watcher:
             pass
         self.write_surface(self.changes_rel, content,
                            f"update {self.changes_rel}", action="render_changes")
+
+    def _render_today(self) -> None:
+        """The attention surface (today.py): a read-only view, so no trust
+        machinery — rendered every pass, written only on change. The 6am
+        heartbeat pass covers the date rollover on a quiet vault."""
+        if not self.today_rel:
+            return
+        content = today.render(
+            self.vault, get_config(self.vault_path),
+            pending_decisions=len(proposals.pending(self.proposals_dir)),
+        )
+        try:
+            if self.vault.read(self.today_rel) == content:
+                return
+        except VaultError:
+            pass
+        self.write_surface(self.today_rel, content,
+                           f"update {self.today_rel}", action="render_today")
 
 
 def main() -> None:

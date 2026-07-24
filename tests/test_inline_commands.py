@@ -64,6 +64,16 @@ def test_typed_command_replaced_in_place_no_queue_no_artifacts(vault, make_watch
     assert any("replace line" in c["message"] for c in Vault(vault).history())
 
 
+def test_commands_in_private_are_invisible(vault, make_watcher, fake_azure):
+    """I4: the engine's scans are structurally blind to Private/ — a
+    command typed there is never seen, let alone executed."""
+    (vault / "Private").mkdir(exist_ok=True)
+    note = vault / "Private" / "secrets.md"
+    note.write_text("//azure alert correlation\n")
+    assert run(make_watcher(vault, registry=()))["commands"] == 0
+    assert fake_azure == [] and note.read_text().startswith("//azure")
+
+
 def test_prose_and_unknown_slashes_never_match(vault, make_watcher, fake_azure):
     note = vault / "Tasks/notes.md"
     body = "# Notes\n\n//todo tidy this later\n// a stray comment\n//azure\n"

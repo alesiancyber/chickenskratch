@@ -32,6 +32,7 @@ surfaces:
   review: Harness/Review.md
   capture: Harness/Capture.md
   changes: Harness/Changes.md
+  today: Harness/Today.md
 
 # Where tasks extracted from the capture surface land when their
 # proposal is approved.

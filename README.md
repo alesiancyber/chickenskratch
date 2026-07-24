@@ -68,6 +68,11 @@ Everything is text in the vault:
   pass their fidelity verifier auto-apply (opt-out per processor).
 - **`Harness/Changes.md`** — the audit log: every snapshot commit plus
   a worker health line.
+- **`Harness/Today.md`** — the attention surface: overdue/due-soon
+  tasks, waiting-on items, today's meetings, in-flight kanban cards,
+  pending-decision count. Deterministic, read-only, one screen. The 6am
+  heartbeat (`config/launchd/com.tezcat.heartbeat.plist`) covers the
+  date rollover on a quiet vault.
 - **`Harness/Spec.md`** — the vault's own config, read fresh every
   pass: `folders` (type map), `capture_inbox`/`waiting_inbox`,
   `exclude` (e.g. `Private/` — never enters model context),

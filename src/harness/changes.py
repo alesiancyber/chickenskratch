@@ -47,17 +47,20 @@ def recent_commits(v: Vault, limit: int) -> list[dict]:
     return commits
 
 
-def render(v: Vault, changes_rel: str, limit: int = 20, status: str = "") -> str:
+def render(v: Vault, changes_rel: str, limit: int = 20, status: str = "",
+           surface_rels: frozenset[str] | set[str] = frozenset()) -> str:
     """Deterministic markdown for the surface: absolute times (relative
-    ones would churn the note every pass), the surface's own update
-    commits filtered out so the render can never feed itself. `status`
+    ones would churn the note every pass), and machine-render commits —
+    any commit touching only harness surfaces — filtered out, so no
+    surface's render can ever feed this one (Today.md renders after this
+    surface does; listing it would churn a rewrite every pass). `status`
     is an optional health line (worker model + reachability) — stable
-    across passes unless something actually changed, so it never churns
-    the note either."""
+    across passes unless something actually changed."""
+    machine = set(surface_rels) | {changes_rel}
     rows = []
     for c in recent_commits(v, limit + 10):  # headroom for filtered rows
-        if c["files"] == [changes_rel]:
-            continue  # this surface's own renders are not news
+        if c["files"] and all(f in machine for f in c["files"]):
+            continue  # surface renders are not news
         when = c["date"][:16].replace("T", " ")
         files = ", ".join(f"`{f}`" for f in c["files"][:3])
         more = f" +{len(c['files']) - 3} more" if len(c["files"]) > 3 else ""

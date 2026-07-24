@@ -85,7 +85,9 @@ viewports (rendering differences are Spec.md knobs, not code).
 - **I5 — Surfaces are views.** `Harness/` is machine-rendered, excluded
   from schema scans, grouping, capture extraction, and command scanning
   — but never from git snapshots. Dot-directories are editor machinery
-  and invisible to every read path.
+  and invisible to every read path. A read-only view (Today.md) needs
+  no trust machinery — wrongness costs a glance, never data — and a
+  dashboard fits one screen or it isn't one.
 
 ## Architecture
 
