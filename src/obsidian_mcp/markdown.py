@@ -71,7 +71,13 @@ def replace_section_text(body: str, heading: str, new_content: str) -> str:
         raise ValueError(f"Heading not found: {heading!r}. Headings in note: {available}")
     start, end, _ = loc
     lines = body.splitlines()
-    new_lines = lines[: start + 1] + ["", *new_content.strip("\n").splitlines(), ""] + lines[end:]
+    # One blank line of envelope on each side — never stacked onto blanks
+    # the note already has (repeated rewrites were accreting blank runs).
+    tail = lines[end:]
+    new_lines = lines[: start + 1] + ["", *new_content.strip("\n").splitlines()]
+    if tail and tail[0].strip():
+        new_lines.append("")
+    new_lines += tail
     return "\n".join(new_lines).rstrip("\n") + "\n"
 
 

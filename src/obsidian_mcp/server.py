@@ -306,7 +306,27 @@ def add_task(path: str, text: str, due: str = "", priority: str = "", section: s
     Example: add_task(path="Tasks/Inbox", text="Renew domain", due="2026-07-25", priority="high")
     """
     line = tk.format_task(text, due or None, priority or None, block_id=ids.stamp_id("t"))
-    return append_to_note(path, line, section)
+    if section:
+        return append_to_note(path, line, section)
+    # No section: append as a LIST CONTINUATION — a task after a task gets
+    # no blank separator (the paragraph-break append was scattering every
+    # captured task into its own island; 2026-07-23 dogfood report).
+    v = get_vault()
+    p = v.resolve(path)
+    with v.locked():
+        v.snapshot_before("add_task")
+        if not p.exists():
+            v.write(v.rel(p), line + "\n")
+            v.snapshot_after(f"create note {v.rel(p)}")
+            return {"created": v.rel(p)}
+        fm, body = md.split_frontmatter(v.read(path))
+        stripped = body.rstrip("\n")
+        last = stripped.splitlines()[-1] if stripped else ""
+        sep = "\n" if tk.TASK_RE.match(last) else "\n\n"
+        body = (stripped + sep + line + "\n") if stripped else line + "\n"
+        v.write(path, md.join_frontmatter(fm, body))
+        v.snapshot_after(f"add task to {v.rel(p)}")
+    return {"updated": v.rel(p)}
 
 
 @mcp.tool()

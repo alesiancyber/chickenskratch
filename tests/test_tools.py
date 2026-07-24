@@ -1,6 +1,7 @@
 """Smoke tests: every MCP tool exercised against a copy of the test vault.
 The `vault` fixture comes from conftest.py."""
 
+import re
 import subprocess
 
 import pytest
@@ -290,7 +291,7 @@ def test_git_snapshots(vault):
     log = subprocess.run(
         ["git", "-C", str(vault), "log", "--oneline"], capture_output=True, text=True
     ).stdout
-    assert "harness: append to Tasks/Inbox.md" in log
+    assert "harness: add task to Tasks/Inbox.md" in log
 
 
 def test_history_and_revert(vault):
@@ -298,7 +299,7 @@ def test_history_and_revert(vault):
     v = vault_mod.get_vault()
 
     commits = v.history()
-    assert commits[0]["message"] == "harness: append to Tasks/Inbox.md"
+    assert commits[0]["message"] == "harness: add task to Tasks/Inbox.md"
     assert commits[0]["files"] == ["Tasks/Inbox.md"]
 
     ok, err = v.revert(commits[0]["sha"])
@@ -331,3 +332,29 @@ def test_daily_dir_follows_the_spec(vault):
     result = server.open_daily_note()
     assert result["path"].startswith("journal/")
     assert (vault / result["path"]).exists()
+
+
+def test_add_task_joins_the_list_not_a_new_paragraph(vault):
+    """2026-07-23 dogfood: sectionless add_task (the capture-approval
+    path) was paragraph-breaking every task into its own island. A task
+    appended after a task joins the list; after prose, one blank line."""
+    server.create_note("Tasks/Fresh", "# Fresh\n\nsome intro prose\n")
+    server.add_task("Tasks/Fresh", "first task")
+    server.add_task("Tasks/Fresh", "second task")
+    server.add_task("Tasks/Fresh", "third task", due="2026-07-30")
+    body = (vault / "Tasks/Fresh.md").read_text()
+    assert "prose\n\n- [ ] first task" in body          # prose -> one blank
+    assert re.search(r"first task \^t-\w+\n- \[ \] second task", body)   # task -> adjacent
+    assert re.search(r"second task \^t-\w+\n- \[ \] third task", body)
+    assert "\n\n\n" not in body                          # never a blank run
+
+
+def test_replace_section_never_accretes_blank_runs(vault):
+    """Repeated section rewrites must not stack blank-line envelopes."""
+    server.create_note("Tasks/Sections", "# S\n\n## A\n\nold\n\n## B\n\nkeep\n")
+    for _ in range(3):
+        server.replace_section("Tasks/Sections", "A", "new content")
+    body = (vault / "Tasks/Sections.md").read_text()
+    assert "\n\n\n" not in body
+    assert body.count("new content") == 1
+    assert "## B\n\nkeep" in body
