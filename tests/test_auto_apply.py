@@ -27,7 +27,7 @@ def run(w):
     return asyncio.run(w.run_once())
 
 
-FOCUS = ("schema_fix", "grouping", "spec_drift")  # isolate the extraction paths
+FOCUS = ("schema_fix", "grouping", "spec_drift", "archive_done")  # isolate the extraction paths
 
 
 def test_faithful_inbox_extraction_applies_without_checkbox(vault, make_watcher):
@@ -152,7 +152,7 @@ def test_additive_schema_fix_applies_without_checkbox(vault, make_watcher):
                            "args": {"path": item["note"], "key": "id", "value": item["new_id"]}}]}
 
     w = make_watcher(vault, drafter=stamping_drafter, n_max=20,
-                     disabled=("capture", "inbox_extract", "spec_drift", "grouping"))
+                     disabled=("capture", "inbox_extract", "spec_drift", "grouping", "archive_done"))
     summary = run(w)
     assert summary["auto"] >= 1
     auto_notes = [r["drafted_against"]["note"] for r in proposals.load_all(w.proposals_dir)
@@ -179,7 +179,7 @@ def test_rewording_schema_fix_keeps_its_checkbox(vault, make_watcher):
                 ]}
 
     w = make_watcher(vault, drafter=rewording_drafter, n_max=20,
-                     disabled=("capture", "inbox_extract", "spec_drift", "grouping"))
+                     disabled=("capture", "inbox_extract", "spec_drift", "grouping", "archive_done"))
     summary = run(w)
     assert summary["auto"] == 0  # altered user text: every fix queued
     assert len(proposals.pending(w.proposals_dir)) >= 1
@@ -197,7 +197,7 @@ def test_partial_schema_fix_queues_to_avoid_redraft_churn(vault, make_watcher):
                            "args": {"path": item["note"], "key": "id", "value": item["new_id"]}}]}
 
     w = make_watcher(vault, drafter=partial_drafter, n_max=20,
-                     disabled=("capture", "inbox_extract", "spec_drift", "grouping"))
+                     disabled=("capture", "inbox_extract", "spec_drift", "grouping", "archive_done"))
     summary = run(w)
     auto_syncs = [r for r in proposals.load_all(w.proposals_dir)
                   if r["status"] == "auto" and r["drafted_against"]["note"] == "Meetings/Sync.md"]

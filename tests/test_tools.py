@@ -358,3 +358,26 @@ def test_replace_section_never_accretes_blank_runs(vault):
     assert "\n\n\n" not in body
     assert body.count("new content") == 1
     assert "## B\n\nkeep" in body
+
+
+def test_archive_done_tasks_tool(vault):
+    server.create_note(
+        "Tasks/Work",
+        "# Work\n\n## Tasks\n\n"
+        "- [ ] still open 📅 2026-08-01 ^t-aaaaaaaaaaa1\n"
+        "- [x] finished with date ✅ 2026-07-20 ^t-aaaaaaaaaaa2\n"
+        "- [x] hand checked in foam ^t-aaaaaaaaaaa3\n")
+    result = server.archive_done_tasks("Tasks/Work")
+    assert result["archived"] == 2
+    work = (vault / "Tasks/Work.md").read_text()
+    assert "still open" in work and "[x]" not in work
+    assert "\n\n\n" not in work  # removal leaves no blank runs
+    archive = (vault / "Tasks/Archive.md").read_text()
+    assert "- [x] finished with date ✅ 2026-07-20 ^t-aaaaaaaaaaa2" in archive  # byte-identical
+    import datetime as dt
+    today = dt.date.today().isoformat()
+    assert f"- [x] hand checked in foam ✅ {today} ^t-aaaaaaaaaaa3" in archive  # stamped
+    # idempotent: nothing left to archive
+    assert server.archive_done_tasks("Tasks/Work")["archived"] == 0
+    # archiving the archive is a no-op, never recursion
+    assert server.archive_done_tasks("Tasks/Archive")["archived"] == 0

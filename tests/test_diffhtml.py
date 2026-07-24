@@ -47,7 +47,7 @@ def test_review_renders_split_table_by_default(vault, make_watcher):
                            "args": {"path": item["note"], "key": "status", "value": "rewritten"}}]}
 
     w = make_watcher(vault, drafter=rewording_drafter, n_max=1,
-                     disabled=("capture", "inbox_extract", "spec_drift", "grouping"))
+                     disabled=("capture", "inbox_extract", "spec_drift", "grouping", "archive_done"))
     asyncio.run(w.run_once())
     assert len(proposals.pending(w.proposals_dir)) >= 1
     review = (vault / "Harness/Review.md").read_text()

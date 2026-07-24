@@ -35,7 +35,7 @@ def vault(gitvault):
 
 @pytest.fixture()
 def watcher(vault, make_watcher):
-    return make_watcher(vault, drafter=fake_drafter, n_max=3)
+    return make_watcher(vault, disabled=("archive_done",), drafter=fake_drafter, n_max=3)
 
 
 def run(watcher):
@@ -153,7 +153,7 @@ def test_decisions_only_acts_and_renders_without_scanning(vault, watcher, make_w
     async def exploding(item):
         raise AssertionError("the fast lane must never draft")
 
-    fast = make_watcher(vault, drafter=exploding, n_max=3)
+    fast = make_watcher(vault, disabled=("archive_done",), drafter=exploding, n_max=3)
     summary = asyncio.run(fast.run_once(decisions_only=True))
     assert summary["approved"] == 1 and summary["drafted"] == 0 and not summary["scanned"]
     assert f"approve {target['id']}" not in review.read_text()  # feedback rendered
@@ -188,7 +188,7 @@ def test_mid_pass_decision_is_acted_before_the_pass_ends(vault, watcher, make_wa
         return await fake_drafter(item)
 
     (vault / "Home.md").write_text((vault / "Home.md").read_text() + "\nnudge\n")
-    summary = run(make_watcher(vault, drafter=checking_drafter, n_max=3))
+    summary = run(make_watcher(vault, disabled=("archive_done",), drafter=checking_drafter, n_max=3))
     assert summary["approved"] == 1  # the late decision was swept in-pass
     assert f"approve {target['id']}" not in review.read_text()  # and re-rendered
 
@@ -208,7 +208,7 @@ def test_post_scan_applies_are_rescanned_next_pass(vault, watcher, make_watcher)
         return await fake_drafter(item)
 
     (vault / "Home.md").write_text((vault / "Home.md").read_text() + "\nnudge\n")
-    summary = run(make_watcher(vault, drafter=checking_drafter, n_max=3))
+    summary = run(make_watcher(vault, disabled=("archive_done",), drafter=checking_drafter, n_max=3))
     assert summary["approved"] == 1  # applied in-pass, after the scan
     assert run(watcher)["scanned"]   # so the memo was dropped: next pass scans
 
@@ -232,7 +232,7 @@ def test_decision_is_serviced_between_drafting_calls(vault, watcher, make_watche
         return await fake_drafter(item)
 
     (vault / "Home.md").write_text((vault / "Home.md").read_text() + "\nnudge\n")
-    summary = run(make_watcher(vault, drafter=slow_phase_drafter, n_max=3))
+    summary = run(make_watcher(vault, disabled=("archive_done",), drafter=slow_phase_drafter, n_max=3))
     assert summary["approved"] == 1
     assert acted_before_second_draft == [True]
 
@@ -244,7 +244,7 @@ def test_invalid_drafter_output_never_enters_queue(vault, tmp_path, monkeypatch)
         return {"title": "x", "summary": "y",
                 "apply": [{"tool": "delete_everything", "args": {}}]}
 
-    w = Watcher(str(vault), proposals_dir=tmp_path / "p2",
+    w = Watcher(str(vault), disabled=("archive_done",), proposals_dir=tmp_path / "p2",
                 state_path=tmp_path / "s2.json", drafter=bad_drafter, n_max=2)
     summary = run(w)
     assert summary["drafted"] == 0

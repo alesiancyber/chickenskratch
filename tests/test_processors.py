@@ -28,12 +28,12 @@ def test_default_registry_order_is_priority_order():
     # capture first: active user input must never be starved out of n_max
     # (//commands are a pass phase before drafting, not a processor)
     assert [p.name for p in processors.REGISTRY] == [
-        "capture", "inbox_extract", "spec_drift", "schema_fix", "grouping"]
+        "capture", "inbox_extract", "archive_done", "spec_drift", "schema_fix", "grouping"]
 
 
 def test_disable_is_per_processor_and_unknown_names_fail_loud(vault, make_watcher):
     w = make_watcher(
-        vault, disabled=("schema_fix", "grouping", "spec_drift", "inbox_extract"))
+        vault, disabled=("schema_fix", "grouping", "spec_drift", "inbox_extract", "archive_done"))
     assert [p.name for p in w.processors] == ["capture"]
     with pytest.raises(ValueError, match="groupnig"):
         processors.registry(disabled=("groupnig",))
@@ -98,3 +98,23 @@ def test_concurrent_pass_is_skipped_by_the_lock(vault, make_watcher):
         holder.close()
     summary = run(w)
     assert summary["locked"] is False  # lock released -> pass runs
+
+
+def test_archive_done_end_to_end(vault, make_watcher):
+    """Done tasks in the working inboxes get filed into the archive —
+    deterministic, verified, auto-applied without a checkbox."""
+    inbox = vault / "Tasks/Inbox.md"
+    inbox.write_text(inbox.read_text().rstrip("\n")
+                     + "\n- [x] shipped the thing ✅ 2026-07-20 ^t-ddddddddddd1\n")
+    (vault / "Harness").mkdir(exist_ok=True)
+    (vault / "Harness/Spec.md").write_text(
+        "---\nauto_apply: [archive_done]\n---\n\n# Vault Spec\n")
+    w = make_watcher(vault, registry=(processors.ARCHIVE_DONE,))
+    summary = run(w)
+    assert summary["auto"] == 1
+    assert "[x]" not in inbox.read_text()
+    archive = (vault / "Tasks/Archive.md").read_text()
+    assert "- [x] shipped the thing ✅ 2026-07-20 ^t-ddddddddddd1" in archive
+    # clean next pass: nothing to re-archive
+    (vault / "Home.md").write_text("nudge\n")
+    assert run(w)["auto"] == 0

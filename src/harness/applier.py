@@ -32,7 +32,7 @@ from .proposals import content_hash
 ALLOWED_TOOLS = {
     "update_frontmatter", "replace_section", "append_to_note",
     "add_task", "set_task_status", "add_card", "move_card", "create_note",
-    "replace_line",
+    "replace_line", "archive_done_tasks",
 }
 
 

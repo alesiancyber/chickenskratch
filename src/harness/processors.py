@@ -588,6 +588,65 @@ async def draft_grouping(w: Watcher, item: dict) -> dict | None:
     )
 
 
+# ---- archive_done: completed tasks -> the archive note ----
+
+
+def scan_archive(w: Watcher) -> list[dict]:
+    """Done tasks sitting in the working inboxes — the lists whose hygiene
+    the harness owns. Tasks completed inside knowledge notes (meeting
+    action items) stay in place: they're historical record."""
+    cfg = get_config(w.vault_path)
+    if not cfg.done_archive:
+        return []
+    items = []
+    for rel in dict.fromkeys((cfg.capture_inbox, cfg.waiting_inbox)):
+        if rel == cfg.done_archive:
+            continue
+        try:
+            text = w.vault.read(rel)
+        except VaultError:
+            continue
+        done = [t for t in tk.iter_tasks(text) if t.done]
+        if done:
+            items.append({"kind": "archive_done", "note": rel, "content": text,
+                          "vault_sha": w._pass_sha, "archive": cfg.done_archive,
+                          "tasks": [t.text for t in done]})
+    return items
+
+
+async def draft_archive(w: Watcher, item: dict) -> dict | None:
+    """Deterministic draft — no worker; the semantic tool owns the move."""
+    n = len(item["tasks"])
+    return proposals.new_proposal(
+        kind="archive_done",
+        note=item["note"],
+        vault_sha=item["vault_sha"],
+        note_content=item["content"],
+        title=f"Archive {n} done task(s) from {item['note']}",
+        summary=f"Completed tasks move byte-identical to {item['archive']}; "
+        "hand-checked ones gain today's ✅ date.",
+        issues=[f"done: {t}" for t in item["tasks"]],
+        apply=[{"tool": "archive_done_tasks",
+                "args": {"path": item["note"], "archive_path": item["archive"]}}],
+    )
+
+
+def verify_archive(w: Watcher, item: dict, proposal: dict) -> list[str]:
+    """Shape check — the transformation itself is deterministic code (the
+    archive tool), so like a command's verifier this only pins that the
+    plan is exactly one archive step aimed where the scan looked."""
+    plan = proposal["apply"]
+    if len(plan) != 1 or plan[0]["tool"] != "archive_done_tasks":
+        return ["plan must be exactly one archive_done_tasks step"]
+    args = plan[0]["args"]
+    failures = []
+    if args.get("path") != item["note"]:
+        failures.append("plan targets a different note")
+    if args.get("archive_path") != item["archive"]:
+        failures.append("plan targets a different archive")
+    return failures
+
+
 # ---- the registry ----
 
 CAPTURE = ProcessorSpec(
@@ -601,12 +660,18 @@ SPEC_DRIFT = ProcessorSpec("spec_drift", scan_spec_drift, draft_spec_drift)
 SCHEMA_FIX = ProcessorSpec("schema_fix", scan_schema, draft_schema,
                            verify=verify_schema_fix)
 GROUPING = ProcessorSpec("grouping", scan_grouping, draft_grouping)
+ARCHIVE_DONE = ProcessorSpec("archive_done", scan_archive, draft_archive,
+                             render_diff=False, verify=verify_archive)
 
 # Capture first: the user actively feeding the pipeline is never starved
-# out of n_max by a maintenance backlog. (//commands are not processors —
-# they execute in their own pass phase before drafting; see commands.py.)
+# out of n_max by a maintenance backlog. archive_done outranks schema/
+# grouping — the one-proposal-per-note invariant means whoever scans a
+# note first claims it, and grouping was claiming the inbox (a stamped
+# flat list is a grouping candidate) while done tasks sat unarchived;
+# housekeeping first, then fix/group what remains. (//commands are not
+# processors — they execute in their own pass phase; see commands.py.)
 REGISTRY: tuple[ProcessorSpec, ...] = (
-    CAPTURE, INBOX_EXTRACT, SPEC_DRIFT, SCHEMA_FIX, GROUPING)
+    CAPTURE, INBOX_EXTRACT, ARCHIVE_DONE, SPEC_DRIFT, SCHEMA_FIX, GROUPING)
 
 
 def registry(disabled: Sequence[str] = ()) -> tuple[ProcessorSpec, ...]:

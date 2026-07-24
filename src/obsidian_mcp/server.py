@@ -11,6 +11,7 @@ Run: OBSIDIAN_VAULT_PATH=/path/to/vault obsidian-mcp
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 import yaml
 from mcp.server.fastmcp import FastMCP
@@ -371,6 +372,54 @@ def set_task_status(path: str, task_text: str, done: bool = True) -> dict:
         v.write(path, "\n".join(lines) + "\n")
         v.snapshot_after(f"{'complete' if done else 'reopen'} task in {path}")
     return {"updated": path, "task": task.text, "done": done}
+
+
+@mcp.tool()
+def archive_done_tasks(path: str, archive_path: str = "") -> dict:
+    """Move every completed task from a note into the archive note (vault
+    spec `done_archive` by default), one atomic snapshot. Lines move
+    byte-identical — ids, dates, priorities intact — except a task
+    completed by hand in an editor (no ✅ date) gets today's stamped on,
+    so the archive always says when. Removing lines never leaves blank
+    runs behind.
+
+    Example: archive_done_tasks(path="Tasks/Inbox") ->
+      {"archived": 3, "archive": "Tasks/Archive.md"}
+    """
+    v = get_vault()
+    archive = (archive_path or vc.get_config().done_archive).strip()
+    if not archive:
+        raise VaultError("no archive configured (vault spec `done_archive` is empty)")
+    if v.resolve(path) == v.resolve(archive):
+        return {"archived": 0, "archive": archive}  # never archive the archive
+    with v.locked():
+        text = v.read(path)
+        fm, body = md.split_frontmatter(text)
+        done = [t for t in tk.iter_tasks(body) if t.done]
+        if not done:
+            return {"archived": 0, "archive": archive}
+        v.snapshot_before("archive_done_tasks")
+        moved = []
+        for t in done:
+            line = t.raw
+            if t.done_date is None:
+                core, ref = ids.split_block_ref(line)
+                line = f"{core} ✅ {_today()}"
+                if ref:
+                    line = ids.attach_block_ref(line, ref)
+            moved.append(line.strip())
+        keep = [ln for i, ln in enumerate(body.splitlines())
+                if i not in {t.line_no for t in done}]
+        new_body = re.sub(r"\n{3,}", "\n\n", "\n".join(keep)).rstrip("\n") + "\n"
+        v.write(path, md.join_frontmatter(fm, new_body))
+        ap = v.resolve(archive)
+        existing = v.read(archive) if ap.exists() else "# Archive\n"
+        stripped = existing.rstrip("\n")
+        last = stripped.splitlines()[-1] if stripped else ""
+        sep = "\n" if tk.TASK_RE.match(last) else "\n\n"
+        v.write(archive, stripped + sep + "\n".join(moved) + "\n")
+        v.snapshot_after(f"archive {len(moved)} done task(s) from {path}")
+    return {"archived": len(moved), "archive": archive}
 
 
 @mcp.tool(annotations=READ_ONLY)

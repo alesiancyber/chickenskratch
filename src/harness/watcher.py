@@ -188,6 +188,7 @@ class Watcher:
             "folders": dict(base.folder_types),
             "capture_inbox": base.capture_inbox,
             "waiting_inbox": base.waiting_inbox,
+            "done_archive": base.done_archive,
             "exclude": list(base.exclude),
             "auto_apply": list(base.auto_apply),
             "fidelity": base.fidelity,

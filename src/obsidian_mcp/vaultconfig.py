@@ -31,11 +31,14 @@ class VaultConfig:
     schemas_dir: Path
     capture_inbox: str = "Tasks/Inbox.md"  # where approved captures land
     waiting_inbox: str = "Tasks/Waiting.md"  # commitments others made to you (follow-ups)
+    # Where completed tasks get filed out of the working inboxes (the
+    # archive_done processor). Empty string disables archiving.
+    done_archive: str = "Tasks/Archive.md"
     # Processors trusted to apply without a checkbox — ONLY honored for
     # processors that ship a deterministic verifier, and only when it
     # passes; anything else falls back to the Review.md queue. The
     # trust list is user-editable per vault in Harness/Spec.md.
-    auto_apply: tuple[str, ...] = ("capture", "inbox_extract", "schema_fix")
+    auto_apply: tuple[str, ...] = ("capture", "inbox_extract", "schema_fix", "archive_done")
     # How closely auto-applied extractions must match the user's text:
     # "strict" = word-for-word (every output word present in the input);
     # "close"  = grammar/punctuation allowance — added words must be
@@ -94,6 +97,7 @@ def load_config(path: str | Path | None = None) -> VaultConfig:
         schemas_dir=p.parent / str(raw.get("schemas_dir") or "schemas"),
         capture_inbox=str(raw.get("capture_inbox") or "Tasks/Inbox.md"),
         waiting_inbox=str(raw.get("waiting_inbox") or "Tasks/Waiting.md"),
+        done_archive=str(raw.get("done_archive", "Tasks/Archive.md") or ""),
     )
 
 
@@ -109,6 +113,8 @@ def _spec_overrides(base: VaultConfig, fm: dict) -> VaultConfig:
         out = replace(out, capture_inbox=fm["capture_inbox"])
     if isinstance(fm.get("waiting_inbox"), str) and fm["waiting_inbox"]:
         out = replace(out, waiting_inbox=fm["waiting_inbox"])
+    if isinstance(fm.get("done_archive"), str):  # empty string = archiving off
+        out = replace(out, done_archive=fm["done_archive"].strip())
     if isinstance(fm.get("auto_apply"), list):  # empty list = all queued
         out = replace(out, auto_apply=tuple(str(n) for n in fm["auto_apply"]))
     if fm.get("fidelity") in ("strict", "close"):
