@@ -213,7 +213,11 @@ def update_frontmatter(path: str, key: str, value: str) -> dict:
         text = v.read(path)
         fm, body = md.split_frontmatter(text)
         v.snapshot_before("update_frontmatter")
-        fm[key] = yaml.safe_load(value)
+        # MCP callers send strings (the schema says so), but in-process
+        # proposal plans arrive from JSON where value may already be typed
+        # (null, number, bool) — yaml.safe_load(None) crashes, and a crash
+        # here once wedged the engine in an apply loop (2026-07-23).
+        fm[key] = yaml.safe_load(value) if isinstance(value, str) else value
         v.write(path, md.join_frontmatter(fm, body))
         v.snapshot_after(f"set frontmatter {key} on {path}")
     return {"updated": path, "frontmatter": fm}

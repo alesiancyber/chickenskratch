@@ -111,7 +111,11 @@ def _simulate(text: str, step: dict) -> str | None:
     tool, args = step["tool"], step["args"]
     fm, body = md.split_frontmatter(text)
     if tool == "update_frontmatter":
-        fm[args["key"]] = yaml.safe_load(str(args["value"]))
+        value = args["value"]
+        # mirror the live tool exactly: strings parse as YAML, typed JSON
+        # values (null, numbers) pass through — a simulate that diverges
+        # from apply makes verifiers vouch for the wrong outcome
+        fm[args["key"]] = yaml.safe_load(value) if isinstance(value, str) else value
         return md.join_frontmatter(fm, body)
     if tool == "replace_section":
         return md.join_frontmatter(fm, md.replace_section_text(body, args["heading"], args["content"]))

@@ -18,8 +18,10 @@ properties:
     pattern: "^[a-z][a-z0-9_]*$"
   status:
     # `auto` = applied without a checkbox: a Spec.md-trusted processor's
-    # draft that passed its deterministic verifier
-    enum: [pending, approved, rejected, stale, auto]
+    # draft that passed its deterministic verifier.
+    # `failed` = approved but the apply raised (poison plan): resolved so
+    # it can never wedge the engine in a retry loop.
+    enum: [pending, approved, rejected, stale, auto, failed]
   created:
     type: string
   drafted_against:

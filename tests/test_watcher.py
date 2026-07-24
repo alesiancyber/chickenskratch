@@ -265,3 +265,56 @@ def test_default_state_and_queue_are_per_vault(tmp_path):
     wa, wb = Watcher(str(a)), Watcher(str(b))
     assert wa.proposals_dir != wb.proposals_dir
     assert wa.state_path != wb.state_path
+
+
+def test_typed_json_values_apply_cleanly(vault, watcher):
+    """The 2026-07-23 wedge, first half: a drafter emitting a typed JSON
+    value (null) in update_frontmatter must apply as that value, not
+    crash yaml.safe_load."""
+    from harness import applier
+    applier.use_vault(str(vault))
+    from obsidian_mcp import server
+
+    p = proposals.new_proposal(
+        kind="schema_fix", note="Home.md", vault_sha="",
+        note_content=(vault / "Home.md").read_text(),
+        title="typed value", summary="s", issues=[],
+        apply=[{"tool": "update_frontmatter",
+                "args": {"path": "Home.md", "key": "due", "value": None}}])
+    applier.apply(p, str(vault))
+    assert server.read_note("Home.md")["frontmatter"]["due"] is None
+    # simulate mirrors apply exactly
+    after = applier.simulate((vault / "Home.md").read_text(), p)
+    assert after is not None
+
+
+def test_poison_apply_fails_the_proposal_never_the_pass(vault, watcher):
+    """The 2026-07-23 wedge, second half: an approved proposal whose
+    apply raises must resolve as `failed` — left pending, the checked
+    box would re-crash every subsequent pass forever."""
+    run(watcher)
+    good = proposals.pending(watcher.proposals_dir)[0]
+    poison = proposals.new_proposal(
+        kind="schema_fix", note="Home.md", vault_sha="",
+        note_content=(vault / "Home.md").read_text(),
+        title="poison", summary="s", issues=[],
+        apply=[{"tool": "replace_section",
+                "args": {"path": "Nope/Missing.md", "heading": "X", "content": "y"}}])
+    proposals.save(poison, watcher.proposals_dir)
+    review = vault / "Harness/Review.md"
+    run(watcher)  # render the poison proposal's checkbox
+    text = review.read_text()
+    text = text.replace(f"- [ ] approve {poison['id']}", f"- [x] approve {poison['id']}")
+    text = text.replace(f"- [ ] approve {good['id']}", f"- [x] approve {good['id']}")
+    review.write_text(text)
+
+    summary = run(watcher)
+    assert summary["failed"] == 1
+    assert summary["approved"] == 1  # the good approval still landed
+    statuses = {q["id"]: q["status"] for q in proposals.load_all(watcher.proposals_dir)}
+    assert statuses[poison["id"]] == "failed"
+    assert statuses[good["id"]] == "approved"
+    assert f"approve {poison['id']}" not in review.read_text()  # box cleared
+
+    # and the next pass is healthy — no retry loop
+    assert run(watcher)["failed"] == 0

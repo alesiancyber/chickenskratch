@@ -289,7 +289,14 @@ class Watcher:
             if proc.name in auto_trusted and proc.verify:
                 if proc.verify(self, item, p) or applier.is_stale(p, self.vault_path):
                     continue
-                applier.apply(p, self.vault_path)
+                try:
+                    applier.apply(p, self.vault_path)
+                except Exception as e:
+                    # poison plan: fail the proposal, never the pass (a
+                    # pending one would re-verify and re-crash every pass)
+                    proposals.resolve(p, "failed", self.proposals_dir)
+                    print(f"auto-apply failed for {p['id']}: {type(e).__name__}: {e}")
+                    continue
                 # No corpus row: auto-applies are not human labels.
                 proposals.resolve(p, "auto", self.proposals_dir)
                 auto += 1
@@ -308,7 +315,7 @@ class Watcher:
 
     def _act(self, decisions: list[tuple[str, str]], pending: list[dict]) -> tuple[dict, list[dict]]:
         """Act on checked boxes. Returns (counts, proposals still pending)."""
-        acted = {"approved": 0, "rejected": 0, "stale": 0}
+        acted = {"approved": 0, "rejected": 0, "stale": 0, "failed": 0}
         resolved: set[str] = set()
         by_id = {p["id"]: p for p in pending}
         for pid, decision in decisions:
@@ -328,7 +335,17 @@ class Watcher:
                 proposals.resolve(p, "stale", self.proposals_dir)
                 acted["stale"] += 1
                 continue
-            applier.apply(p, self.vault_path)
+            try:
+                applier.apply(p, self.vault_path)
+            except Exception as e:
+                # A poison plan (e.g. a drafter emitting args the tools
+                # reject) must fail ITSELF, never the pass: left pending,
+                # the checked box would re-crash every pass forever — the
+                # engine wedged exactly this way on 2026-07-23.
+                proposals.resolve(p, "failed", self.proposals_dir)
+                acted["failed"] += 1
+                print(f"apply failed for {p['id']} ({p['title'][:50]}): {type(e).__name__}: {e}")
+                continue
             proposals.resolve(p, "approved", self.proposals_dir)
             self._record(p, "approved")
             acted["approved"] += 1
@@ -441,7 +458,7 @@ class Watcher:
         pass still scans whatever the apply changed."""
         summary = {
             "commands": 0, "drafted": 0, "auto": 0, "approved": 0, "rejected": 0,
-            "stale": 0, "scanned": False, "locked": False,
+            "stale": 0, "failed": 0, "scanned": False, "locked": False,
         }
         self._pass_status = None  # worker status probed at most once per pass
         lock_path = self.state_path.with_suffix(".lock")
@@ -644,6 +661,7 @@ def main() -> None:
         f"watch pass: {summary['commands']} command(s), drafted {summary['drafted']}, "
         f"auto-applied {summary['auto']}, applied {summary['approved']}, "
         f"rejected {summary['rejected']}, stale {summary['stale']}"
+        + (f", FAILED {summary['failed']}" if summary.get("failed") else "")
         + ("" if summary["scanned"] else " (vault unchanged — scan skipped)")
     )
 
