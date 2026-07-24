@@ -66,6 +66,10 @@ async def run_worker(spec: WorkerSpec, **inputs) -> dict:
     client = _worker_client()
     prompt = spec.prompt.format(**inputs)
     timeout = float(os.environ.get("WORKER_TIMEOUT_S") or spec.timeout_s)
+    # Reasoning models (gemini-3.1-pro via LiteLLM) spend max_tokens on
+    # hidden thought BEFORE the JSON: 2000 truncated mid-object (2026-07-24).
+    # The env override lifts the ceiling without unbounding local workers.
+    max_tokens = int(os.environ.get("WORKER_MAX_TOKENS") or spec.max_tokens)
     last_error = ""
     for _attempt in range(2):
         try:
@@ -74,13 +78,16 @@ async def run_worker(spec: WorkerSpec, **inputs) -> dict:
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
                 temperature=spec.temperature,
-                max_tokens=spec.max_tokens,
+                max_tokens=max_tokens,
                 timeout=timeout,
             )
         except Exception as e:  # connection refused, model not pulled, etc.
             raise VaultError(f"{spec.name} worker ({_worker_model()}) unavailable: {e}") from None
 
-        raw = response.choices[0].message.content
+        # A reasoning model that spends the whole token budget thinking
+        # returns choices=[] — that must be the clean error below, not an
+        # IndexError.
+        raw = response.choices[0].message.content if response.choices else ""
         if not raw or not raw.strip():
             # A thinking-mode model puts everything in `reasoning` and leaves
             # content empty — a config problem no retry fixes. Fail loud.

@@ -64,23 +64,25 @@ models:
 
   # Cloud profiles. As of 2026-07-22
   # the cloud switch is deliberately ON: gemini-3.1-pro is the default
-  # chat profile. Requires GEMINI_API_KEY exported in your shell; the
-  # harness never stores the key. Vault text (minus Private/, excluded in
-  # code) leaves the machine on these profiles — the no-secrets rule
-  # (PHILOSOPHY.md I4) is load-bearing here.
+  # chat profile. Gemini is reached via the work LiteLLM proxy
+  # (litellm.prod.cit.bvnt.co); LITELLM_API_KEY lives in the gitignored
+  # .env. Vault text (minus Private/, excluded in code) leaves the
+  # machine on these profiles — the no-secrets rule (PHILOSOPHY.md I4)
+  # is load-bearing here.
   #
   # Background workers follow the top-level `worker:` profile reference;
   # explicit WORKER_BASE_URL / WORKER_MODEL / WORKER_API_KEY env vars
   # override it, and with neither set workers fall back to the local
   # mlx-worker backend.
 
-  # Flagship (most capable). The Pro tier is preview-only on the API as of
-  # 2026-07-22 (verified against this key's /models list — no stable
-  # gemini-3.1-pro exists); revisit the id when it stabilizes.
+  # Flagship (most capable). The Pro tier is preview-only as of 2026-07-22
+  # (no stable gemini-3.1-pro exists); revisit the id when it stabilizes.
+  # Routed through the work LiteLLM proxy (2026-07-24): same OpenAI-compatible
+  # surface, key is the LiteLLM virtual key in .env, not a Google key.
   gemini-3.1-pro:
     model: gemini-3.1-pro-preview
-    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-    api_key_env: GEMINI_API_KEY
+    base_url: https://litellm.prod.cit.bvnt.co/v1
+    api_key_env: LITELLM_API_KEY
     temperature: 0.2
     max_iterations: 25         # frontier model: allow longer agentic runs
     max_tool_result_chars: 24000
@@ -92,23 +94,22 @@ models:
     servers: [obsidian, ms-learn]
 
   # Fast mid-tier — the sensible worker/daily-driver alternative.
-  gemini-3.6-flash:
-    model: gemini-3.6-flash
-    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-    api_key_env: GEMINI_API_KEY
+  # (3.6-flash isn't on the LiteLLM proxy; 3.5-flash is its newest flash.)
+  gemini-3.5-flash:
+    model: gemini-3.5-flash
+    base_url: https://litellm.prod.cit.bvnt.co/v1
+    api_key_env: LITELLM_API_KEY
     temperature: 0.2
     max_iterations: 15
     max_tool_result_chars: 24000
     confirm_writes: true
     servers: [obsidian, ms-learn]   # cloud never sees the filesystem server
 
-  # Cheapest non-deprecated tier; kept for cost-sensitive one-offs.
-  # gemini-2.5-flash-lite (2026-07) is no longer available to new users
-  # (live 404).
-  gemini-3.5-flash-lite:
-    model: gemini-3.5-flash-lite
-    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-    api_key_env: GEMINI_API_KEY
+  # Cheapest tier on the proxy; kept for cost-sensitive one-offs.
+  gemini-3.1-flash-lite:
+    model: gemini-3.1-flash-lite
+    base_url: https://litellm.prod.cit.bvnt.co/v1
+    api_key_env: LITELLM_API_KEY
     temperature: 0.2
     max_iterations: 15
     confirm_writes: true

@@ -45,15 +45,23 @@ def use_vault(vault_path: str) -> None:
 
 
 def vault_state(vault_path: str) -> tuple[str, str]:
-    """(HEAD sha, `git status --porcelain` text). Empty sha if the repo has
-    no commits yet; empty text = clean tree. Returning the porcelain output
-    lets callers derive both cleanliness and a dirty-state hash from the
-    one subprocess."""
+    """(HEAD sha, `git status --porcelain` text + working-tree diff).
+    Empty sha if the repo has no commits yet; empty text = clean tree.
+
+    The diff is load-bearing: porcelain alone lists dirty PATHS, so a
+    second edit to an already-dirty note left the pass fingerprint
+    unchanged and the engine skipped the scan — an armed //command in a
+    dirty inbox never retried (2026-07-24). Content edits to untracked
+    files can still hide, but only until the engine's next commit tracks
+    them."""
     v = Vault(vault_path)
     v.ensure_repo()
     head = v._git("rev-parse", "HEAD")
     sha = head.stdout.strip() if head.returncode == 0 else ""
-    return sha, v._git("status", "--porcelain").stdout
+    dirty = v._git("status", "--porcelain").stdout
+    if sha:
+        dirty += v._git("diff", "HEAD").stdout
+    return sha, dirty
 
 
 def is_stale(proposal: dict, vault_path: str, state: tuple[str, str] | None = None) -> str:
@@ -70,6 +78,12 @@ def is_stale(proposal: dict, vault_path: str, state: tuple[str, str] | None = No
         current = v.read(against["note"])
     except vault_mod.VaultError:
         return f"note {against['note']} no longer exists"
+    if proposal.get("kind") == "capture":
+        # Capture proposals hash the stripped text (see draft_capture):
+        # whitespace-only churn from autosave must not void an approval.
+        from .processors import capture_text  # lazy: processors imports applier
+
+        current = capture_text(current)
     if content_hash(current) != against["content_hash"]:
         return f"{against['note']} changed since the proposal was drafted"
     return ""

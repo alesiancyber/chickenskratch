@@ -12,7 +12,6 @@ both the model and the user.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import re
@@ -21,6 +20,7 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import anyio
 import yaml
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -36,9 +36,11 @@ def sanitize_tool_name(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9_]", "_", name)
 
 
-# Kept short: an unreachable remote server (offline laptop) delays the first
-# message by this much before degrading gracefully.
-CONNECT_TIMEOUT = 6
+# Kept shortish: an unreachable remote server (offline laptop) delays the
+# first message by this much before degrading gracefully. ms-learn's
+# handshake includes a forced 1s stream-reconnect, so 6 was too tight on a
+# slow network (2026-07-24: a timed-out connect crashed the whole pass).
+CONNECT_TIMEOUT = 15
 
 
 @dataclass
@@ -175,7 +177,14 @@ class MultiServerClient:
                 self.status[spec.name] = {"state": "disabled", "tools": 0}
                 continue
             try:
-                await asyncio.wait_for(self._connect(spec), timeout=CONNECT_TIMEOUT)
+                # anyio.fail_after, not asyncio.wait_for: the MCP SDK's
+                # transports are anyio cancel scopes, and wait_for's
+                # cancellation gets re-raised as a bare CancelledError
+                # (BaseException) that sails past this except and kills the
+                # pass. fail_after cancels in anyio's own machinery and
+                # raises a catchable TimeoutError.
+                with anyio.fail_after(CONNECT_TIMEOUT):
+                    await self._connect(spec)
             except Exception as e:
                 self.status[spec.name] = {"state": f"error: {type(e).__name__}: {e}", "tools": 0}
         if not self._sessions:

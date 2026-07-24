@@ -128,7 +128,13 @@ async def draft_capture(w: Watcher, item: dict) -> dict | None:
         kind="capture",
         note=item["note"],
         vault_sha=item["vault_sha"],
-        note_content=item["content"],
+        # Hash the stripped TEXT, not the raw note: extraction only ever
+        # sees the text, so staleness must key on it too. Hashing raw let
+        # a whitespace-only autosave between scan and approval void the
+        # user's approval — and the unchanged text hash then blocked the
+        # re-arm, silently dropping the task (2026-07-24). is_stale
+        # normalizes the same way for capture proposals.
+        note_content=item["text"],
         title="Add " + " + ".join(parts),
         summary=f"Extracted from {item['note']}; approving adds them and clears the surface.",
         issues=[
