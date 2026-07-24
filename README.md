@@ -29,6 +29,7 @@ config/             models.yaml (profiles/backends/worker), mcp.yaml
                     (MCP servers), vault.yaml (spec defaults), schemas/
 data/               proposals, corpus (training labels), stats, logs
 evals/              agent suite + worker suite (the model-bakeoff gate)
+research/           non-operational what-ifs (model orchestration) — not canon
 testvault/          scratch vault the default config points at
 ```
 
