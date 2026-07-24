@@ -414,11 +414,18 @@ def verify_schema_fix(w: Watcher, item: dict, proposal: dict) -> list[str]:
     body line byte-identical modulo appended block refs, in order,
     (b) added lines are headings only, (c) existing frontmatter values
     unchanged, and (d) the result fully conformant — a fix that leaves
-    issues would re-draft forever, so it queues instead."""
+    issues would re-draft forever, so it queues instead. First gate:
+    every step must target the drafted note — the worker authors full
+    tool args, and "nothing touched but the target" is only provable
+    when the target is pinned in code, not in the prompt."""
     from obsidian_mcp import markdown as md
     from obsidian_mcp import server
 
-    after = applier.simulate(item["content"], proposal)
+    for step in proposal["apply"]:
+        target = step.get("args", {}).get("path")
+        if target is None or not applier.same_note(str(target), item["note"]):
+            return [f"step {step.get('tool')!r} targets {target!r}, not the drafted note {item['note']!r}"]
+    after = applier.simulate(item["content"], proposal, note=item["note"])
     if after is None:
         return ["plan not simulable — cannot vouch for its effect"]
     fm_b, body_b = md.split_frontmatter(item["content"])
@@ -606,7 +613,9 @@ def scan_archive(w: Watcher) -> list[dict]:
             text = w.vault.read(rel)
         except VaultError:
             continue
-        done = [t for t in tk.iter_tasks(text) if t.done]
+        # Top-level only, mirroring the archive tool: a done subtask under
+        # an open parent stays with its parent, so it is not archivable work.
+        done = [t for t in tk.iter_tasks(text) if t.done and t.raw.lstrip() == t.raw]
         if done:
             items.append({"kind": "archive_done", "note": rel, "content": text,
                           "vault_sha": w._pass_sha, "archive": cfg.done_archive,

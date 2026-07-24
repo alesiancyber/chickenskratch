@@ -18,6 +18,7 @@ from __future__ import annotations
 import difflib
 import json
 import os
+from pathlib import Path
 
 import yaml
 
@@ -89,13 +90,29 @@ def apply(proposal: dict, vault_path: str) -> list[dict]:
     return results
 
 
-def simulate(note_text: str, proposal: dict) -> str | None:
+def same_note(a: str, b: str) -> bool:
+    """Do two vault-relative paths name the same note? Mirrors resolve()'s
+    normalization (suffix-optional, leading slashes) without touching disk."""
+    def norm(p: str) -> str:
+        p = str(p).strip().lstrip("/")
+        return p if Path(p).suffix else p + ".md"
+    return norm(a) == norm(b)
+
+
+def simulate(note_text: str, proposal: dict, note: str | None = None) -> str | None:
     """Apply the whole plan to note text in memory. None if any step can't
-    be simulated — verifiers must then treat the plan as unvouchable."""
+    be simulated — verifiers must then treat the plan as unvouchable.
+    `note` is the path the text belongs to (default: the proposal's
+    drafted_against note): a step aimed at any OTHER path is unvouchable,
+    because simulating it here would vouch for an edit that apply() will
+    make somewhere else entirely."""
+    note = note or proposal.get("drafted_against", {}).get("note")
+    if not note:
+        return None
     current = note_text
     for step in proposal["apply"]:
         try:
-            nxt = _simulate(current, step)
+            nxt = _simulate(current, step, note)
         except (ValueError, KeyError):
             return None
         if nxt is None:
@@ -106,9 +123,19 @@ def simulate(note_text: str, proposal: dict) -> str | None:
 
 # ---- preview (pure text simulation for the diff in Review.md) ----
 
-def _simulate(text: str, step: dict) -> str | None:
-    """Apply one step to note text in memory. None = not previewable."""
+_SIMULABLE = {"update_frontmatter", "replace_section", "append_to_note", "replace_line"}
+
+
+def _simulate(text: str, step: dict, note: str) -> str | None:
+    """Apply one step to `note`'s text in memory. None = not previewable
+    (a tool this can't model); raises ValueError when the step targets a
+    different note — previewing it against THIS text would be a lie."""
     tool, args = step["tool"], step["args"]
+    if tool not in _SIMULABLE:
+        return None
+    target = args.get("path")
+    if target is None or not same_note(str(target), note):
+        raise ValueError(f"targets {target!r}, not the drafted note {note!r}")
     fm, body = md.split_frontmatter(text)
     if tool == "update_frontmatter":
         value = args["value"]
@@ -137,14 +164,15 @@ def _simulate(text: str, step: dict) -> str | None:
     return None
 
 
-def simulate_for_note(note_text: str, proposal: dict) -> tuple[str, list[str]]:
+def simulate_for_note(note_text: str, proposal: dict, note: str | None = None) -> tuple[str, list[str]]:
     """Best-effort simulation of the plan against one note's text: steps
     that can't be simulated (other-note writes, unknown tools) are skipped
     and described, so nothing looks hidden. Returns (after, skipped)."""
+    note = note or proposal.get("drafted_against", {}).get("note") or ""
     current, unpreviewable = note_text, []
     for step in proposal["apply"]:
         try:
-            simulated = _simulate(current, step)
+            simulated = _simulate(current, step, note)
         except (ValueError, KeyError) as e:
             unpreviewable.append(f"{step['tool']}: preview failed ({e})")
             continue

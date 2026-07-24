@@ -107,3 +107,18 @@ def test_waiting_age_and_stranded_meeting_actions(vault, make_watcher):
     assert "chase the SOW redlines — 10d old" in text
     # dated meeting items are Due-section business, not stranded
     assert text.count("chase the SOW redlines") == 1
+
+
+def test_impossible_dates_report_instead_of_crashing_the_pass(vault, make_watcher):
+    """A hand-typed 📅 2026-02-30 has the right shape but is not a date.
+    The dashboard must flag it — and the engine pass must survive it."""
+    (vault / "Tasks/Sprint.md").write_text(
+        "# Sprint\n\n- [ ] typo'd deadline 📅 2026-02-30\n")
+    (vault / "Tasks/Waiting.md").write_text(
+        "# Waiting\n\n- [ ] Marcus: firewall logs ➕ 2026-13-01\n")
+    w = make_watcher(vault, registry=())
+    run(w)  # a ValueError here used to kill every pass until the note was fixed
+    text = (vault / "Harness/Today.md").read_text()
+    assert "typo'd deadline" in text and "not a real date" in text
+    assert "Marcus: firewall logs" in text  # row survives, bogus age suppressed
+    assert "waiting)" not in text

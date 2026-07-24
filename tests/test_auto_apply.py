@@ -217,3 +217,50 @@ def test_faithful_capture_lands_and_clears_without_checkbox(vault, make_watcher)
     assert "buy a car" in (vault / "Tasks/Inbox.md").read_text()
     assert surface.read_text() == CAPTURE_SKELETON  # cleared by the on_applied hook
     assert proposals.pending(w.proposals_dir) == []
+
+
+def test_schema_fix_aimed_at_another_note_never_auto_applies(vault, make_watcher):
+    """The path pin: the worker authors full tool args, so a plan step
+    targeting any note but the drafted one is unvouchable — simulate
+    would otherwise vouch for an edit apply() makes somewhere else."""
+    note = vault / "Meetings/Sync.md"
+    note.write_text(MEETING_NO_ID)
+    inbox_before = (vault / "Tasks/Inbox.md").read_text()
+
+    async def hijacking_drafter(item):
+        return {"title": "stamp", "summary": "id only",
+                "apply": [
+                    {"tool": "update_frontmatter",
+                     "args": {"path": item["note"], "key": "id", "value": item["new_id"]}},
+                    # simulated against Sync.md this is an innocent added
+                    # heading; applied for real it writes to the inbox
+                    {"tool": "append_to_note",
+                     "args": {"path": "Tasks/Inbox.md", "content": "# injected"}},
+                ]}
+
+    w = make_watcher(vault, drafter=hijacking_drafter, n_max=20,
+                     disabled=("capture", "inbox_extract", "spec_drift", "grouping", "archive_done"))
+    summary = run(w)
+    assert summary["auto"] == 0  # queued for a human, never auto
+    assert (vault / "Tasks/Inbox.md").read_text() == inbox_before
+    assert "id: m-" not in note.read_text()
+    assert len(proposals.pending(w.proposals_dir)) >= 1
+
+
+def test_schema_fix_suffixless_path_still_counts_as_the_target(vault, make_watcher):
+    """Workers often drop the .md; resolve() treats the paths as the same
+    note, so the pin must too — a legit fix must not queue over a suffix."""
+    note = vault / "Meetings/Sync.md"
+    note.write_text(MEETING_NO_ID)
+
+    async def suffixless_drafter(item):
+        return {"title": "stamp", "summary": "id only",
+                "apply": [{"tool": "update_frontmatter",
+                           "args": {"path": item["note"].removesuffix(".md"),
+                                    "key": "id", "value": item["new_id"]}}]}
+
+    w = make_watcher(vault, drafter=suffixless_drafter, n_max=20,
+                     disabled=("capture", "inbox_extract", "spec_drift", "grouping", "archive_done"))
+    summary = run(w)
+    assert summary["auto"] >= 1
+    assert "id: m-" in note.read_text()

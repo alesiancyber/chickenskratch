@@ -94,7 +94,7 @@ def score_schema_fix(case: dict, reply: dict) -> list[str]:
     item = {"note": case["note"], "content": case["content"]}
     proposal = {"apply": reply.get("apply", [])}
     failures = list(verify_schema_fix(None, item, proposal))
-    after = applier.simulate(case["content"], proposal)
+    after = applier.simulate(case["content"], proposal, note=case["note"])
     if after is not None:
         for pat in case.get("after_contains", []):
             if not re.search(pat, after):

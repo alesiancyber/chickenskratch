@@ -45,6 +45,15 @@ def _cap(rows: list[str], n: int = MAX_ROWS, label: str = "") -> list[str]:
     return rows[:n] + [tail]
 
 
+def _safe_date(value: str) -> dt.date | None:
+    """A hand-typed 📅 2026-02-30 has the right shape but is not a date;
+    the dashboard must report it, never crash the pass over it."""
+    try:
+        return dt.date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 def _due_row(task: tk.Task, rel: str, today: dt.date) -> str:
     due = dt.date.fromisoformat(task.due)
     if due < today:
@@ -61,17 +70,20 @@ def _due_section(dated: list[tuple[tk.Task, str]], today: dt.date) -> list[str]:
     always shows in full; overdue is capped, freshest debt first (ancient
     overdue is the least actionable); due-soon is capped."""
     horizon = today + dt.timedelta(days=SOON_DAYS)
-    overdue, due_today, soon = [], [], []
+    overdue, due_today, soon, broken = [], [], [], []
     for task, rel in dated:
-        d = dt.date.fromisoformat(task.due)
-        if d < today:
+        d = _safe_date(task.due)
+        if d is None:
+            broken.append(f"- ⚠ {task.text} — due date `{task.due}` is not a real date · {_link(rel)}")
+        elif d < today:
             overdue.append((d, task, rel))
         elif d == today:
             due_today.append((d, task, rel))
         elif d <= horizon:
             soon.append((d, task, rel))
-    rows = _cap([_due_row(t, r, today) for _d, t, r in
-                 sorted(overdue, key=lambda x: x[0], reverse=True)], 5, "overdue")
+    rows = broken
+    rows += _cap([_due_row(t, r, today) for _d, t, r in
+                  sorted(overdue, key=lambda x: x[0], reverse=True)], 5, "overdue")
     rows += [_due_row(t, r, today) for _d, t, r in due_today]
     rows += _cap([_due_row(t, r, today) for _d, t, r in sorted(soon, key=lambda x: x[0])],
                  5, "coming up")
@@ -114,8 +126,9 @@ def _waiting_rows(v: Vault, waiting_inbox: str, today: dt.date) -> list[str]:
             continue
         due = f" — due {task.due}" if task.due else ""
         age = ""
-        if task.created:  # ➕ birth dates stamp at format_task; aging accrues
-            days = (today - dt.date.fromisoformat(task.created)).days
+        born = _safe_date(task.created) if task.created else None
+        if born:  # ➕ birth dates stamp at format_task; aging accrues
+            days = (today - born).days
             if days >= 3:
                 age = f" ({days}d waiting)"
         rows.append(f"- {task.text}{due}{age} · {_link(waiting_inbox)}")

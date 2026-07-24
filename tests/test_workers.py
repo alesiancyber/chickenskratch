@@ -89,3 +89,17 @@ def test_worker_unavailable_raises_clean_error(monkeypatch):
     )
     with pytest.raises(VaultError, match="unavailable"):
         asyncio.run(workers.extract_tasks("...", "2026-07-20"))
+
+
+def test_impossible_due_dates_are_dropped(monkeypatch):
+    """The reply schema's pattern only pins shape — 2026-13-01 passes it.
+    Downstream assumes every date is real (format_task raises mid-draft,
+    Today.md parses), so extract_tasks nulls it instead of passing it on."""
+    payload = {"tasks": [
+        {"text": "Migrate DNS", "due": "2026-13-01", "priority": None},
+        {"text": "Ship the pack", "due": "2026-07-24", "priority": None},
+    ]}
+    monkeypatch.setattr(workers, "_worker_client", lambda: fake_client(json.dumps(payload)))
+    tasks = asyncio.run(workers.extract_tasks("stuff to do", "2026-07-20"))
+    assert tasks[0]["due"] is None
+    assert tasks[1]["due"] == "2026-07-24"

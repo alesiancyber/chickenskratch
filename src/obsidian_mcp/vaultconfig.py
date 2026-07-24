@@ -13,6 +13,7 @@ stay repo-side: moving Review.md is a code decision, not a note edit.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -90,6 +91,15 @@ def load_config(path: str | Path | None = None) -> VaultConfig:
             folder_types={}, exclude=("Private",), surfaces={}, schemas_dir=p.parent / "schemas"
         )
     raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    known = {"folders", "exclude", "surfaces", "schemas_dir",
+             "capture_inbox", "waiting_inbox", "done_archive"}
+    ignored = sorted(set(raw) - known)
+    if ignored:
+        # Keys like auto_apply/fidelity/n_max are Spec.md-only; silence
+        # here would let a user believe an edit took effect. stderr, not
+        # stdout: the MCP server's stdout is the JSON-RPC stream.
+        print(f"{p.name}: ignoring keys {ignored} — these live in the vault's "
+              f"Harness/Spec.md frontmatter, not here", file=sys.stderr)
     return VaultConfig(
         folder_types={str(k): str(v) for k, v in (raw.get("folders") or {}).items()},
         exclude=tuple(str(e) for e in (raw.get("exclude") or [])),

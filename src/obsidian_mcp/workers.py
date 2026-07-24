@@ -260,13 +260,29 @@ WORKERS: dict[str, WorkerSpec] = {
 }
 
 
+def _real_date_or_none(value) -> str | None:
+    """The reply schema's pattern only pins digit shape — an impossible
+    date like 2026-13-01 passes it. Downstream every date is assumed
+    fromisoformat-able (format_task raises, Today.md parses), so an
+    impossible one is dropped here rather than poisoning a draft."""
+    if not value:
+        return None
+    import datetime as dt
+
+    try:
+        dt.date.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return str(value)
+
+
 async def extract_tasks(text: str, today: str) -> list[dict]:
     """Pull structured tasks out of free text via the extract_tasks worker."""
     data = await run_worker(WORKERS["extract_tasks"], today=today, text=text.strip())
     return [
         {
             "text": t["text"].strip(),
-            "due": t.get("due") or None,
+            "due": _real_date_or_none(t.get("due")),
             "priority": t.get("priority") or None,
             "owed_by": (t.get("owed_by") or "").strip() or None,
         }

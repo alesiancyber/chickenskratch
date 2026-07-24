@@ -115,13 +115,6 @@ class Vault:
             raise
         return p
 
-    def append(self, rel_path: str, text: str) -> Path:
-        """Append to a note (creating it if missing) through the same atomic
-        rewrite as write(), so a torn append can't corrupt earlier content."""
-        p = self.resolve(rel_path)
-        existing = p.read_text(encoding="utf-8") if p.exists() else ""
-        return self.write(rel_path, existing + text)
-
     # ---- cross-process lock ----
 
     @contextlib.contextmanager

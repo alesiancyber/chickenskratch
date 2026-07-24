@@ -100,6 +100,10 @@ def parse_board(content: str) -> Board:
             current_card = None
             continue
         if not line.strip():
+            # A blank inside a card's attached content is content and must
+            # round-trip; blanks anywhere else are layout render re-emits.
+            if current_card is not None:
+                current_card.setdefault("extra", []).append(line)
             continue
         if not columns:
             board_preamble.append(line)
@@ -112,7 +116,9 @@ def parse_board(content: str) -> Board:
             if block_id:
                 current_card["id"] = block_id
             col.cards.append(current_card)
-        elif line.strip() == "**Complete**":
+        elif line.strip() == "**Complete**" and current_card is None:
+            # The plugin's done-column marker sits above the cards; the
+            # same literal inside a card's content is content.
             col.complete_marker = True
         elif current_card is not None:
             # sub-items, descriptions, indented tasks: they belong to this
@@ -120,6 +126,13 @@ def parse_board(content: str) -> Board:
             current_card.setdefault("extra", []).append(line)
         else:
             col.preamble.append(line)
+    for col in columns:
+        for card in col.cards:
+            extra = card.get("extra")
+            while extra and not extra[-1].strip():
+                extra.pop()  # trailing blanks were card separation, not content
+            if not extra:
+                card.pop("extra", None)
     return Board(
         frontmatter=fm or {"kanban-plugin": "board"},
         columns=columns,

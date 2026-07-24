@@ -381,3 +381,55 @@ def test_archive_done_tasks_tool(vault):
     assert server.archive_done_tasks("Tasks/Work")["archived"] == 0
     # archiving the archive is a no-op, never recursion
     assert server.archive_done_tasks("Tasks/Archive")["archived"] == 0
+
+
+def test_archive_moves_the_whole_task_block(vault):
+    server.create_note(
+        "Tasks/Blocked",
+        "# Work\n\n"
+        "- [x] parent done ✅ 2026-07-20 ^t-bbbbbbbbbbb1\n"
+        "  context that belongs to it\n"
+        "  - [ ] child subtask\n"
+        "- [ ] open parent ^t-bbbbbbbbbbb2\n"
+        "  - [x] done child ✅ 2026-07-21\n")
+    assert server.archive_done_tasks("Tasks/Blocked")["archived"] == 1
+    src = (vault / "Tasks/Blocked.md").read_text()
+    archive = (vault / "Tasks/Archive.md").read_text()
+    # the done top-level task took its indented block, byte-identical
+    assert "context that belongs to it" not in src
+    assert "  context that belongs to it" in archive
+    assert "  - [ ] child subtask" in archive
+    # a done SUBTASK of an open parent is not archivable work: it stays
+    assert "- [ ] open parent" in src and "  - [x] done child" in src
+    assert "done child" not in archive
+
+
+def test_reopen_removes_the_done_stamp_cleanly(vault):
+    inbox = vault / "Tasks/Inbox.md"
+    inbox.write_text(inbox.read_text()
+                     + "- [x] revisit budget ✅ 2026-07-20 ^t-cccccccccc01\n")
+    server.set_task_status("Tasks/Inbox", "revisit budget", done=False)
+    text = inbox.read_text()
+    assert "- [ ] revisit budget ^t-cccccccccc01" in text  # no double space
+    assert "revisit budget  " not in text
+
+
+def test_kanban_card_blank_lines_and_complete_literal_round_trip(vault):
+    board_path = vault / "Projects/Project Board.md"
+    raw = board_path.read_text().replace(
+        "- [ ] Design new logo",
+        "- [ ] Design new logo\n"
+        "  Brief: keep the old colors\n"
+        "\n"
+        "  more brief after a gap\n"
+        "  **Complete**",
+    )
+    board_path.write_text(raw)
+    server.add_card("Projects/Project Board", "Backlog", "Draft pricing page")
+    after = board_path.read_text()
+    # the interior blank inside the card's content survived the rewrite
+    assert "  Brief: keep the old colors\n\n  more brief after a gap" in after
+    # the **Complete** literal inside card content stayed there (indented),
+    # and the real Done-column marker kept its place above the done cards
+    assert "  **Complete**" in after
+    assert "**Complete**\n- [x] Set up staging environment" in after

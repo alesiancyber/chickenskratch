@@ -259,15 +259,21 @@ class Watcher:
         """Draft up to n_max proposals; verified-safe drafts from trusted
         processors apply immediately. Returns (drafted, auto_applied)."""
         auto_trusted = set(get_config(self.vault_path).auto_apply)
-        drafted = auto = 0
+        drafted = auto = attempts = 0
         failed: set[str] = set()  # processors whose draft errored this pass
-        for proc, item in items[: self.n_max]:
+        for proc, item in items:
+            # n_max bounds draft CALLS (the LLM cost), so a failed
+            # processor's skipped items must not consume budget that a
+            # healthy processor behind it could use.
+            if attempts >= self.n_max:
+                break
             if proc.name in failed:
                 continue  # its worker already failed once: don't hammer it
             # Decisions never wait behind drafting: a slow worker phase
             # holds the pass lock for minutes, so checked boxes are
             # serviced between calls — latency bounded by ONE draft.
             self._sweep_late_decisions(summary)
+            attempts += 1
             try:
                 p = await proc.draft(self, item)
             except VaultError:

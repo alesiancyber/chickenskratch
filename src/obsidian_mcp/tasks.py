@@ -82,6 +82,18 @@ def _first(pattern: re.Pattern, s: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _real_date(value: str, label: str) -> None:
+    """Reject shapes AND impossible dates (2026-02-30 has the right shape
+    but crashes every later fromisoformat): the digit regexes above only
+    guarantee shape, so real-ness is checked here, at the write choke point."""
+    try:
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            raise ValueError
+        dt.date.fromisoformat(value)
+    except ValueError:
+        raise ValueError(f"{label} date must be a real YYYY-MM-DD date, got {value!r}") from None
+
+
 def format_task(
     text: str, due: str | None = None, priority: str | None = None,
     block_id: str | None = None, created: str | None = "auto",
@@ -98,14 +110,12 @@ def format_task(
             raise ValueError(f"Unknown priority {priority!r}; use one of {sorted(PRIORITY_EMOJI)}")
         parts.append(emoji)
     if due:
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", due):
-            raise ValueError(f"Due date must be YYYY-MM-DD, got {due!r}")
+        _real_date(due, "Due")
         parts.append(f"📅 {due}")
     if created == "auto":
         created = dt.date.today().isoformat()
     if created:
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", created):
-            raise ValueError(f"Created date must be YYYY-MM-DD, got {created!r}")
+        _real_date(created, "Created")
         parts.append(f"➕ {created}")
     if block_id:
         parts.append(f"^{block_id}")   # block refs must be the last token

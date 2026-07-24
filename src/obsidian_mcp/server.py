@@ -366,7 +366,9 @@ def set_task_status(path: str, task_text: str, done: bool = True) -> dict:
                 if ref:
                     line = ids.attach_block_ref(line, ref)
         else:
-            line = tk.DONE_RE.sub("", line).rstrip()
+            # Consume the space before ✅ too, or reopening leaves a double
+            # space where the stamp sat.
+            line = re.sub(r"\s*" + tk.DONE_RE.pattern, "", line).rstrip()
         v.snapshot_before("set_task_status")
         lines[task.line_no] = line
         v.write(path, "\n".join(lines) + "\n")
@@ -376,12 +378,14 @@ def set_task_status(path: str, task_text: str, done: bool = True) -> dict:
 
 @mcp.tool()
 def archive_done_tasks(path: str, archive_path: str = "") -> dict:
-    """Move every completed task from a note into the archive note (vault
-    spec `done_archive` by default), one atomic snapshot. Lines move
-    byte-identical — ids, dates, priorities intact — except a task
-    completed by hand in an editor (no ✅ date) gets today's stamped on,
-    so the archive always says when. Removing lines never leaves blank
-    runs behind.
+    """Move every completed TOP-LEVEL task from a note into the archive
+    note (vault spec `done_archive` by default), one atomic snapshot. A
+    task moves as its whole block: any indented sub-content (notes,
+    sub-bullets, nested subtasks) travels with it, byte-identical — ids,
+    dates, priorities, indentation intact. A done subtask under an open
+    parent stays put with that parent. A task completed by hand in an
+    editor (no ✅ date) gets today's stamped on, so the archive always
+    says when. Removing lines never leaves blank runs behind.
 
     Example: archive_done_tasks(path="Tasks/Inbox") ->
       {"archived": 3, "archive": "Tasks/Archive.md"}
@@ -395,11 +399,13 @@ def archive_done_tasks(path: str, archive_path: str = "") -> dict:
     with v.locked():
         text = v.read(path)
         fm, body = md.split_frontmatter(text)
-        done = [t for t in tk.iter_tasks(body) if t.done]
+        done = [t for t in tk.iter_tasks(body) if t.done and t.raw.lstrip() == t.raw]
         if not done:
             return {"archived": 0, "archive": archive}
         v.snapshot_before("archive_done_tasks")
-        moved = []
+        lines = body.splitlines()
+        moved: list[str] = []
+        claimed: set[int] = set()
         for t in done:
             line = t.raw
             if t.done_date is None:
@@ -407,9 +413,20 @@ def archive_done_tasks(path: str, archive_path: str = "") -> dict:
                 line = f"{core} ✅ {_today()}"
                 if ref:
                     line = ids.attach_block_ref(line, ref)
-            moved.append(line.strip())
-        keep = [ln for i, ln in enumerate(body.splitlines())
-                if i not in {t.line_no for t in done}]
+            # The task's block: every following blank-or-indented line
+            # belongs to it and moves with it (trailing blanks are just
+            # separation and stay behind to be collapsed).
+            block = [t.line_no]
+            j = t.line_no + 1
+            while j < len(lines) and (not lines[j].strip() or lines[j][:1].isspace()):
+                block.append(j)
+                j += 1
+            while len(block) > 1 and not lines[block[-1]].strip():
+                block.pop()
+            claimed.update(block)
+            moved.append(line)
+            moved.extend(lines[i] for i in block[1:])
+        keep = [ln for i, ln in enumerate(lines) if i not in claimed]
         new_body = re.sub(r"\n{3,}", "\n\n", "\n".join(keep)).rstrip("\n") + "\n"
         v.write(path, md.join_frontmatter(fm, new_body))
         ap = v.resolve(archive)
@@ -418,8 +435,8 @@ def archive_done_tasks(path: str, archive_path: str = "") -> dict:
         last = stripped.splitlines()[-1] if stripped else ""
         sep = "\n" if tk.TASK_RE.match(last) else "\n\n"
         v.write(archive, stripped + sep + "\n".join(moved) + "\n")
-        v.snapshot_after(f"archive {len(moved)} done task(s) from {path}")
-    return {"archived": len(moved), "archive": archive}
+        v.snapshot_after(f"archive {len(done)} done task(s) from {path}")
+    return {"archived": len(done), "archive": archive}
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -524,8 +541,6 @@ def create_board(path: str, columns: str = "Backlog, Doing, Done") -> dict:
     """
     v = get_vault()
     p = v.resolve(path)
-    if p.exists():
-        raise VaultError(f"Board already exists: {v.rel(p)}")
     names = [c.strip() for c in columns.split(",") if c.strip()]
     if not names:
         raise VaultError("At least one column name is required")
@@ -538,6 +553,10 @@ def create_board(path: str, columns: str = "Backlog, Doing, Done") -> dict:
         settings="",
     )
     with v.locked():
+        # Existence under the lock (same rule as create_note): two
+        # concurrent creators must collide here, not silently overwrite.
+        if p.exists():
+            raise VaultError(f"Board already exists: {v.rel(p)}")
         v.snapshot_before("create_board")
         v.write(v.rel(p), kb.render_board(board))
         v.snapshot_after(f"create board {v.rel(p)}")
@@ -606,9 +625,11 @@ def open_daily_note(date: str = "") -> dict:
     v = get_vault()
     day = _valid_date(date) if date else _today()
     rel = f"{vc.get_config().daily_dir}/{day}.md"
-    created = not v.resolve(rel).exists()
-    if created:
-        with v.locked():
+    with v.locked():
+        # Existence under the lock: a concurrent creator's content must
+        # never be clobbered by this skeleton.
+        created = not v.resolve(rel).exists()
+        if created:
             v.snapshot_before("open_daily_note")
             v.write(rel, f"# {day}\n\n## Tasks\n\n## Notes\n")
             v.snapshot_after(f"create daily note {day}")
@@ -628,8 +649,6 @@ def create_meeting_note(title: str, date: str = "", attendees: str = "") -> dict
     people = [a.strip() for a in attendees.split(",") if a.strip()]
     rel = f"{MEETINGS_DIR}/{day} {title.strip()}.md"
     p = v.resolve(rel)
-    if p.exists():
-        raise VaultError(f"Meeting note already exists: {rel}")
     try:
         template = md.split_frontmatter(v.read("Harness/Templates/Meeting.md"))[1]
         weekday = dt.date.fromisoformat(day).strftime("%A")
@@ -643,6 +662,10 @@ def create_meeting_note(title: str, date: str = "", attendees: str = "") -> dict
         body = f"# {title.strip()}\n\n## Attendees\n\n{attendee_lines}\n## Agenda\n\n## Notes\n\n## Action items\n"
     fm = {"id": ids.stamp_id("m"), "date": day, "type": "meeting", "attendees": people}
     with v.locked():
+        # Existence under the lock (same rule as create_note): two
+        # concurrent creators must collide here, not silently overwrite.
+        if p.exists():
+            raise VaultError(f"Meeting note already exists: {rel}")
         v.snapshot_before("create_meeting_note")
         v.write(rel, md.join_frontmatter(fm, body))
         v.snapshot_after(f"create meeting note {rel}")
