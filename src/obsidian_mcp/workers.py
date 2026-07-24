@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass
 
 from openai import AsyncOpenAI
@@ -49,6 +50,17 @@ def _worker_model() -> str:
     return os.environ.get("WORKER_MODEL", "mlx-community/Qwen3.5-4B-MLX-4bit")
 
 
+def _env_number(cast, name: str, default):
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        return cast(raw)
+    except ValueError:
+        print(f"{name}={raw!r} is not a number; using {default}", file=sys.stderr)
+        return default
+
+
 @dataclass(frozen=True)
 class WorkerSpec:
     name: str            # "extract_tasks"
@@ -65,11 +77,14 @@ async def run_worker(spec: WorkerSpec, **inputs) -> dict:
     a VaultError so the MCP tool layer surfaces a clean message."""
     client = _worker_client()
     prompt = spec.prompt.format(**inputs)
-    timeout = float(os.environ.get("WORKER_TIMEOUT_S") or spec.timeout_s)
+    # Env parses degrade to the spec default on garbage ("60s", ""): a
+    # ValueError here is outside run_worker's VaultError contract, and an
+    # .env typo must never become a crash of every engine pass.
+    timeout = _env_number(float, "WORKER_TIMEOUT_S", spec.timeout_s)
     # Reasoning models (gemini-3.1-pro via LiteLLM) spend max_tokens on
     # hidden thought BEFORE the JSON: 2000 truncated mid-object (2026-07-24).
     # The env override lifts the ceiling without unbounding local workers.
-    max_tokens = int(os.environ.get("WORKER_MAX_TOKENS") or spec.max_tokens)
+    max_tokens = _env_number(int, "WORKER_MAX_TOKENS", spec.max_tokens)
     last_error = ""
     for _attempt in range(2):
         try:

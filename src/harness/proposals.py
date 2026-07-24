@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -76,12 +77,20 @@ def load_all(proposals_dir: Path | None = None) -> list[dict]:
     d = Path(proposals_dir) if proposals_dir else PROPOSALS_DIR
     if not d.is_dir():
         return []
+    schema = load_schemas().get("proposal")
     out = []
     for p in sorted(d.glob("p-*.json")):
         try:
-            out.append(json.loads(p.read_text(encoding="utf-8")))
+            data = json.loads(p.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue  # a corrupt file must not take the queue down
+        # Valid JSON in the wrong shape (hand-edited, truncated) must be
+        # skipped too: pending()'s data["status"] on a shapeless dict once
+        # meant one bad file wedged every pass.
+        if not isinstance(data, dict) or (schema and jsonval.validate(data, schema)):
+            print(f"skipping malformed proposal file {p.name}", file=sys.stderr)
+            continue
+        out.append(data)
     return out
 
 
@@ -110,9 +119,11 @@ def prune(proposals_dir: Path | None = None, retention_days: int = RETENTION_DAY
     for p in d.glob("p-*.json"):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
+            # stat inside the try: a file deleted mid-prune (concurrent
+            # prune, hand cleanup) must not crash the end of a pass
+            if data.get("status") != "pending" and p.stat().st_mtime < cutoff:
+                p.unlink(missing_ok=True)
+                removed += 1
         except (json.JSONDecodeError, OSError):
             continue
-        if data.get("status") != "pending" and p.stat().st_mtime < cutoff:
-            p.unlink(missing_ok=True)
-            removed += 1
     return removed

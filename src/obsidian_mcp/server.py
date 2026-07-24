@@ -24,7 +24,7 @@ from . import schemas as sc
 from . import tasks as tk
 from . import vaultconfig as vc
 from . import workers as wk
-from .vault import VaultError, get_vault
+from .vault import VaultError, get_vault, read_lossy
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True)
 
@@ -96,7 +96,7 @@ def search_vault(query: str, folder: str = "", limit: int = 20, offset: int = 0)
         rel = v.rel(p)
         if q in p.stem.lower():
             matches.append({"note": rel, "line": 0, "text": f"(title match: {p.stem})"})
-        for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+        for i, line in enumerate(read_lossy(p).splitlines(), 1):
             if q in line.lower():
                 matches.append({"note": rel, "line": i, "text": line.strip()[:200]})
     page = matches[offset : offset + limit]
@@ -299,7 +299,7 @@ def list_tasks(folder: str = "", status: str = "open", task_type: str = "",
     found = []
     counts: dict[str, int] = {}
     for p in v.iter_notes(folder):
-        text = p.read_text(encoding="utf-8")
+        text = read_lossy(p)
         fm, _ = md.split_frontmatter(text)
         note_type = _note_type(fm, v.rel(p))
         for task in tk.iter_tasks(text):
@@ -544,7 +544,7 @@ def validate_schema(folder: str = "", limit: int = 50, offset: int = 0) -> dict:
             continue  # machine-rendered surfaces are not entities
         checked += 1
         etype, note_issues, bad_tasks, unmarked = note_text_issues(
-            rel, p.read_text(encoding="utf-8"))
+            rel, read_lossy(p))
         if not note_issues and not bad_tasks:
             continue
         rows.append({

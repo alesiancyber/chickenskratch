@@ -459,6 +459,10 @@ class Watcher:
             note_text = self.vault.read(p["drafted_against"]["note"])
         except VaultError:
             return ["", "```diff", "# (target note unreadable — proposal will go stale)", "```"]
+        if len(note_text.splitlines()) > 4000:
+            # SequenceMatcher is quadratic: a pathological note must cost
+            # this proposal its preview, never hang the pass on CPU.
+            return ["", "- (note too large to preview — judge from the summary, or open the note)"]
         if get_config(self.vault_path).diff_style == "split":
             after, skipped = applier.simulate_for_note(note_text, p)
             table = diffhtml.split_diff(note_text, after)
@@ -555,7 +559,16 @@ class Watcher:
                 # out of n_max by a maintenance backlog.
                 items = []
                 for proc in self.processors:
-                    for item in proc.scan(self):
+                    try:
+                        found = proc.scan(self)
+                    except Exception as e:
+                        # A poison scan (a note deleted mid-walk, an
+                        # unparseable edge) fails ITS processor, never the
+                        # pass — the same contract _draft and _act already
+                        # enforce for their stages.
+                        print(f"scan failed for {proc.name}: {type(e).__name__}: {e}")
+                        continue
+                    for item in found:
                         if item["note"] not in seen_notes:
                             seen_notes.add(item["note"])
                             items.append((proc, item))

@@ -21,7 +21,7 @@ import yaml
 
 from obsidian_mcp import ids
 from obsidian_mcp import tasks as tk
-from obsidian_mcp.vault import VaultError
+from obsidian_mcp.vault import VaultError, read_lossy
 from obsidian_mcp.vaultconfig import SPEC_REL, get_config
 
 from . import applier, grouping, proposals
@@ -604,7 +604,7 @@ def scan_grouping(w: Watcher) -> list[dict]:
         rel = v.rel(p)
         if rel.split("/")[0] in surface_dirs:
             continue
-        text = p.read_text(encoding="utf-8")
+        text = read_lossy(p)
         cand = grouping.note_candidate(text)
         if cand is None:
             continue

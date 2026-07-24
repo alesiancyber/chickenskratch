@@ -31,6 +31,14 @@ class VaultError(Exception):
     """Raised for user-facing vault problems (bad path, missing note)."""
 
 
+def read_lossy(p: Path) -> str:
+    """Tolerant read for READ-ONLY walks (scans, dashboards, search): one
+    mis-encoded note yields replacement chars instead of wedging every
+    engine pass. Never use on a read-modify-write path — Vault.read stays
+    strict there so replacement chars can never be written back."""
+    return p.read_text(encoding="utf-8", errors="replace")
+
+
 class Vault:
     def __init__(self, root: str | Path, chat_id: str = "", exclude: tuple[str, ...] = ()):
         self.root = Path(root).expanduser().resolve()
@@ -96,7 +104,16 @@ class Vault:
             yield p
 
     def read(self, rel_path: str) -> str:
-        return self.resolve(rel_path, must_exist=True).read_text(encoding="utf-8")
+        p = self.resolve(rel_path, must_exist=True)
+        try:
+            return p.read_text(encoding="utf-8")
+        except UnicodeDecodeError as e:
+            # VaultError, not UnicodeDecodeError: callers on the mutation
+            # path catch VaultError per note/tool, so one mis-encoded file
+            # errors cleanly instead of crashing the pass. Reads stay
+            # STRICT here — a lossy decode written back would corrupt the
+            # note with replacement chars (read-only walks use read_lossy).
+            raise VaultError(f"{rel_path} is not valid UTF-8: {e}") from None
 
     def write(self, rel_path: str, content: str) -> Path:
         p = self.resolve(rel_path)
@@ -180,6 +197,15 @@ class Vault:
             error = (r.stderr or r.stdout).strip() or "unknown git error"
             if "index.lock" not in error:
                 break
+            # A git process killed mid-commit leaves index.lock behind
+            # FOREVER — without this, every later snapshot fails and every
+            # engine pass crashes until a human deletes the file. Only a
+            # lock older than 5 minutes is removed: a live git holds its
+            # lock for milliseconds, so age == abandonment.
+            lock = self.root / ".git" / "index.lock"
+            with contextlib.suppress(OSError):
+                if time.time() - lock.stat().st_mtime > 300:
+                    lock.unlink()
             time.sleep(0.2)
         raise VaultError(f"git snapshot failed: {error.splitlines()[0]}")
 

@@ -43,7 +43,11 @@ async def endpoint_alive(base_url: str, timeout: float = 1.5) -> bool:
         async with httpx.AsyncClient(timeout=timeout) as http:
             await http.get(base_url.rstrip("/") + "/models")
         return True
-    except httpx.HTTPError:
+    except Exception:
+        # Broader than HTTPError on purpose: a malformed base_url raises
+        # httpx.InvalidURL (NOT an HTTPError), and a probe that crashes
+        # its caller (the Changes.md status line -> the whole pass) is
+        # worse than any wrong answer it could give.
         return False
 
 
@@ -53,8 +57,8 @@ def endpoint_alive_sync(base_url: str, timeout: float = 1.5) -> bool:
     try:
         httpx.get(base_url.rstrip("/") + "/models", timeout=timeout)
         return True
-    except httpx.HTTPError:
-        return False
+    except Exception:
+        return False  # same contract as endpoint_alive — a probe never raises
 
 
 def _pid_alive(pid: int) -> bool:

@@ -25,7 +25,7 @@ import datetime as dt
 from obsidian_mcp import kanban as kb
 from obsidian_mcp import markdown as md
 from obsidian_mcp import tasks as tk
-from obsidian_mcp.vault import Vault, VaultError
+from obsidian_mcp.vault import Vault, VaultError, read_lossy
 
 SOON_DAYS = 3   # "due soon" horizon
 MAX_ROWS = 8    # per section; the rest folds behind a "+N more"
@@ -101,7 +101,7 @@ def _collect(v: Vault, surface_dirs: frozenset[str]):
         rel = v.rel(p)
         if rel.split("/")[0] in surface_dirs:
             continue
-        text = p.read_text(encoding="utf-8")
+        text = read_lossy(p)
         fm, _body = md.split_frontmatter(text)
         if "kanban-plugin" in fm:
             try:
@@ -150,7 +150,7 @@ def _stranded_meeting_actions(v: Vault, today: dt.date, max_age_days: int = 7) -
             continue
         if (today - met).days < max_age_days:
             continue
-        for t in tk.iter_tasks(p.read_text(encoding="utf-8")):
+        for t in tk.iter_tasks(read_lossy(p)):
             if not t.done and not t.due:
                 rows.append(f"- {t.text} — {(today - met).days}d old · {_link(v.rel(p))}")
     return rows

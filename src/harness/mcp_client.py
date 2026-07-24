@@ -42,6 +42,11 @@ def sanitize_tool_name(name: str) -> str:
 # slow network (2026-07-24: a timed-out connect crashed the whole pass).
 CONNECT_TIMEOUT = 15
 
+# Per-tool-call ceiling. Generous — docs searches legitimately take tens
+# of seconds — but finite: no remote server may hang a chat turn or an
+# engine pass indefinitely.
+CALL_TIMEOUT = 60
+
 
 @dataclass
 class ServerSpec:
@@ -273,7 +278,12 @@ class MultiServerClient:
         if info is None:
             known = ", ".join(sorted(self.tools))
             return f"Unknown tool: {qualified}. Available tools: {known}", True
-        result = await self._sessions[info.server].call_tool(info.original, args)
+        # Bounded like connect (and via anyio for the same cancel-scope
+        # reason): a hung remote tool otherwise hangs its caller forever —
+        # in the engine's command phase that meant a wedged pass HOLDING
+        # the pass lock, silently stopping the whole pipeline.
+        with anyio.fail_after(CALL_TIMEOUT):
+            result = await self._sessions[info.server].call_tool(info.original, args)
         text = "\n".join(c.text for c in result.content if getattr(c, "text", None)) or "(empty result)"
         if info.docs_domain and not result.isError:
             text = digest_docs_search(text)

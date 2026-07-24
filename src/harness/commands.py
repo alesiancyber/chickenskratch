@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 from collections.abc import Awaitable, Callable
 
-from obsidian_mcp.vault import Vault
+from obsidian_mcp.vault import Vault, read_lossy
 
 _CMD_RE = re.compile(r"^//([a-z][\w-]*)\s+(\S.*)$")
 _CMD_PREFIX_RE = re.compile(r"^//([a-z][\w-]*)\b")
@@ -87,7 +87,7 @@ def scan(vault: Vault, surface_dirs: frozenset[str]) -> list[dict]:
         rel = vault.rel(p)
         if rel.split("/")[0] in surface_dirs:
             continue
-        text = p.read_text(encoding="utf-8")
+        text = read_lossy(p)
         lines = text.splitlines()
         # Enter is the submit key: a final line with no newline after it
         # is still being typed — never execute a half-typed command.
