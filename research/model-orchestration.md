@@ -1,524 +1,331 @@
 > [!IMPORTANT] RESEARCH — non-operational
-> Restored 2026-07-23 from `DESIGN-mixed-models.md` (deleted in the docs
-> consolidation, `5bf7488`) because the routing/cascade/serving research
-> stays relevant to the local-model endgame: a ~27B dense worker on the
-> b70 (32 GB), chosen by eval bakeoff. This document is a **what-if**:
-> it is not canon, prescribes nothing, and is not maintained against the
-> code. [PHILOSOPHY.md](../PHILOSOPHY.md) governs operational reality.
-> Known divergences since writing: the harness runs a single worker
-> profile (Spec.md `worker:`, temporarily Gemini for test iteration); no
-> router, cascade, votes, or classify_intent exists; the worker eval
-> suite (69 cases, verifier-scored) is the selection gate §11 sketches.
+> A what-if document, maintained against the current architecture
+> (rewritten 2026-07-23 from the pre-pages-era `DESIGN-mixed-models.md`;
+> the original is in git history). It prescribes nothing and nothing in
+> it is built unless it says so; [PHILOSOPHY.md](../PHILOSOPHY.md)
+> governs operational reality. Its purpose: when the b70 arrives and the
+> bakeoff starts, this is the hypothesis sheet.
 
-# Design: mixed-model routing, workers, and cascade
+# Research: model orchestration for the local endgame
 
-*Status: proposed — routing/cascade/classifier remain unapproved and
-unbuilt. **Exception, built 2026-07-22 (DEVPLAN Phase 3):** the §7.1
-worker-contract subset shipped as the `WorkerSpec` registry in
-`src/obsidian_mcp/workers.py` — jsonschema-validated output, per-spec
-timeout/temperature, one retry, fail-loud on dropped items (the §7.3
-`due: null` someday policy is enforced and evaled). `votes:`,
-`classify_intent`, and `verify_extraction` are NOT built. · Hardware
-assumption: the b70 (32 GB @ ~600 GB/s) is on the network and serving
-models; the M5 MacBook (16 GB) keeps running the harness and remains a
-fully functional fallback on its own.*
+The question this document explores: once a ~27B dense model runs
+locally on the b70 (32 GB, ~600 GB/s), how should the harness spend it —
+and how much of the work can stay on much smaller, faster models
+without giving up the auto-apply trust the verifiers earn?
 
-The literature this design draws on: Anthropic's
+Literature this draws on: Anthropic's
 [Building Effective Agents](https://www.anthropic.com/research/building-effective-agents)
-(workflow patterns, workflow-vs-agent line),
-[RouteLLM](https://arxiv.org/abs/2406.18665) (routing transfers across model
-pairs; preference data is the fuel), FrugalGPT/HybridLLM (cascade: cheap
-first, escalate on signal), and [BFCL](https://gorilla.cs.berkeley.edu/leaderboard.html)
-(screen tool-calling ability before downloading anything).
-Mixture-of-Agents-style parallel layering is explicitly a non-goal (§13).
+(workflow patterns), [RouteLLM](https://arxiv.org/abs/2406.18665)
+(routing transfers across model pairs; weak preference data is enough
+fuel), FrugalGPT/HybridLLM (cascade: cheap first, escalate on signal),
+[BFCL](https://gorilla.cs.berkeley.edu/leaderboard.html) (screen
+tool-calling before downloading). Mixture-of-Agents parallel layering
+remains a non-goal.
 
 ---
 
-## 1. Goals
+## 1. The baseline (what exists, 2026-07-23)
 
-1. **Latency down, capability up.** Route each request to the cheapest model
-   that passes evals for that request class; put a 27B-class orchestrator at
-   the top of the local stack now that the b70 can hold one.
-2. **Nothing brittle.** Every new component is optional, has a deterministic
-   fallback, degrades to today's behavior when absent, and can be rolled back
-   by deleting one config block.
-3. **Data flywheel.** Every routed request logs enough to (a) grow the eval
-   suite from real failures and (b) make a learned router *possible later*
-   without committing to one now.
+- **All production LLM work is single-shot worker calls.** Three
+  workers (`extract_tasks`, `schema_fix`, `grouping` —
+  `src/obsidian_mcp/workers.py`): one bounded call, jsonschema-validated
+  reply, one retry, fail-loud. One global worker model, chosen by
+  Spec.md `worker:` (a models.yaml profile name; temporarily Gemini for
+  iteration speed).
+- **Two classes of change.** Commands (`//azure`) are user-ordered and
+  currently model-free; proposals are harness-inferred, and the
+  deterministic **verifiers** (extraction fidelity, additive-shape) gate
+  checkbox-free application.
+- **The eval suite is the selection gate.** 69 worker cases × repeats,
+  scored by the production verifiers (a passing schema_fix case means
+  "would have auto-applied"), plus paraphrase clusters against
+  phrasing luck. The 22-case agent suite covers the frozen CLI chat.
+- **Chat is a frozen CLI escape hatch.** No message stream to route; no
+  orchestrator loop in production.
+- **Corpus** captures every human judgment (Review.md decisions,
+  reverts) as self-contained JSONL — the preference data a learned
+  placement policy would train on.
 
-## 2. Non-goals
+The architectural consequence that reshapes everything below: **the
+old router problem dissolved.** There is no ambiguous chat message to
+classify — every LLM invocation already knows its task class, because a
+processor or command invoked it by name. "Routing" reduces to
+**placement policy**: which model serves which worker, and when to
+escalate. `classify_intent` is dead; nothing here resurrects it.
 
-- A learned/neural router in v1 (23 eval cases and a few hundred logged
-  requests can validate heuristics, not train models — see §12 P4 gate).
-- Mixture-of-Agents parallel layering (benchmarked on chat quality, not tool
-  calling; costs N resident models; revisit only if the b70 proves roomy).
-- Cloud as a default rung. The cloud escape hatch stays exactly that — an
-  explicit profile, never silently reached.
-- Multi-user, multi-vault, or concurrent-conversation serving.
+## 2. Goals
 
-## 3. Design principles (extends the README's three rules)
+1. **Latency down, capability up, locally.** The cheapest model that
+   passes the eval suite *for that worker* does the job; the 27B is the
+   strongest local rung, not the default for everything.
+2. **Nothing brittle.** Every mechanism is optional, has a
+   deterministic fallback, degrades to today's behavior when absent,
+   and rolls back by deleting one config key.
+3. **Data flywheel.** Eval reports + corpus labels + auto-apply/queue
+   rates make placement decisions measurable, and a learned policy
+   *possible later* without committing to one now.
 
-4. **Routing may be aggressive because writes are guarded.** confirm_writes,
-   the loop guard, and git snapshots bound the blast radius of any misroute.
-   A wrong route costs latency, never data. This is the load-bearing insight;
-   if a change weakens a write guarantee to make routing easier, the change
-   is wrong.
-5. **Fail upward.** Any uncertainty — classifier timeout, low confidence,
-   unknown intent, worker unreachable — resolves to the *strongest* resident
-   model, never the weakest. Misrouting up wastes tokens; misrouting down
-   produces the plausible-but-wrong failures that are hardest to catch.
-6. **Every tier is optional.** b70 offline ⇒ M5-only mode, identical to
-   today. Worker model missing ⇒ deterministic fallback or orchestrator does
-   the job itself. No component may sit on the critical path without a
-   non-LLM fallback.
-7. **Workers interpret, they never mutate.** (Already the `extract_tasks`
-   contract — promoted to a hard rule for all workers.) All writes flow
-   through the orchestrator's normal gated tools.
-8. **Shadow before live.** Every routing behavior ships first in a mode that
-   logs what it *would* do without doing it, and is promoted only after the
-   log says it's right.
+## 3. Design principles
 
-## 4. Hardware & memory budget
+1. **Placement may be aggressive because writes are guarded.** The
+   verifier/queue layer — not the model — decides what touches the
+   vault. A wrong placement costs latency or a queued (rather than
+   auto-applied) proposal, never data. If a change weakens a write
+   guarantee to make placement easier, the change is wrong.
+2. **Fail upward.** Worker junk output, schema failure, verifier
+   failure — all resolve toward the *strongest* resident model or the
+   Review queue, never silently downward.
+3. **Every rung is optional.** b70 offline ⇒ M5-only or cloud-profile
+   mode, identical to today. No component sits on the critical path
+   without a non-LLM fallback (the engine already survives a dead
+   worker: that processor skips, commands and other processors
+   continue).
+4. **Workers interpret, they never mutate.** All writes flow through
+   the gated vault tools and the two-class contracts.
+5. **Shadow before live.** Placement behaviors ship first in a mode
+   that logs what they *would* do; promoted only after the log agrees.
 
-b70: 32 GB, ~600 GB/s. Decode is bandwidth-bound: tok/s ≈ BW ÷ weight-bytes
-× ~0.65 efficiency. All numbers are Q4_K_M estimates to be verified on the
-box in P3 — treat them as planning figures, not facts.
+## 4. Hardware & memory budget (planning figures, verify on the box)
 
-| Model class        | Weights | KV @16k | Est. decode  | Role                    |
-|--------------------|---------|---------|--------------|-------------------------|
-| 27B-class          | ~16.5 GB| ~2.0 GB | ~22–28 tok/s | orchestrator (top rung) |
-| 9B                 | ~5.7 GB | ~1.0 GB | ~60–75 tok/s | optional mid rung       |
-| 4B                 | ~2.6 GB | ~0.5 GB | ~120–150     | workers                 |
-| 2B (e2b)           | ~1.6 GB | ~0.3 GB | ~180–220     | classifier / extraction |
+b70: 32 GB, ~600 GB/s. Decode is bandwidth-bound: tok/s ≈ BW ÷
+weight-bytes × ~0.65. Q4_K_M estimates:
 
-### Residency plan A — recommended start
+| Model class | Weights | KV @16k | Est. decode  | Role                     |
+|-------------|---------|---------|--------------|--------------------------|
+| 27B-class   | ~16.5 GB| ~2.0 GB | ~22–28 tok/s | top rung (hard workers, chat, LLM commands) |
+| 9B          | ~5.7 GB | ~1.0 GB | ~60–75 tok/s | mid rung — must earn its 7 GB |
+| 4B          | ~2.6 GB | ~0.5 GB | ~120–150     | cheap worker rung        |
+| 2B (e2b)    | ~1.6 GB | ~0.3 GB | ~180–220     | cross-family voter       |
 
-| Resident on b70                  | Memory        |
-|----------------------------------|---------------|
-| OS + serving stack               | ~2.5 GB       |
-| 27B orchestrator + KV            | ~18.5 GB      |
-| 2–4B worker (classifier+extract) | ~3.0 GB       |
-| **Total / headroom**             | **~24 / 8 GB**|
+**Residency plan A (recommended start):** 27B + one 2–4B worker ≈ 24 GB,
+~8 GB headroom. Best uses of headroom, in order: longer 27B context
+(KV at 32k ≈ double), then a second small model *from a different
+family* (~2 GB) for cross-family voting (§7). A same-family second copy
+buys nothing. **Plan B** (add a 9B mid rung, ≈29 GB) only if bakeoff
+data shows a worker where 9B matches 27B quality *and* the latency
+delta matters — at ~25 tok/s for single-shot worker calls of a few
+hundred output tokens, it plausibly never does.
 
-Two rungs on the box: worker tier and 27B. No mid rung — at 600 GB/s the 27B
-is fast enough (~25 tok/s) that a 9B mid rung must *prove* it earns its
-7 GB (§12 P3 go/no-go). Headroom has two good uses, in priority order:
-**longer orchestrator context** (KV at 32k ≈ double the 16k figure) and a
-**second worker model from a different family** (~2 GB, e.g. gemma-e2b
-beside a qwen-4B) for cross-family voting (§7.2). Both together still
-clear ~4 GB of slack; a same-model second copy buys nothing (§7.2).
+**M5 (16 GB) — degraded mode, always functional.** The harness host
+runs its own small models under Ollama/MLX when the b70 is
+unreachable. CI/tests never require the b70.
 
-### Residency plan B — only if evals justify a mid rung
+## 5. Tiers (as they exist after the two-class refactor)
 
-27B + 9B + 2B ≈ 29 GB. Fits, but one context-length bump away from eviction
-thrash. Adopt only with pinning configured (§10) and after Plan A data shows
-a request class where 9B quality is equal and its latency win matters.
+- **Tier 0 — code, no model.** Still the cheapest win and it keeps
+  growing: `//azure` is an entire user-facing feature at tier 0, and
+  the verifiers moved "is this fix safe?" from model judgment to code.
+  Every tier-0 conversion is one less thing any model can get wrong.
+- **Tier 1 — cheap workers (2–4B).** Single-shot JSON extraction —
+  exactly the regime where small models plateau near frontier (§9.2).
+- **Tier 2 — the 27B.** The strongest local rung: hard workers
+  (schema_fix on messy notes), escalation target, CLI chat, future
+  LLM-backed `//commands` (`//summarize`) — which write directly (the
+  user watches the landing spot), making per-command model choice a
+  quality knob, not a safety knob.
+- **Tier 3 — cloud (explicit, never silent).** Today's temporary
+  Gemini arrangement, kept afterward as an opt-in profile. Vault text
+  leaving the machine is a user decision every time (PHILOSOPHY I4).
 
-### M5 (16 GB) — degraded mode, always functional
+## 6. Placement policy (the successor to "the router")
 
-gemma4-12b-mlx (current default) + optionally the 2B worker under Ollama.
-When the b70 is unreachable this **is** the system, and it is exactly
-today's system. CI/tests never require the b70.
+### 6.1 Per-worker model assignment — the first unbuilt step
 
-## 5. Model tiers
-
-- **Tier 0 — code, no model.** Date arithmetic, kanban/task formatting,
-  pagination, citation appending, git snapshots. The design's cheapest win
-  remains moving work *into* this tier; every tier-0 conversion is one less
-  thing any model can get wrong.
-- **Tier 1 — workers (2–4B).** Narrow generative subtasks, read-only,
-  structured JSON out (§7). Initial set: `extract_tasks` (exists),
-  `classify_intent` (new), `verify_extraction` (new, voting checker).
-- **Tier 2 — routed responders.** Profiles the router may pick per request:
-  the M5 12B today; optionally the 9B for read-only classes (Plan B only).
-- **Tier 3 — orchestrator / top local rung.** 27B-class on the b70. Default
-  for anything ambiguous, multi-step, or write-bearing. Candidate checkpoint
-  chosen by the §11 screening procedure, not by assumption.
-- **Tier 4 — cloud escape hatch (optional, off by default).** Existing
-  roadmap item; becomes the rung above 27B. Reached only by explicit user
-  action or an escalation the user confirms — never silently (vault text
-  leaves the machine; that is a user decision every time).
-
-## 6. Router
-
-### 6.1 Intent taxonomy (v1 — deliberately coarse)
-
-| Intent        | Examples                                  | v1 route      |
-|---------------|-------------------------------------------|---------------|
-| `read_query`  | "what's due today?", "find notes on X"    | routable down |
-| `single_write`| "add a task to renew the domain friday"   | orchestrator  |
-| `multi_step`  | "plan my week from the meeting notes"     | orchestrator  |
-| `generative`  | capture structuring, drafting, summarizing| orchestrator  |
-| `skill`       | `/meeting-capture`, `use_skill`           | skill decides (§6.5) |
-| `ambiguous`   | anything the classifier isn't sure about  | orchestrator  |
-
-Only `read_query` is ever routed below the orchestrator in v1. Writes are
-*never* routed down until per-class eval evidence exists (P2+), and even
-then confirm_writes stays on for down-routed writes regardless of profile
-defaults.
-
-### 6.2 Classification
-
-Primary: the `classify_intent` worker (2B, JSON out, temperature 0,
-**1.5 s timeout**). Fallback, in order:
-
-1. Worker timeout/error/malformed JSON → deterministic keyword heuristic
-   (interrogatives and "what's/show/find/list" → `read_query`; imperative
-   verbs from the tool vocabulary → `single_write`; else `ambiguous`).
-2. Heuristic unsure → `ambiguous` → orchestrator.
-
-The classifier output includes `confidence: high|low`; `low` maps to
-`ambiguous`. The classifier never sees tool schemas or vault content — just
-the user message and the last 2 turns (reference resolution: "mark *that*
-one done" must not look read-only).
-
-### 6.3 Routing mechanics
-
-- Routing decision happens **per user message**, in the harness
-  (`src/harness/agent.py` session setup / `web.py` message entry), *before*
-  the responder session is built.
-- **Escalation ratchet:** once a conversation escalates to a stronger
-  profile, later messages in that conversation start at that rung. No
-  automatic downgrades mid-conversation; a new conversation resets. This
-  kills route ping-pong and the "it got dumber mid-chat" failure.
-- Mid-conversation profile switches reuse the existing
-  **rebuild-and-resume** path (already proven for crash recovery and
-  toolset changes) — transcript replays into the new profile's session.
-  No new conversation-state machinery.
-- The chat UI shows the active rung the same way the model picker does
-  today; routing is never invisible.
-
-### 6.4 Config surface (models.yaml — additive, delete = rollback)
+Today `worker:` is one global choice. The research question is whether
+the split brain wins:
 
 ```yaml
-routing:
-  enabled: true            # false ⇒ exactly today's behavior
-  shadow: true             # log decisions, don't act on them (P0)
-  classifier_worker: classify_intent
-  default: b70-27b         # the fail-upward target
-  routes:
-    read_query: qwen3.5-9b # only routable class in v1
-  escalate_to: [b70-27b]   # cascade rungs above the routed profile, in order
+# Spec.md frontmatter (hypothetical)
+worker: b70-27b              # default rung
+workers:
+  extract_tasks: b70-4b      # single-shot extraction: small-model plateau
+  grouping: b70-4b
+  schema_fix: b70-27b        # hardest judgment, verifier-gated anyway
 ```
 
-No routing keys inside individual model profiles: which model handles what
-is global policy, not a model quirk (rule 2 stays intact).
+Implementation cost is small (the env plumbing already supports
+per-call overrides in spirit; `WORKER_<NAME>_MODEL` was the old sketch)
+— but it ships only when the bakeoff shows a per-worker quality gap
+worth managing. If the 27B wins everything at acceptable latency, one
+global `worker:` stays and this section dies happily.
 
-### 6.5 Skills and routing
+### 6.2 What killed the classifier
 
-A skill may declare `model: <profile>` in its SKILL.md frontmatter (e.g.
-meeting-capture pinning the structuring pass to the 27B). Skill declaration
-beats router; router beats profile default; explicit `-m` / model picker
-beats everything.
+The old design spent a 2B model + taxonomy + shadow phase classifying
+chat intents. The two-class refactor made the invoker the classifier:
+capture knows it's extraction, the schema scanner knows it's a fix,
+`//azure` knows it's a search. **Placement needs a table, not a
+model.** (If chat ever un-freezes, this section is where intent
+classification would return — with the same fail-upward rules.)
 
-## 7. Worker framework (generalizing `src/obsidian_mcp/workers.py`)
+## 7. Cascade — verifier-triggered escalation
 
-### 7.1 Contract (all workers, enforced by the framework not by convention)
+The original cascade needed invented signals (loop guards, iteration
+caps). The current architecture provides a better one for free: **the
+deterministic verifier is a ground-truth quality oracle for exactly the
+cases where auto-apply matters.**
 
-1. **Read-only.** No vault imports beyond error types; no tool access.
-2. **Structured out.** Each worker declares a JSON schema; output is
-   validated against it (`jsonschema`), not just `json.loads`-ed. Schema
-   failure after one retry ⇒ `VaultError`, same surface as today.
-3. **Bounded.** Per-worker timeout (default 10 s; classifier 1.5 s), one
-   retry, temperature ≤ 0.2 (extraction) or 0 (classification).
-4. **Non-blocking.** Every call site must have a stated fallback: caller
-   does the job itself (orchestrator), deterministic heuristic (router), or
-   the feature degrades visibly (capture works without extraction — it
-   already does).
-5. **Isolated config.** `WORKER_BASE_URL` / `WORKER_MODEL` stay, plus
-   per-worker overrides `WORKER_<NAME>_MODEL` for split placement (e.g.
-   classifier on b70, extractor local during a b70 outage).
+Hypothetical flow, per proposal draft:
 
-### 7.2 Registry
+1. Cheap worker (4B) drafts.
+2. Schema-invalid reply or verifier failure → **one** escalation:
+   re-draft on the 27B.
+3. 27B draft passes → auto-apply as normal. Fails again → the Review
+   queue, exactly as today.
 
-```python
-@dataclass(frozen=True)
-class WorkerSpec:
-    name: str            # "extract_tasks"
-    prompt: str          # template with declared placeholders
-    schema: dict         # jsonschema for the reply
-    timeout_s: float
-    temperature: float
-    votes: int = 1       # >1 ⇒ run N times, merge/flag disagreements
+Properties worth noting:
 
-WORKERS: dict[str, WorkerSpec] = {...}
-```
+- Escalation triggers are already-computed events — no new detectors,
+  no model-judging-model.
+- The failure mode of a too-small model becomes *latency + queue rate*,
+  never bad writes: misplacement is visible in `Changes.md` cadence and
+  the auto-apply ratio, not in vault damage.
+- The eval suite measures the cascade directly: run the worker suite
+  per rung; the cases the 4B fails but the 27B passes are precisely the
+  escalation traffic, and their frequency prices the cascade.
+- One escalation per item, no de-escalation logic, ever.
 
-`votes: 2` for extraction-class workers runs the prompt twice (temperature
-0 and 0.2) and returns the union with disagreements flagged
-`confidence: "low"` — directly addresses the observed dropped-"someday"-item
-failure: an item one pass drops and the other keeps surfaces as a
-low-confidence suggestion instead of vanishing. Cost at 2B speeds:
-sub-second. Voting is per-spec, not global.
+For **commands**, cascade is simpler still: a transient executor
+failure already re-arms the line; an LLM-backed command could retry
+once on the top rung before re-arming.
 
-### 7.3 Initial worker set
+## 8. Voting & cross-family checking (unbuilt, still promising)
 
-| Worker              | Model | Purpose                                        |
-|---------------------|-------|------------------------------------------------|
-| `extract_tasks`     | qwen3.5-4B MLX (A/B'd 2026-07-20: 7/8 vs gemma-e2b's 6/8, ~7x faster; disjoint error sets) | exists; gains schema validation + votes: 2 |
-| `classify_intent`   | 2–4B  | §6.2; new; temperature 0, tiny prompt          |
-| `verify_extraction` | gemma-e2b (cross-family voter — its misses are disjoint from qwen's inventions) | P4; critique pass over another worker's output |
+The verifiers catch structural violations but not judgment errors
+*within* the allowed envelope (a defensible-but-wrong due date; a
+plausible owed_by). `votes: 2` — run the prompt at two temperatures, or
+better, on **two models from different families** (qwen's inventions
+and gemma's omissions were observed to be disjoint) — turns
+disagreement into a `confidence: low` flag on the proposal line in
+Review.md. Cost at small-model speeds: sub-second. Residency plan A's
+headroom exists partly for this. Gate: only worth building if corpus
+data shows rejected proposals clustering in the judgment-error class
+the verifiers can't see.
 
-Policy fix rolled into the extraction schema: undated/"someday" items are
-**returned with `due: null`** — dropping them is scored as a failure in the
-worker's eval cases. (Resolves the open question from the prototype commit;
-suggestions are free to reject, silently missing ones are not.)
+## 9. Model selection (the bakeoff — procedure now mostly real)
 
-### 7.4 Worker evals
+### 9.1 Reading BFCL as a shortlist prior
 
-Workers get their own fixture cases under `evals/cases/workers/*.yaml`:
-input text + expected JSON (scored structurally, same philosophy as the
-main suite — never prose). Regression case #1 is the someday-item drop.
-CI keeps using scripted fake clients (the existing FakeOpenAI pattern);
-live judgment is scored by `uv run harness-worker-eval -m <model>`
-(repeat runs per case — a worker that's right 2 of 3 runs is a different
-animal from one that's right every time). Reports land in
-`evals/reports/workers/`. A/B-ing worker candidates is one command per
-model.
+FC rows only (the FC/Prompt split is enormous); **Irrelevance >
+Relevance** (irrelevance detection maps to the spurious-action failure
+class — the invisible, dangerous one); the Latency column is a
+thinking-mode detector (a great Multi-Turn score at 170 s mean latency
+is a thinking model — eval non-thinking variants or disable thinking);
+Format-Sensitivity Max Delta is a fragility score for small rungs.
+Ignore Cost and the agentic columns. The board lags local releases, so
+family priors shortlist — **the worker suite is the acceptance test.**
 
-Note on residency: worker *roles* are prompts, not models — one resident
-worker model serves classify + extract + verify sequentially. A second
-resident worker model buys nothing for throughput (one conversation at a
-time); what it buys is **cross-family voting diversity**: two different
-models disagreeing on an extraction is a far stronger low-confidence
-signal than one model resampled at two temperatures. `votes: 2` should
-therefore support a cross-model mode when two worker models are
-resident.
+### 9.2 The single-turn plateau — now the load-bearing finding
 
-## 8. Cascade & escalation
+BFCL's structural result: single-turn structured calling is
+near-saturated down to ~4B (Qwen3-4B within noise of Opus-class on
+single-turn AST) while multi-turn collapses with size. The two-class
+refactor quietly moved **all production LLM work into the single-turn
+regime** — every worker call is one-shot. Consequences:
 
-### 8.1 Triggers (all already-observable harness events — no new detectors)
+- The cheap rung loses almost nothing by being 4B *for the regime it
+  operates in* — which is exactly why per-worker placement (§6.1) and
+  the verifier cascade (§7) are plausible at all.
+- Multi-turn ability now matters only for the frozen CLI chat and any
+  future conversational surface — it should be weighed accordingly in
+  27B selection, not dominate it.
+- The user's observation that some models are exceptional one-shot
+  instruction followers is this plateau, seen from the terminal.
 
-| Signal                                  | Already exists as             |
-|-----------------------------------------|-------------------------------|
-| loop guard fires                        | duplicate-write guard         |
-| tool-call validation fails / unknown tool| MCP call error path          |
-| empty-reply recovery fires              | empty-reply guarantee         |
-| malformed/unparseable tool arguments    | agent loop error path         |
-| `max_iterations` hit without an answer  | agent loop                    |
-| context trim discarded turns mid-task   | context trimming              |
+### 9.3 Procedure (per candidate)
 
-Any trigger ⇒ escalate to the next rung in `escalate_to`, replay via
-rebuild-and-resume, ratchet (§6.3). **One escalation per user message**;
-if the top rung also trips, the failure surfaces to the user as it does
-today — no retry loops, no silent cloud hop.
+1. Shortlist via §9.1 family priors. No download before this step.
+2. Profile entry in models.yaml → `uv run harness-worker-eval -m <model>`
+   (69 cases × 3 repeats; verifier-scored; watch *cluster-level*
+   failures — a model failing a whole paraphrase cluster has a
+   systematic hole where auto-apply would trust it). Add
+   `harness-eval -m` if the candidate will also serve chat.
+3. Record the report in `evals/reports/` — a fast, cheap *no* is a
+   good outcome.
+4. A candidate for the *cheap* rung must beat the incumbent on the
+   specific workers it would serve, not globally.
 
-### 8.2 What escalation is *not*
+### 9.4 27B-class shortlist (priors only; step 2 decides)
 
-- Not a quality judgment on a successful-looking answer. Plausible-but-wrong
-  from a down-routed model is real but rare in v1 by construction: only
-  `read_query` routes down, where wrongness is visible (the user is looking
-  at the answer against their own vault) and mutation-free. The checker
-  worker (P4) is the eventual answer; shrinking the down-routed surface is
-  the v1 answer.
-- Not a downgrade mechanism. There is no de-escalation logic at all.
-
-## 9. Observability — the outcome log
-
-`data/routing_log.jsonl`, one line per user message when routing is enabled
-(including shadow mode):
-
-```json
-{
-  "ts": "...", "conv": "...", "msg": 4,
-  "intent": {"label": "read_query", "confidence": "high", "source": "worker"},
-  "route": {"profile": "qwen3.5-9b", "reason": "routes.read_query",
-             "shadow_only": false},
-  "escalation": {"to": "b70-27b", "trigger": "loop_guard"},
-  "signals": {"loop_guard": 1, "tool_errors": 0, "empty_reply": 0,
-               "iterations": 3, "denied_writes": 0},
-  "usage": {"in_tok": 1800, "out_tok": 240, "latency_ms": 4100},
-  "user_signal": "none"
-}
-```
-
-- **No message text, no vault text** by default (`routing.log_text: true`
-  exists for debugging sessions only). The log must be safe to hand to
-  Claude Code alongside a bug report.
-- `user_signal` is filled in retroactively by cheap proxies the UI already
-  has: a ↺ revert of the resulting commit ⇒ `revert`; an immediate re-ask ⇒
-  `retry`; else `none`. Weak labels, but RouteLLM's core result is that
-  weak preference data routes well.
-- The stats page gains a per-rung table (requests, escalation rate, p50
-  latency) from this log. Evals stay excluded, as today.
-- This file is the P4 training set if a learned router ever happens, and
-  the source of new eval cases meanwhile (a logged escalation = a candidate
-  regression case).
+| Candidate | Prior |
+|---|---|
+| qwen3.5-32B instruct-class | Best open multi-turn lineage, but earned in thinking mode — must eval non-thinking. Q4 ≈ 19 GB squeezes headroom. |
+| gemma4-27B-class | Weak board prior (gemma-3 era was Prompt-only/fragile) but gemma4-12b's strong run on this suite is direct family evidence. Q4 ≈ 16.5 GB fits Plan A cleanly. |
+| xLAM-2-32b-class FC tune (wildcard) | Board-best sub-35B multi-turn; near-zero agentic columns irrelevant here; cc-by-nc license and possible prose degradation are the risks. |
 
 ## 10. Serving stack on the b70
 
-**v1: Ollama.** Reasons over vLLM/llama.cpp for this phase: multi-model
-serving with per-model pinning in one process, and the harness's adapter
-already speaks to it. Settings that are part of the design, not optional:
+**v1: Ollama** (multi-model residency + pinning in one process; the
+harness already speaks OpenAI-compatible to anything). Settings that
+are part of the design: `OLLAMA_MAX_LOADED_MODELS=2`, `keep_alive=-1`
+for residents (no cold starts of a 16 GB load), explicit
+`OLLAMA_CONTEXT_LENGTH` matched by the profile's `context_tokens`,
+`OLLAMA_NUM_PARALLEL=1`. The harness needs zero code: b70 profiles are
+`base_url` entries in models.yaml, and Spec.md `worker:` flips the
+whole engine to the box with one note edit. `harness-backends` shows
+remote endpoints as "external" — correct; remote start/stop over SSH
+stays out of scope (half-dead remote processes the harness thinks it
+owns are a failure-mode factory). vLLM/llama.cpp swap in behind the
+same `base_url` if throughput ever demands it.
 
-- `OLLAMA_MAX_LOADED_MODELS=2` (Plan A: 27B + worker) — hard cap so a stray
-  request can't evict the orchestrator.
-- `keep_alive=-1` for both resident models (pin; no idle unload, no
-  first-token cold start of a 16 GB load).
-- `OLLAMA_CONTEXT_LENGTH` set explicitly, and `context_tokens` in each b70
-  profile set to match — the ctx% meter must not lie (existing rule).
-- `OLLAMA_NUM_PARALLEL=1` — one conversation at a time is a design choice.
+## 11. Observability
 
-The harness needs zero code for this: b70 profiles are `base_url` entries
-(the commented `homelab-70b` example in models.yaml, made real). The ⚡
-Servers panel shows remote backends as "external" — correct and sufficient;
-remote start/stop over SSH is explicitly out of scope (a failure mode
-factory: half-dead remote processes the harness thinks it owns).
+Most of the old "routing log" design is now covered by things that
+exist: eval reports (per-model, per-case), corpus rows (human
+judgments on proposals), `Changes.md` (what auto-applied), and the
+worker health line. The remaining gap, worth building *with* §6.1/§7
+and not before: a per-draft outcome record — worker, model, rung,
+verifier result, escalated?, final disposition (auto/queued/approved/
+rejected/stale), latency. JSONL beside the corpus, no note text.
+That file is the §12 R4 training set, and meanwhile every
+"cheap-rung fail, top-rung pass" row is a candidate eval case.
 
-If per-token throughput or scheduling on the b70 ever becomes the
-bottleneck, vLLM/llama.cpp swap in behind the same `base_url` — rule 2
-means no harness change.
+## 12. Rollout — each step gated and reversible from today's baseline
 
-## 11. Model selection procedure (per candidate, before it earns a profile)
-
-### 11.1 Reading the BFCL board for tezcat
-
-(Column analysis from the 2026-07 board snapshot.) The columns are not
-equally relevant, and reading them wrong picks the wrong model:
-
-- **FC rows only.** The FC/Prompt split is enormous (Opus-4.5: 77.5 FC vs
-  33.5 Prompt) — models must be judged in native function-calling mode,
-  which is how the harness drives them. A family that only appears in
-  Prompt mode (gemma-3 era) carries a confounded, weak prior.
-- **Multi-Turn is the column that predicts our failures.** It maps to the
-  observed regression classes (multi-turn reference resolution, duplicate
-  writes). Single-turn AST does *not* discriminate — see §11.2.
-- **Irrelevance > Relevance.** Irrelevance detection ("correctly makes no
-  call") maps to the spurious-mutation failure class — the invisible,
-  dangerous one. Low Relevance (missed a needed call) is a *visible*
-  failure the user immediately re-prompts. Prefer irrelevance-heavy
-  models; it's the same fail-visible principle as rule 5.
-- **The Latency column is a thinking-mode detector.** Qwen3-32B posts the
-  best open sub-35B Multi-Turn (47.9) at a 170 s mean latency — thinking
-  mode, unusable interactively at any local speed. Candidates must be
-  instruct/non-thinking variants, or evaled with thinking disabled.
-- **Format-Sensitivity Max Delta is a fragility score** (gemma-3-12b:
-  67.5 — its accuracy swings wildly with prompt phrasing). High deltas in
-  a family are a warning for any small-model rung, and more reason
-  model-specific phrasing stays in profiles (rule 2).
-- **Ignore:** Cost (API pricing — meaningless locally) and the Web
-  Search/Memory agentic columns (long-horizon scaffolding the harness
-  provides deterministically; xLAM-2-32b proves the columns are
-  independent: 69.5 Multi-Turn, 25.5/20.9 agentic).
-
-### 11.2 The single-turn plateau (why the worker tier can stay tiny)
-
-The board's strongest structural finding for this design: **single-turn
-structured tool calling is near-saturated down to ~4B, while multi-turn
-collapses with size.** Qwen3-4B-Instruct scores 87.9/76.4 (non-live/live
-AST) vs Opus-4.5's 88.6/79.8 — within noise — but 22.1 Multi-Turn vs
-Opus's 68.4. Consequence: workers (single-shot JSON extraction — exactly
-single-turn-AST-shaped) lose nothing by being 2–4B, and orchestrator
-selection should be decided almost entirely on multi-turn behavior. The
-tier split in §5 is this table in architectural form.
-
-### 11.3 When the candidate isn't listed — the normal case
-
-The board lags local releases: as of 2026-07 it has no gemma4 and no
-qwen3.5. So BFCL screening is a *weak prior from the previous family
-generation*, never a gate:
-
-- Family priors can badly understate: gemma-3-12b's board row is dismal
-  (30.4 overall, Prompt-only, Max Delta 67.5), yet gemma4-12b — with
-  native FC and this harness's scaffolding — scores 22/23 on our suite.
-  Board lag + scaffolding effects are why the suite, not the board, is
-  the acceptance test.
-- When a candidate is unlisted: shortlist from its family's best FC row,
-  then go straight to step 2.
-
-### 11.4 Procedure
-
-1. **Shortlist** via §11.1–11.3. No download before this step.
-2. **Pull + profile entry + full eval run** (`uv run harness-eval -m <p>`).
-   The 23-case suite plus worker cases is the acceptance test; BFCL only
-   shortlists.
-3. **Record the report** in `evals/reports/` (the phi4-14b "fails
-   immediately, no tool support" report is the model for how cheap a fast
-   *no* should be).
-4. A model that will route *down* must additionally beat the incumbent on
-   the specific intent class it's being routed for — not just globally.
-
-### 11.5 Current 27B-class shortlist (priors only — step 2 decides)
-
-| Candidate                  | Family prior from the board                    |
-|----------------------------|------------------------------------------------|
-| qwen3.5-32B instruct-class | Best open multi-turn lineage (Qwen3-32B 47.9) — but that score was earned in thinking mode at 170 s; must eval non-thinking. Q4 ≈ 19 GB: squeezes §4 headroom. |
-| gemma4-27B-class           | Weak confounded prior (gemma-3 was Prompt-only, fragile) — but gemma4-12b's 22/23 on our suite is the stronger, direct evidence for the family. Q4 ≈ 16.5 GB: fits Plan A cleanly. |
-| xLAM-2-32b-class FC tune (wildcard) | Board-best sub-35B Multi-Turn (69.5, above Sonnet-4.5) — but near-zero agentic columns and cc-by-nc license; risk that narrow FC tuning degrades prose answers ("general tools keep capable models uncaged"). Eval before dismissing or adopting. |
-
-## 12. Rollout phases — each with a go/no-go gate and a one-line rollback
-
-**P0 — instrument + classify in shadow.**
-Build: outcome log; `classify_intent` worker; `routing.shadow: true`.
-Behavior change: none.
-Gate: over ≥50 hand-labeled real requests, classifier agreement ≥90% and
-p95 classification latency ≤1.5 s (else fix taxonomy or prompt, stay in P0).
-Rollback: `routing.enabled: false`.
-
-**P1 — route `read_query` live.**
-Build: flip `shadow: false`; routes map with the single entry.
-Gate: routed-mode eval run (`harness-eval --routed`) scores ≥ the
-orchestrator-only baseline on read cases, with lower mean latency; one week
-of routing_log shows escalation rate on down-routed messages <15%.
-Rollback: delete `routes:` block.
-
-**P2 — cascade/escalation live.**
-Build: §8 triggers wired to rebuild-and-resume; ratchet; regression eval
-cases for each trigger (scripted fake model forces the trigger, assert
-escalation happens exactly once).
-Gate: all trigger cases pass; no double-escalation observed in logs.
-Rollback: `escalate_to: []`.
-
-**P3 — b70 27B orchestrator + re-baseline.**
-Build: winning candidate from §11 as `b70-27b` profile; residency Plan A;
-throughput/latency measured on the box (replaces §4 estimates).
-Gate: 27B ≥ gemma4-12b's 22/23 on the suite; b70-offline drill passes —
-pull the network cable, next message flows through M5 default with router
-auto-disabled by the health check, zero errors surfaced beyond a rung-change
-notice.
-Decision point: Plan B mid-rung only if P1 logs show a class where 9B
-matches 27B quality and the latency delta matters in practice.
-
-**P4 — optional, each independently gated.**
-- `verify_extraction` checker + `votes: 2` promoted from extraction to
-  other workers.
-- Cloud rung: profile + explicit user opt-in per §5.
-- Learned router: only when routing_log has ≥2,000 labeled (non-`none`
-  user_signal or eval-labeled) rows *and* the heuristic router's measured
-  misroute rate is the dominant remaining cost. Neither is expected soon;
-  RouteLLM says the transfer works when we get there.
+- **R0 — the bakeoff (machinery exists; waiting on the b70).**
+  Run §9.3 across the 25–32B field; pick the top rung; flip Spec.md
+  `worker:`. Gate: ≥ incumbent on the worker suite. Rollback: edit the
+  note back.
+- **R1 — per-worker placement (§6.1).** Only if R0 reports show a
+  per-worker gap. Gate: split assignment ≥ single-model baseline on
+  every worker's cases. Rollback: delete the `workers:` map.
+- **R2 — verifier cascade (§7).** Only if R1 leaves a cheap rung in
+  place. Gate: scripted-failure tests show exactly one escalation;
+  auto-apply rate ≥ single-27B baseline; added p50 latency acceptable.
+  Rollback: one config flag.
+- **R3 — cross-family voting (§8).** Gated on corpus evidence of
+  judgment-error rejections. Rollback: `votes: 1`.
+- **R4 — learned placement.** Only when the §11 log has thousands of
+  labeled rows *and* measured misplacement is the dominant remaining
+  cost. RouteLLM says the transfer works if that day comes.
 
 ## 13. Failure modes → designed response
 
-| Failure                            | Response (all pre-wired, none manual)       |
-|------------------------------------|---------------------------------------------|
-| b70 unreachable / powered down     | Health check at message time fails ⇒ router disabled, M5 default profile, UI shows rung change. M5 mode **is** today's system. |
-| Worker down / not pulled           | Classifier ⇒ keyword heuristic ⇒ `ambiguous` ⇒ fail upward. Extraction ⇒ VaultError suggestion "unavailable", capture still saved raw (already true). |
-| Classifier misroutes a write as read| Down-routed model still runs with confirm_writes forced on; worst case is a y/N prompt from a weaker model — deniable, snapshotted, revertible. |
-| Plausible-but-wrong from down-route | v1: surface area limited to read-only queries (§8.2). P4: checker worker. |
-| Escalation ping-pong               | Ratchet + one-escalation-per-message cap.    |
-| VRAM eviction thrash on b70        | `OLLAMA_MAX_LOADED_MODELS` cap + `keep_alive=-1` + Plan A headroom; Plan B requires re-verification. |
-| Ollama silent context truncation   | Explicit `OLLAMA_CONTEXT_LENGTH` + matching `context_tokens` (existing rule, now load-bearing). |
-| Worker returns junk JSON           | jsonschema validation + 1 retry + VaultError (existing surface). |
-| Mid-conversation switch loses state| Only rebuild-and-resume is used — a path with existing tests and production use. No second mechanism. |
-| Routing log grows unbounded        | JSONL, pruned like chats (N days), stats aggregated before prune. |
-| Eval-suite overfitting             | BFCL as an external cross-check at selection time; routing_log failures feed *new* cases continuously. |
+| Failure | Response |
+|---|---|
+| b70 unreachable | Spec.md `worker:` names an unreachable profile ⇒ drafting for LLM processors skips (engine already isolates per-processor failure; commands and decisions unaffected); flip the note to a local/M5 profile. A health-check auto-fallback profile is a candidate refinement. |
+| Cheap rung emits junk | jsonschema + retry (exists) ⇒ escalate (R2) or skip; never a bad write. |
+| Verifier failure storm from a too-small model | Visible as queue growth / auto-apply rate drop in Changes.md; fix is a placement edit in Spec.md. |
+| VRAM eviction thrash | `MAX_LOADED_MODELS` cap + `keep_alive=-1` + Plan A headroom. |
+| Silent context truncation | Explicit server context length + matching `context_tokens` (existing rule). |
+| Eval-suite overfitting to one model | Paraphrase clusters (exist); judge failed cases against written policy, not against the model; BFCL as an external cross-check at shortlist time. |
 
-## 14. Open questions (tracked, not blocking P0–P2)
+## 14. Open questions
 
-1. Which 27B-class checkpoint — shortlist and priors in §11.5; eval runs
-   (§11.4 step 2) decide.
-2. Does any request class ever justify Plan B's mid rung, or does 27B @
-   ~25 tok/s make "route down for latency" moot outside `read_query`?
-3. Intent taxonomy stability — if P0 shadow labels disagree with hand
-   labels mainly at class *boundaries*, merge classes rather than tuning
-   prompts (coarser = more robust).
-4. Should `single_write` ever route down? Only revisit after P2, with
-   per-class eval evidence and confirm_writes forced on.
+1. Which 27B checkpoint (§9.4 — the bakeoff decides).
+2. Does per-worker placement (§6.1) ever beat one good 27B at ~25
+   tok/s for calls this short? (Honest possibility: no — in which case
+   this document's answer is "one model, chosen well, verifier-gated,"
+   and that is a fine answer.)
+3. Where do rejected proposals cluster — structural (verifier-visible)
+   or judgment (voting territory, §8)? Corpus data answers this.
+4. Should a future LLM-backed `//command` get a per-command model
+   knob, or always the top rung? (Commands write directly; quality is
+   the only axis.)
 
 ---
 
-*Summary of the safety story in one line: the router can be wrong, the
-workers can be down, the b70 can be off — and every one of those lands on
-today's already-tested behavior, because routing only ever chooses **which
-model speaks**, never **what is allowed to touch the vault**.*
+*The safety story in one line, stronger than the original's: placement
+only ever chooses **which model drafts** — the verifiers, the queue,
+and the two-class contracts decide **what touches the vault**, and
+they don't know or care which model was talking.*
