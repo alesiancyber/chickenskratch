@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Tezcat: model-agnostic agent harness for Obsidian — ask the black mirror"
 requires-python = ">=3.12"
 dependencies = [
+    "anyio>=4.0",       # imported directly (mcp_client timeouts), not just via mcp
     "jsonschema>=4.22",
     "mcp>=1.9",
     "openai>=1.60",
