@@ -23,6 +23,9 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <!-- Pin the pass's vault to the daemon's: exported env beats .env,
+         so a repointed .env can never make them disagree. -->
+    <key>OBSIDIAN_VAULT_PATH</key><string>__VAULT__</string>
   </dict>
 </dict>
 </plist>

@@ -106,15 +106,15 @@ class Watcher:
         capture_extractor=None,
     ):
         self.vault_path = str(vault_path)
-        self.proposals_dir = proposals_dir
-        if state_path:
-            self.state_path = Path(state_path)
-        else:
-            # Per-vault scan memo — and, via with_suffix(".lock"), a
-            # per-vault pass lock: two vaults run from one checkout must
-            # not share a fingerprint or serialize each other's passes.
-            digest = hashlib.sha1(self.vault_path.encode()).hexdigest()[:12]
-            self.state_path = STATE_PATH.with_name(f"watcher_state-{digest}.json")
+        # Per-vault state, queue, and (via with_suffix(".lock")) pass lock:
+        # two vaults run from one checkout must not share a fingerprint,
+        # serialize each other's passes, or — the 2026-07-23 deploy-script
+        # find — auto-stale each other's pending proposals.
+        digest = hashlib.sha1(self.vault_path.encode()).hexdigest()[:12]
+        self.proposals_dir = (Path(proposals_dir) if proposals_dir is not None
+                              else ROOT / "data" / f"proposals-{digest}")
+        self.state_path = (Path(state_path) if state_path
+                           else STATE_PATH.with_name(f"watcher_state-{digest}.json"))
         # Worker injection points (tests script these; prod uses the
         # bounded run_worker defaults). Processors reach them via `w.`.
         self.drafter = drafter or draft_schema_fix

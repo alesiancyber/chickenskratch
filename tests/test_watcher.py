@@ -254,3 +254,14 @@ def test_invalid_drafter_output_never_enters_queue(vault, tmp_path, monkeypatch)
 def test_proposal_save_validates():
     with pytest.raises(ValueError, match="invalid proposal"):
         proposals.save({"schema_version": 1, "id": "p-nothexdigits"})
+
+
+def test_default_state_and_queue_are_per_vault(tmp_path):
+    """Two vaults on one checkout must not share a scan memo, a pass
+    lock, or a proposal queue (a second vault's pass was auto-staling
+    the first vault's pending proposals via the shared queue)."""
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(), b.mkdir()
+    wa, wb = Watcher(str(a)), Watcher(str(b))
+    assert wa.proposals_dir != wb.proposals_dir
+    assert wa.state_path != wb.state_path

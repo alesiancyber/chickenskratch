@@ -35,16 +35,22 @@ testvault/          scratch vault the default config points at
 
 ## Setup
 
+One command (prereqs: `brew install uv`, a rust toolchain, git):
+
 ```sh
-brew install uv && uv sync
-# vault: set `vault:` in config/models.yaml (or OBSIDIAN_VAULT_PATH / --vault)
-# models: any OpenAI-compatible endpoint — profiles in config/models.yaml,
-#         cloud keys via .env (api_key_env), local servers via `backends:`
-cd daemon && cargo build --release
+./deploy.sh --vault ~/Vaults/personal --foam    # --foam: VSCode/Foam settings
 ```
 
-Run the trigger (or launchd it — plist in `config/launchd/`, logs in
-`data/logs/tezcatd.log`):
+That builds everything, scaffolds the vault, runs the first engine pass
+(seeds Spec.md, inits the vault's git repo, renders every surface), and
+installs two launch agents: the event daemon and the 6am heartbeat.
+`--remote <git-url>` wires an off-machine backup for the vault repo;
+`--no-launchd` skips the agents; `--uninstall` removes them. Idempotent
+— re-run after pulling to rebuild and reload.
+
+Models: any OpenAI-compatible endpoint — profiles in
+`config/models.yaml`, cloud keys via `.env` (`api_key_env`), local
+servers under `backends:`. Manual daemon run (what launchd manages):
 
 ```sh
 daemon/target/release/tezcatd --vault <vault> --repo <this repo> \

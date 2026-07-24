@@ -27,6 +27,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>OBSIDIAN_VAULT_PATH</key><string>__VAULT__</string>
   </dict>
 </dict>
 </plist>
