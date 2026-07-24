@@ -1,0 +1,24 @@
+[
+  {
+    "name": "schema-typo-in-task-with-metadata-variant",
+    "passed": true,
+    "clean_runs": 1,
+    "runs": 1,
+    "failures": [],
+    "seconds": 8.7,
+    "last_reply": {
+      "title": "Add missing task ID",
+      "summary": "Appended a block reference ID to the task in the Infra section.",
+      "apply": [
+        {
+          "tool": "replace_section",
+          "args": {
+            "path": "Tasks/Infra.md",
+            "heading": "Infra",
+            "content": "\n- [ ] restrat the ingest service ⏫ 📅 2026-08-02 ^t-1234567890ab"
+          }
+        }
+      ]
+    }
+  }
+]

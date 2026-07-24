@@ -293,3 +293,127 @@
       priority: high
   forbid_text: ["(?i)high priority"]
   exact: true
+
+# ---- paraphrase triangulation (2026-07-23): the same judgment through
+# different surface wording. A model that holds the rule passes the
+# cluster; a model that pattern-matched one phrasing does not. ----
+
+# cluster: negation must never invert (pairs with negated-instruction-not-inverted)
+- name: negation-hold-off-variant
+  text: |
+    Hold off on emailing the customer list until Dana signs off — she
+    said she'll have the sign-off done by {tomorrow}.
+  expect:
+    - match: "(?i)sign.?off"
+      owed_by: "Dana"
+      due: "{tomorrow}"
+  forbid_text: ["(?i)^email the customer list"]
+
+# cluster: cancelled work leaves no task (pairs with cancelled-plan-is-not-a-task)
+- name: cancellation-scrapped-variant
+  text: |
+    We scrapped the webinar idea completely, so the venue search is dead.
+    One cleanup item remains: cancel the venue deposit.
+  expect:
+    - match: "(?i)deposit"
+  forbid_text: ["(?i)search"]
+  exact: true
+
+# cluster: completed work excluded (pairs with completed-item-excluded)
+- name: already-handled-variant
+  text: |
+    The security review's already been handled by Priya as of last week.
+    What remains is publishing the findings internally.
+  expect:
+    - match: "(?i)publish"
+  exact: true
+
+# cluster: owed_by attribution (pairs with owed-commitment-followup)
+- name: promised-phrasing-variant
+  text: |
+    Alex promised the pentest report will be in my inbox by {plus3}.
+    After it lands I'll summarize it for leadership.
+  expect:
+    - match: "(?i)pentest report"
+      owed_by: "Alex"
+      due: "{plus3}"
+    - match: "(?i)summari"
+      owed_by: null
+  exact: true
+
+- name: going-to-send-variant
+  text: |
+    Camille is going to send over the corrected budget numbers. Once they
+    arrive, load them into the tracker.
+  expect:
+    - match: "(?i)budget numbers"
+      owed_by: "Camille"
+    - match: "(?i)tracker|load"
+      owed_by: null
+  exact: true
+
+# cluster: urgency wording -> priority (pairs with urgent-priority-mapping)
+- name: drop-everything-priority-variant
+  text: |
+    Drop everything: last night's customer database backup failed —
+    rerun it now.
+  expect:
+    - match: "(?i)backup"
+      priority: highest
+  exact: true
+
+# cluster: pure status yields nothing (pairs with no-tasks-pure-status)
+- name: weekly-wrap-no-tasks-variant
+  text: |
+    Weekly wrap: all detections green, on-call was quiet, and the audit
+    binder shipped on time. Great week — nothing carries over.
+  expect: []
+  exact: true
+
+# cluster: agreement is not a task (pairs with decision-is-not-a-task)
+- name: signoff-not-a-task-variant
+  text: |
+    Sign-off is complete — everyone approved the new retention policy as
+    written, and it takes effect next quarter automatically.
+  expect: []
+  exact: true
+
+# cluster: someday kept with null date (pairs with someday-item-kept)
+- name: ought-to-someday-variant
+  text: |
+    At some point we really ought to consolidate the three logging
+    pipelines into one. Zero urgency on this.
+  expect:
+    - match: "(?i)consolidate|logging pipeline"
+      due: null
+  exact: true
+
+# cluster: relative dates (pairs with relative-date-two-weeks / in-a-week)
+- name: in-five-days-variant
+  text: |
+    The draft SOW needs a review pass in five days.
+  expect:
+    - match: "(?i)sow|review"
+      due: "{plus5}"
+  exact: true
+
+# cluster: buried task (pairs with task-buried-mid-paragraph)
+- name: buried-task-variant
+  text: |
+    Toured the new colo cage today — power feeds are redundant, cooling
+    headroom is fine, badge process painless, though while checking the
+    racks I noticed the NAS has a failing disk that I need to swap
+    before {plus5}, and then the drive back took two hours in traffic.
+  expect:
+    - match: "(?i)disk|nas"
+      due: "{plus5}"
+  exact: true
+
+# cluster: duplicate mention extracted once (pairs with duplicate-mention-extracted-once)
+- name: dedupe-reworded-variant
+  text: |
+    Rotate the admin API keys before the audit. And to repeat myself:
+    those admin keys really do need rotating first.
+  expect:
+    - match: "(?i)admin.*keys|keys"
+  exact: true

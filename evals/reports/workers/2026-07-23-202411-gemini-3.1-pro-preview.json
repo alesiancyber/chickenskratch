@@ -1,0 +1,18 @@
+[
+  {
+    "name": "drop-everything-priority-variant",
+    "passed": true,
+    "clean_runs": 1,
+    "runs": 1,
+    "failures": [],
+    "seconds": 10.1,
+    "last_reply": [
+      {
+        "text": "Rerun the customer database backup",
+        "due": "2026-07-23",
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  }
+]

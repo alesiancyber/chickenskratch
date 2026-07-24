@@ -1,0 +1,18 @@
+[
+  {
+    "name": "cancellation-scrapped-variant",
+    "passed": true,
+    "clean_runs": 1,
+    "runs": 1,
+    "failures": [],
+    "seconds": 5.8,
+    "last_reply": [
+      {
+        "text": "Cancel the venue deposit",
+        "due": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  }
+]

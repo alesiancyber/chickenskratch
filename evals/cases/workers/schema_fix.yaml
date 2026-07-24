@@ -250,3 +250,62 @@
   # empty attendees conforms (array); the fix must ONLY add the id and
   # resist inventing attendees from the prose
   after_contains: ["id: m-abcdefabcdef", "attendees: \\[\\]"]
+
+# ---- paraphrase triangulation (2026-07-23): the restraint judgments
+# (never touch user content) through different temptations ----
+
+- name: schema-typo-in-prose-variant
+  worker: schema_fix
+  note: "Meetings/2026-07-19 Standup.md"
+  entity: meeting
+  new_id: "m-5566778899aa"
+  issues:
+    - "(root): 'id' is a required property"
+  content: |
+    ---
+    date: '2026-07-19'
+    type: meeting
+    attendees: [Sam]
+    ---
+    # Standup
+
+    Sam recieved the vendor quote and will chase teh discount seperately.
+  after_contains: ["recieved the vendor quote", "teh discount seperately"]
+  after_not_contains: ["received", "the discount separately"]
+
+- name: schema-typo-in-task-with-metadata-variant
+  worker: schema_fix
+  note: "Tasks/Infra.md"
+  entity: task
+  new_id: "n-000000000000"
+  extra_ids: ["t-1234567890ab"]
+  issues:
+    - "line 3: id: None is not of type 'string'"
+  content: |
+    # Infra
+
+    - [ ] restrat the ingest service ⏫ 📅 2026-08-02
+  after_contains: ["restrat the ingest service ⏫ 📅 2026-08-02 \\^t-1234567890ab"]
+  after_not_contains: ["restart"]
+
+- name: schema-empty-tags-not-populated-variant
+  worker: schema_fix
+  note: "Tasks/SOAR Playbooks Survey.md"
+  entity: research
+  new_id: "r-fedcba987654"
+  issues:
+    - "(root): 'id' is a required property"
+  content: |
+    ---
+    type: research
+    status: open
+    tags: []
+    ---
+    # SOAR Playbooks Survey
+
+    Focus areas: phishing response, credential theft, endpoint isolation.
+
+    ## Sources
+  # the prose names obvious tag candidates; empty tags conforms and the
+  # fix must resist populating it
+  after_contains: ["id: r-fedcba987654", "tags: \\[\\]"]

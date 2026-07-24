@@ -194,3 +194,46 @@
     - [t-int000000001, t-int000000002]
   must_separate:
     - [t-ven000000001, t-int000000001]
+
+# ---- paraphrase triangulation (2026-07-23): the client-boundary rule
+# through different naming conventions ----
+
+- name: grouping-client-possessive-variant
+  worker: grouping
+  tasks:
+    - {id: t-acp000000001, text: "Review Acme's parser errors in the SIEM"}
+    - {id: t-acp000000002, text: "Ship Acme's monthly detection report"}
+    - {id: t-glp000000001, text: "Review Globex's parser errors in the SIEM"}
+    - {id: t-glp000000002, text: "Ship Globex's monthly detection report"}
+  must_group:
+    - [t-acp000000001, t-acp000000002]
+    - [t-glp000000001, t-glp000000002]
+  must_separate:
+    - [t-acp000000001, t-glp000000001]
+    - [t-acp000000002, t-glp000000002]
+
+- name: grouping-client-ticket-prefix-variant
+  worker: grouping
+  tasks:
+    - {id: t-tka000000001, text: "[ACME-101] Update the log parser"}
+    - {id: t-tka000000002, text: "[ACME-114] Close out the tuning request"}
+    - {id: t-tkg000000001, text: "[GLBX-7] Update the log parser"}
+    - {id: t-tkg000000002, text: "[GLBX-9] Close out the tuning request"}
+  must_group:
+    - [t-tka000000001, t-tka000000002]
+    - [t-tkg000000001, t-tkg000000002]
+  must_separate:
+    - [t-tka000000001, t-tkg000000001]
+
+- name: grouping-misfit-different-domain-variant
+  worker: grouping
+  tasks:
+    - {id: t-ifr000000001, text: "Replace the UPS batteries in the rack"}
+    - {id: t-ifr000000002, text: "Schedule the generator load test"}
+    - {id: t-ifr000000003, text: "Label the new PDU circuits"}
+    - {id: t-rcp000000001, text: "Find a good carnitas recipe for Saturday"}
+  must_group:
+    - [t-ifr000000001, t-ifr000000002, t-ifr000000003]
+  must_separate:
+    - [t-rcp000000001, t-ifr000000001]
+    - [t-rcp000000001, t-ifr000000003]
