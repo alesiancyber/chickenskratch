@@ -112,3 +112,184 @@
       due: "{tomorrow}"
   forbid_text: ["(?i)tomorrow"]
   exact: true
+
+# ---- 2026-07-23 expansion: negation, ownership, dates, noise ----
+
+- name: cancelled-plan-is-not-a-task
+  text: |
+    Update: we cancelled the office move entirely, so no need to get
+    quotes from movers anymore. Nothing to do here.
+  expect: []
+  exact: true
+
+- name: negated-instruction-not-inverted
+  text: |
+    Do NOT deploy the new detection pack yet — legal review first. Sam
+    owns scheduling that review for {plus3}.
+  expect:
+    - match: "(?i)legal review|schedule.*review"
+      due: "{plus3}"
+      owed_by: "Sam"
+  # the regression pinned: the negation must never invert into an
+  # affirmative "deploy the pack" task. Capturing the hold itself
+  # ("do not deploy until...") is a defensible extra, so no exact count.
+  forbid_text: ["(?i)^deploy"]
+
+- name: two-people-owe-things
+  text: |
+    From the sync: Dana will send over the IR runbook draft, and Marcus
+    committed to getting us VPN access by {plus5}. I just need to review
+    both once they land.
+  expect:
+    - match: "(?i)runbook"
+      owed_by: "Dana"
+    - match: "(?i)vpn access"
+      owed_by: "Marcus"
+      due: "{plus5}"
+    - match: "(?i)review"
+      owed_by: null
+  exact: true
+
+- name: delegated-by-me-is-owed
+  text: |
+    I told Priya to update the on-call rotation doc before Friday's
+    handoff. I'll take the pager myself this weekend.
+  expect:
+    - match: "(?i)on-call rotation"
+      owed_by: "Priya"
+  exact: false
+
+- name: waiting-on-phrasing
+  text: |
+    Still waiting on Northwind to deliver the Q2 detection coverage
+    report. Meanwhile I should map our log sources against MITRE.
+  expect:
+    - match: "(?i)coverage report"
+      owed_by: "Northwind"
+    - match: "(?i)mitre|log sources"
+      owed_by: null
+  exact: true
+
+- name: critical-severity-mapping
+  text: |
+    Heads up — CVE in the edge gateway, actively exploited. Patching it
+    is critical, do it today.
+  expect:
+    - match: "(?i)patch|gateway"
+      due: "{today}"
+      priority: highest
+  exact: true
+
+- name: low-priority-phrasing
+  text: |
+    Whenever there's a spare moment, no urgency at all: tidy up the tags
+    in the research notes.
+  expect:
+    - match: "(?i)tags|tidy"
+      due: null
+      priority: lowest
+  exact: true
+
+- name: numbers-are-not-dates
+  text: |
+    Order 3 replacement YubiKeys for the new hires and put them in
+    lockbox 7.
+  expect:
+    - match: "(?i)yubikey"
+      due: null
+  exact: true
+
+- name: in-a-week-relative-date
+  text: |
+    The trial license expires in a week — decide whether we're buying
+    Obsidian Sync before then.
+  expect:
+    - match: "(?i)obsidian sync|decide|buying"
+      due: "{plus7}"
+  exact: true
+
+- name: eod-tomorrow
+  text: |
+    Finance needs the reconciled invoice list by end of day tomorrow.
+  expect:
+    - match: "(?i)invoice"
+      due: "{tomorrow}"
+  exact: true
+
+- name: duplicate-mention-extracted-once
+  text: |
+    Don't forget to renew the wildcard cert. Seriously — the wildcard
+    cert renewal is the one thing that cannot slip this week.
+  expect:
+    - match: "(?i)wildcard cert"
+  exact: true
+
+- name: reference-material-is-not-a-task
+  text: |
+    Notes from the SANS course: analysts should always pivot on the
+    process tree, and defenders should baseline PowerShell usage per
+    host. Good background reading overall.
+  expect: []
+  exact: true
+
+- name: task-buried-mid-paragraph
+  text: |
+    The audit went smoothly and the auditors were friendly, though while
+    walking them through the DMZ diagram I realized the firewall rule
+    export is stale and I have to regenerate it before {plus7}, which is
+    when they come back. Lunch afterwards was decent.
+  expect:
+    - match: "(?i)firewall rule export|regenerate"
+      due: "{plus7}"
+  exact: true
+
+- name: braindump-fragments
+  text: |
+    laptop battery swelling - replace
+    ask alex re: sso timeline
+    gym membership??
+  expect:
+    - match: "(?i)laptop|battery"
+    - match: "(?i)alex.*sso|sso.*alex"
+  exact: false
+
+- name: forwarded-email-style
+  text: |
+    FW: from IT — "All staff must re-enroll MFA devices by {plus14}.
+    Managers: confirm your team's completion." I manage nobody but I do
+    have two MFA devices.
+  expect:
+    - match: "(?i)mfa"
+      due: "{plus14}"
+  exact: false
+  forbid_text: ["(?i)confirm your team"]
+
+- name: past-recap-plus-single-action
+  text: |
+    Shipped the detection pack, closed out the phishing incident, and
+    presented the metrics deck. Last thing left from the sprint: write
+    the retro doc.
+  expect:
+    - match: "(?i)retro"
+      due: null
+  forbid_text: ["(?i)phishing incident", "(?i)metrics deck"]
+  exact: true
+
+- name: suggestion-we-should-is-a-task
+  text: |
+    Thinking about it more — we should really add canary tokens to the
+    file shares. Not urgent, just don't want to lose the idea.
+  expect:
+    - match: "(?i)canary token"
+      due: null
+  exact: true
+
+- name: date-and-priority-both-stated
+  text: |
+    High priority: submit the SOC 2 evidence bundle by {plus5}.
+  expect:
+    - match: "(?i)soc 2|evidence"
+      due: "{plus5}"
+      priority: high
+  forbid_text: ["(?i)high priority"]
+  exact: true

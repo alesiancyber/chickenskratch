@@ -1,0 +1,24 @@
+[
+  {
+    "name": "negated-instruction-not-inverted",
+    "passed": true,
+    "clean_runs": 1,
+    "runs": 1,
+    "failures": [],
+    "seconds": 10.7,
+    "last_reply": [
+      {
+        "text": "Do not deploy the new detection pack before legal review",
+        "due": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Schedule the legal review",
+        "due": "2026-07-26",
+        "priority": null,
+        "owed_by": "Sam"
+      }
+    ]
+  }
+]

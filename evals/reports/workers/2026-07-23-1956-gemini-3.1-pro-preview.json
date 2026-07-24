@@ -1,0 +1,29 @@
+[
+  {
+    "name": "negated-instruction-not-inverted",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 1,
+    "failures": [
+      "'(?i)legal review|schedule.*review': due=None, expected '2026-07-26'",
+      "'(?i)legal review|schedule.*review': owed_by=None, expected 'Sam'",
+      "expected exactly 1 task(s), got 2; extra: ['Schedule the legal review']",
+      "forbidden pattern '(?i)deploy' in task text 'Do not deploy the new detection pack until legal review is complete'"
+    ],
+    "seconds": 10.2,
+    "last_reply": [
+      {
+        "text": "Do not deploy the new detection pack until legal review is complete",
+        "due": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Schedule the legal review",
+        "due": "2026-07-26",
+        "priority": null,
+        "owed_by": "Sam"
+      }
+    ]
+  }
+]

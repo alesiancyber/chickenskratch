@@ -239,7 +239,9 @@ def load_cases(cases_dir: Path) -> list[dict]:
 
 
 def write_report(profile_name: str, results: list[dict]) -> Path:
-    stamp = dt.datetime.now().strftime("%Y-%m-%d-%H%M")
+    # seconds in the stamp: two runs in the same minute must never
+    # overwrite each other's reports
+    stamp = dt.datetime.now().strftime("%Y-%m-%d-%H%M%S")
     passed = sum(r["passed"] for r in results)
     total_time = sum(r["seconds"] for r in results)
     lines = [

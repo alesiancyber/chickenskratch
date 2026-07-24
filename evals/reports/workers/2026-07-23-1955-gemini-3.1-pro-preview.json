@@ -1,0 +1,40 @@
+[
+  {
+    "name": "grouping-misfit-stays-out",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 1,
+    "failures": [
+      "run error: VaultError: grouping worker (gemini-3.1-pro-preview) returned non-JSON output: '{\\n  \"groups\": [\\n    {\\n      \"name\": \"Website Maintenance\",\\n      \"member_ids\": [\\n        \"t-web000000001\",\\n        \"t-web000000002\",\\n        \"t-web000000003\",\\n        \"t-web000000004\"\\n      ]\\n    },\\n '"
+    ],
+    "seconds": 15.0,
+    "last_reply": null
+  },
+  {
+    "name": "grouping-two-misfits-dont-force-merge",
+    "passed": true,
+    "clean_runs": 1,
+    "runs": 1,
+    "failures": [],
+    "seconds": 8.7,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Security",
+          "member_ids": [
+            "t-sec000000001",
+            "t-sec000000002",
+            "t-sec000000003"
+          ]
+        },
+        {
+          "name": "Ungrouped",
+          "member_ids": [
+            "t-tax000000001",
+            "t-dog000000001"
+          ]
+        }
+      ]
+    }
+  }
+]

@@ -48,17 +48,27 @@ def score(case: dict, tasks: list[dict], subs: dict[str, str]) -> list[str]:
     remaining = list(tasks)
     for want in expected:
         pattern = fill(want["match"], subs)
-        hit = next((t for t in remaining if re.search(pattern, t["text"])), None)
-        if hit is None:
+
+        def mismatches(t: dict, want: dict = want, pattern: str = pattern) -> list[str]:
+            out = []
+            for field in ("due", "priority", "owed_by"):
+                if field not in want:
+                    continue  # absent key = unchecked; explicit null = must be null
+                want_val = fill(want[field], subs) if isinstance(want[field], str) else want[field]
+                if t.get(field) != want_val:
+                    out.append(f"{pattern!r}: {field}={t.get(field)!r}, expected {want_val!r}")
+            return out
+
+        candidates = [t for t in remaining if re.search(pattern, t["text"])]
+        if not candidates:
             failures.append(f"no returned task matches {pattern!r}")
             continue
-        remaining.remove(hit)
-        for field in ("due", "priority", "owed_by"):
-            if field not in want:
-                continue  # absent key = unchecked; explicit null = must be null
-            want_val = fill(want[field], subs) if isinstance(want[field], str) else want[field]
-            if hit.get(field) != want_val:
-                failures.append(f"{pattern!r}: {field}={hit.get(field)!r}, expected {want_val!r}")
+        # Several returned tasks can match one pattern (a defensible extra
+        # sharing words with the expected task): credit the candidate whose
+        # fields check out, not blindly the first regex hit.
+        best = min(candidates, key=lambda t: len(mismatches(t)))
+        remaining.remove(best)
+        failures += mismatches(best)
     if case.get("exact") and len(tasks) != len(expected):
         extras = [t["text"] for t in remaining]
         failures.append(f"expected exactly {len(expected)} task(s), got {len(tasks)}; extra: {extras!r}")
@@ -67,6 +77,31 @@ def score(case: dict, tasks: list[dict], subs: dict[str, str]) -> list[str]:
         for t in tasks:
             if re.search(pattern, t["text"]):
                 failures.append(f"forbidden pattern {pattern!r} in task text {t['text']!r}")
+    return failures
+
+
+def score_schema_fix(case: dict, reply: dict) -> list[str]:
+    """Structural check of one schema_fix reply, scored by the SAME
+    deterministic verifier that gates production auto-apply — so the eval
+    answers exactly "would this model's fix have applied without a
+    checkbox": only additive structure, every user line byte-identical,
+    result fully conformant. Cases may pin specifics with
+    after_contains / after_not_contains regexes evaluated against the
+    simulated post-fix note."""
+    from . import applier
+    from .processors import verify_schema_fix
+
+    item = {"note": case["note"], "content": case["content"]}
+    proposal = {"apply": reply.get("apply", [])}
+    failures = list(verify_schema_fix(None, item, proposal))
+    after = applier.simulate(case["content"], proposal)
+    if after is not None:
+        for pat in case.get("after_contains", []):
+            if not re.search(pat, after):
+                failures.append(f"simulated note lacks required pattern {pat!r}")
+        for pat in case.get("after_not_contains", []):
+            if re.search(pat, after):
+                failures.append(f"simulated note matches forbidden pattern {pat!r}")
     return failures
 
 
@@ -98,6 +133,17 @@ async def _run_worker_once(case: dict, subs: dict[str, str]) -> tuple[object, li
             tasks="\n".join(f"{t['id']}: {t['text']}" for t in case["tasks"]),
         )
         return reply, score_grouping(case, reply)
+    if case.get("worker") == "schema_fix":
+        reply = await workers.run_worker(
+            workers.WORKERS["schema_fix"],
+            note=case["note"],
+            entity=case["entity"],
+            issues="\n".join(f"- {i}" for i in case["issues"]),
+            content=case["content"],
+            new_id=case.get("new_id", "n-0123456789ab"),
+            extra_ids=", ".join(case.get("extra_ids", [])),
+        )
+        return reply, score_schema_fix(case, reply)
     tasks = await workers.extract_tasks(fill(case["text"], subs), subs["{today}"])
     return tasks, score(case, tasks, subs)
 
@@ -138,7 +184,9 @@ async def run_all(cases: list[dict], repeat: int) -> list[dict]:
 
 def write_report(model: str, results: list[dict], repeat: int):
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = dt.datetime.now().strftime("%Y-%m-%d-%H%M")
+    # seconds in the stamp: two runs in the same minute (quick -k spot
+    # checks) must never overwrite each other's reports
+    stamp = dt.datetime.now().strftime("%Y-%m-%d-%H%M%S")
     safe = re.sub(r"[^A-Za-z0-9._-]+", "-", model)
     strict = sum(r["passed"] for r in results)
     clean = sum(r["clean_runs"] for r in results)

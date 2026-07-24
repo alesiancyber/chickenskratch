@@ -1,0 +1,252 @@
+# Judgment cases for the schema_fix worker — the gap flagged in the
+# 2026-07-23 review: this worker ran in production with zero eval
+# coverage. Run live:  uv run harness-worker-eval -k schema
+#
+# Case schema (worker: schema_fix):
+#   note, entity, issues, content:  what scan_schema hands the drafter
+#   new_id, extra_ids:              the pre-allocated ids (fixed, so
+#                                   expectations are deterministic)
+#   after_contains / after_not_contains: regexes checked against the
+#                                   SIMULATED post-fix note
+#
+# Every case is additionally scored by the PRODUCTION verifier
+# (verify_schema_fix): only additive structure, every user line
+# byte-identical modulo appended block refs, and the result must fully
+# conform — i.e. a case passes only if the fix would have auto-applied.
+
+- name: schema-meeting-missing-id
+  worker: schema_fix
+  note: "Meetings/2026-07-15 Sprint Sync.md"
+  entity: meeting
+  new_id: "m-0123456789ab"
+  issues:
+    - "(root): 'id' is a required property"
+  content: |
+    ---
+    date: '2026-07-15'
+    type: meeting
+    attendees: [Sam, Rio]
+    ---
+    # Sprint Sync
+
+    ## Notes
+
+    Velocity is fine. Rio demoed the new dashboard.
+  after_contains: ["id: m-0123456789ab"]
+  after_not_contains: ["id: m-0123456789ab[\\s\\S]*id: m-0123456789ab"]  # exactly once
+
+- name: schema-meeting-date-from-filename
+  worker: schema_fix
+  note: "Meetings/2026-07-15 Incident Retro.md"
+  entity: meeting
+  new_id: "m-00aa11bb22cc"
+  issues:
+    - "(root): 'id' is a required property"
+    - "(root): 'date' is a required property"
+  content: |
+    ---
+    type: meeting
+    attendees: [Dana]
+    ---
+    # Incident Retro
+
+    Root cause was the expired cert. Dana will write the timeline.
+  # the date is knowable — it is in the note's own path
+  after_contains: ["id: m-00aa11bb22cc", "date: '?2026-07-15"]
+
+- name: schema-meeting-prose-untouched
+  worker: schema_fix
+  note: "Meetings/2026-07-10 Vendor Call.md"
+  entity: meeting
+  new_id: "m-feedbeefcafe"
+  issues:
+    - "(root): 'id' is a required property"
+  content: |
+    ---
+    date: '2026-07-10'
+    type: meeting
+    attendees: [Marcus]
+    ---
+    # Vendor Call
+
+    They was very insistent about the renewal pricing. Their are two
+    tiers we could pick.
+  # grammar errors in the user's prose are the user's business: the fix
+  # must not "helpfully" reword anything (the verifier enforces this;
+  # the pins make the temptation explicit)
+  after_contains: ["They was very insistent", "Their are two"]
+
+- name: schema-research-missing-sources
+  worker: schema_fix
+  note: "Tasks/EDR Vendor Comparison.md"
+  entity: research
+  new_id: "r-0a0b0c0d0e0f"
+  issues:
+    - "body: missing required '## Sources' section (ranked source links)"
+  content: |
+    ---
+    id: r-9f8e7d6c5b4a
+    type: research
+    status: active
+    ---
+    # EDR Vendor Comparison
+
+    ## Notes
+
+    Crowdstrike vs Defender vs SentinelOne, focus on macOS coverage.
+  after_contains: ["## Sources"]
+  after_not_contains: ["(?i)example.com", "http"]   # an empty skeleton, never invented links
+
+- name: schema-research-id-and-sources
+  worker: schema_fix
+  note: "Tasks/Sigma Rule Packs.md"
+  entity: research
+  new_id: "r-123abc456def"
+  issues:
+    - "(root): 'id' is a required property"
+    - "body: missing required '## Sources' section (ranked source links)"
+  content: |
+    ---
+    type: research
+    status: open
+    ---
+    # Sigma Rule Packs
+
+    Which community packs are worth importing wholesale?
+  after_contains: ["id: r-123abc456def", "## Sources"]
+
+- name: schema-research-missing-status
+  worker: schema_fix
+  note: "Tasks/Vault Encryption Options.md"
+  entity: research
+  new_id: "r-aaaabbbbcccc"
+  issues:
+    - "(root): 'status' is a required property"
+  content: |
+    ---
+    id: r-111122223333
+    type: research
+    ---
+    # Vault Encryption Options
+
+    Notes live elsewhere; this is the tracking stub.
+  # any enum value conforms — the judgment is adding the key without
+  # touching the existing id
+  after_contains: ["status: ", "id: r-111122223333"]
+
+- name: schema-tasks-stamp-two-in-order
+  worker: schema_fix
+  note: "Tasks/Backlog.md"
+  entity: task
+  new_id: "n-000000000000"
+  extra_ids: ["t-aaaaaaaaaaa1", "t-aaaaaaaaaaa2"]
+  issues:
+    - "line 3: id: None is not of type 'string'"
+    - "line 4: id: None is not of type 'string'"
+  content: |
+    # Backlog
+
+    - [ ] buy replacement UPS batteries
+    - [ ] call the vendor about renewal
+  # ids must land in file order, appended as trailing block refs
+  after_contains:
+    - "buy replacement UPS batteries \\^t-aaaaaaaaaaa1"
+    - "call the vendor about renewal \\^t-aaaaaaaaaaa2"
+
+- name: schema-tasks-stamp-preserves-metadata
+  worker: schema_fix
+  note: "Tasks/Ops.md"
+  entity: task
+  new_id: "n-000000000000"
+  extra_ids: ["t-bbbbbbbbbbb1"]
+  issues:
+    - "line 3: id: None is not of type 'string'"
+  content: |
+    # Ops
+
+    - [ ] rotate the DKIM keys ⏫ 📅 2026-08-01
+    - [ ] archive old logs ^t-ccccccccccc9
+  # emoji metadata stays byte-identical, the ref lands LAST on the line,
+  # and the already-stamped neighbor is untouched
+  after_contains:
+    - "rotate the DKIM keys ⏫ 📅 2026-08-01 \\^t-bbbbbbbbbbb1"
+    - "archive old logs \\^t-ccccccccccc9"
+
+- name: schema-typo-is-not-ours-to-fix
+  worker: schema_fix
+  note: "Tasks/Chores.md"
+  entity: task
+  new_id: "n-000000000000"
+  extra_ids: ["t-ddddddddddd1"]
+  issues:
+    - "line 3: id: None is not of type 'string'"
+  content: |
+    # Chores
+
+    - [ ] verfy teh backup restore path
+  # the misspelling is the user's text: stamp it, never correct it
+  after_contains: ["verfy teh backup restore path \\^t-ddddddddddd1"]
+  after_not_contains: ["verify the backup"]
+
+- name: schema-done-task-stamped-without-reopening
+  worker: schema_fix
+  note: "Tasks/Done.md"
+  entity: task
+  new_id: "n-000000000000"
+  extra_ids: ["t-eeeeeeeeeee1"]
+  issues:
+    - "line 3: id: None is not of type 'string'"
+  content: |
+    # Done
+
+    - [x] migrate DNS records ✅ 2026-07-20
+  after_contains: ["- \\[x\\] migrate DNS records ✅ 2026-07-20 \\^t-eeeeeeeeeee1"]
+
+- name: schema-meeting-with-action-items
+  worker: schema_fix
+  note: "Meetings/2026-07-17 Team Weekly.md"
+  entity: meeting
+  new_id: "m-4455667788aa"
+  extra_ids: ["t-ffffffffff01", "t-ffffffffff02"]
+  issues:
+    - "(root): 'id' is a required property"
+    - "line 9: id: None is not of type 'string'"
+    - "line 10: id: None is not of type 'string'"
+  content: |
+    ---
+    date: '2026-07-17'
+    type: meeting
+    attendees: [Alex, Priya]
+    ---
+    # Team Weekly
+
+    ## Action items
+
+    - [ ] send the onboarding checklist to Priya
+    - [ ] book the Q3 planning room 📅 2026-07-25
+  after_contains:
+    - "id: m-4455667788aa"
+    - "send the onboarding checklist to Priya \\^t-ffffffffff01"
+    - "book the Q3 planning room 📅 2026-07-25 \\^t-ffffffffff02"
+
+- name: schema-unlisted-issues-left-alone
+  worker: schema_fix
+  note: "Meetings/2026-07-18 One on One.md"
+  entity: meeting
+  new_id: "m-abcdefabcdef"
+  issues:
+    - "(root): 'id' is a required property"
+  content: |
+    ---
+    date: '2026-07-18'
+    type: meeting
+    attendees: []
+    ---
+    # One on One
+
+    ## Notes
+
+    attendees intentionally empty — do not populate it.
+  # empty attendees conforms (array); the fix must ONLY add the id and
+  # resist inventing attendees from the prose
+  after_contains: ["id: m-abcdefabcdef", "attendees: \\[\\]"]

@@ -93,3 +93,76 @@ def test_grouping_names_are_never_scored():
     reply = {"groups": [{"name": "anything at all", "member_ids": ["t-1", "t-2"]},
                         {"name": "whatever", "member_ids": ["t-3", "t-4"]}]}
     assert score_grouping(GCASE, reply) == []
+
+
+# ---- schema_fix scoring: the production verifier is the judge ----
+
+SCHEMA_CASE = {
+    "worker": "schema_fix",
+    "note": "Meetings/2026-07-15 Sync.md",
+    "entity": "meeting",
+    "new_id": "m-0123456789ab",
+    "issues": ["(root): 'id' is a required property"],
+    "content": (
+        "---\ndate: '2026-07-15'\ntype: meeting\nattendees: [Sam]\n---\n"
+        "# Sync\n\nRio demoed the dashboard.\n"
+    ),
+    "after_contains": ["id: m-0123456789ab"],
+}
+
+
+def _fix(*steps):
+    return {"apply": list(steps)}
+
+
+def test_schema_fix_pass():
+    from harness.worker_evals import score_schema_fix
+
+    reply = _fix({"tool": "update_frontmatter",
+                  "args": {"path": SCHEMA_CASE["note"], "key": "id", "value": "m-0123456789ab"}})
+    assert score_schema_fix(SCHEMA_CASE, reply) == []
+
+
+def test_schema_fix_reworded_prose_fails():
+    from harness.worker_evals import score_schema_fix
+
+    reply = _fix(
+        {"tool": "update_frontmatter",
+         "args": {"path": SCHEMA_CASE["note"], "key": "id", "value": "m-0123456789ab"}},
+        {"tool": "replace_section",
+         "args": {"path": SCHEMA_CASE["note"], "heading": "Sync",
+                  "content": "Rio demonstrated the dashboard."}},  # reword = never ours
+    )
+    failures = score_schema_fix(SCHEMA_CASE, reply)
+    assert any("altered" in f or "reworded" in f for f in failures)
+
+
+def test_schema_fix_wrong_id_fails_after_contains():
+    from harness.worker_evals import score_schema_fix
+
+    reply = _fix({"tool": "update_frontmatter",
+                  "args": {"path": SCHEMA_CASE["note"], "key": "id", "value": "m-999999999999"}})
+    failures = score_schema_fix(SCHEMA_CASE, reply)
+    assert any("lacks required pattern" in f for f in failures)
+
+
+def test_schema_fix_incomplete_fix_fails_conformance():
+    from harness.worker_evals import score_schema_fix
+
+    # touches nothing the schema needs: result still nonconforming
+    reply = _fix({"tool": "update_frontmatter",
+                  "args": {"path": SCHEMA_CASE["note"], "key": "tags", "value": "[x]"}})
+    failures = score_schema_fix(SCHEMA_CASE, reply)
+    assert any("nonconforming" in f for f in failures)
+
+
+def test_expected_task_binds_to_best_matching_candidate():
+    """Two returned tasks can match one pattern (a defensible extra that
+    shares words); the expectation must bind to the one whose fields
+    check out, not blindly the first regex hit."""
+    case = {"expect": [{"match": "(?i)review", "due": "{today}", "owed_by": "Sam"}]}
+    tasks = [
+        {"text": "Do not deploy until review is complete", "due": None, "owed_by": None},
+        {"text": "Schedule the review", "due": "2026-07-20", "owed_by": "Sam"},
+    ]
+    assert score(case, tasks, SUBS) == []

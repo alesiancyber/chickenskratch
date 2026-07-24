@@ -40,3 +40,157 @@
   must_separate:
     - [t-acme00000001, t-glbx00000001]
     - [t-acme00000002, t-glbx00000002]
+
+# ---- 2026-07-23 expansion: boundaries, misfits, scale ----
+
+- name: grouping-three-way-split
+  worker: grouping
+  tasks:
+    - {id: t-det000000001, text: "Write Sigma rule for suspicious LSASS access"}
+    - {id: t-det000000002, text: "Tune the impossible-travel alert thresholds"}
+    - {id: t-inf000000001, text: "Patch the edge gateway CVE"}
+    - {id: t-inf000000002, text: "Rotate the wildcard TLS certificate"}
+    - {id: t-adm000000001, text: "Submit Q3 training budget"}
+    - {id: t-adm000000002, text: "Book hotel for the SANS conference"}
+  must_group:
+    - [t-det000000001, t-det000000002]
+    - [t-inf000000001, t-inf000000002]
+    - [t-adm000000001, t-adm000000002]
+  must_separate:
+    - [t-det000000001, t-inf000000001]
+    - [t-inf000000001, t-adm000000001]
+    - [t-det000000002, t-adm000000002]
+
+- name: grouping-misfit-stays-out
+  worker: grouping
+  tasks:
+    - {id: t-web000000001, text: "Fix the pricing page typo"}
+    - {id: t-web000000002, text: "Compress the hero images"}
+    - {id: t-web000000003, text: "Add alt text to the docs screenshots"}
+    - {id: t-mis000000001, text: "Renew passport"}
+    - {id: t-web000000004, text: "Audit dead links across the site"}
+  must_group:
+    - [t-web000000001, t-web000000002, t-web000000003, t-web000000004]
+  must_separate:
+    - [t-mis000000001, t-web000000001]
+    - [t-mis000000001, t-web000000004]
+
+- name: grouping-same-verb-different-systems
+  worker: grouping
+  tasks:
+    - {id: t-doc000000001, text: "Update the onboarding docs"}
+    - {id: t-doc000000002, text: "Update the API changelog"}
+    - {id: t-fwl000000001, text: "Update the firewall egress rules"}
+    - {id: t-fwl000000002, text: "Update the IDS signature feed"}
+  must_group:
+    - [t-doc000000001, t-doc000000002]
+    - [t-fwl000000001, t-fwl000000002]
+  must_separate:
+    - [t-doc000000001, t-fwl000000001]
+
+- name: grouping-three-client-boundary
+  worker: grouping
+  tasks:
+    - {id: t-acm000000001, text: "Acme: review SIEM parser errors"}
+    - {id: t-acm000000002, text: "Acme: monthly detection report"}
+    - {id: t-glx000000001, text: "Globex: review SIEM parser errors"}
+    - {id: t-glx000000002, text: "Globex: monthly detection report"}
+    - {id: t-ini000000001, text: "Initech: review SIEM parser errors"}
+    - {id: t-ini000000002, text: "Initech: monthly detection report"}
+  must_group:
+    - [t-acm000000001, t-acm000000002]
+    - [t-glx000000001, t-glx000000002]
+    - [t-ini000000001, t-ini000000002]
+  must_separate:
+    - [t-acm000000001, t-glx000000001]
+    - [t-glx000000001, t-ini000000001]
+    - [t-acm000000002, t-ini000000002]
+
+- name: grouping-personal-vs-work
+  worker: grouping
+  tasks:
+    - {id: t-per000000001, text: "Schedule dentist appointment"}
+    - {id: t-per000000002, text: "Renew car registration"}
+    - {id: t-wrk000000001, text: "Prepare the incident review slides"}
+    - {id: t-wrk000000002, text: "File the on-call expense report"}
+  must_group:
+    - [t-per000000001, t-per000000002]
+    - [t-wrk000000001, t-wrk000000002]
+  must_separate:
+    - [t-per000000001, t-wrk000000001]
+
+- name: grouping-research-and-build-same-topic
+  worker: grouping
+  tasks:
+    - {id: t-llm000000001, text: "Benchmark 27B models for the worker role"}
+    - {id: t-llm000000002, text: "Read up on GPU quantization tradeoffs"}
+    - {id: t-llm000000003, text: "Wire the eval report into the dashboard"}
+    - {id: t-hme000000001, text: "Fix the garage door sensor"}
+    - {id: t-hme000000002, text: "Order replacement air filters"}
+  must_group:
+    - [t-llm000000001, t-llm000000002, t-llm000000003]
+    - [t-hme000000001, t-hme000000002]
+  must_separate:
+    - [t-llm000000001, t-hme000000001]
+
+- name: grouping-prod-incident-vs-feature-work
+  worker: grouping
+  tasks:
+    - {id: t-inc000000001, text: "Write the outage postmortem"}
+    - {id: t-inc000000002, text: "Add the missing alert for queue depth"}
+    - {id: t-fea000000001, text: "Design the export-to-CSV feature"}
+    - {id: t-fea000000002, text: "Spec the API pagination change"}
+  must_group:
+    - [t-inc000000001, t-inc000000002]
+    - [t-fea000000001, t-fea000000002]
+  must_separate:
+    - [t-inc000000001, t-fea000000001]
+
+- name: grouping-two-misfits-dont-force-merge
+  worker: grouping
+  tasks:
+    - {id: t-tax000000001, text: "File the annual tax extension"}
+    - {id: t-dog000000001, text: "Book the dog's vaccination"}
+    - {id: t-sec000000001, text: "Rotate the AWS access keys"}
+    - {id: t-sec000000002, text: "Enable MFA on the registrar account"}
+    - {id: t-sec000000003, text: "Audit IAM roles for stale users"}
+  must_group:
+    - [t-sec000000001, t-sec000000002, t-sec000000003]
+  must_separate:
+    - [t-tax000000001, t-sec000000001]
+    - [t-dog000000001, t-sec000000001]
+
+- name: grouping-ten-tasks-three-themes
+  worker: grouping
+  tasks:
+    - {id: t-kql000000001, text: "Port the failed-login KQL query to Sentinel"}
+    - {id: t-kql000000002, text: "Add unit fixtures for the KQL parser"}
+    - {id: t-kql000000003, text: "Document the KQL query pack"}
+    - {id: t-net000000001, text: "Replace the aging core switch"}
+    - {id: t-net000000002, text: "Label the patch panel"}
+    - {id: t-net000000003, text: "Map VLANs to the new segmentation plan"}
+    - {id: t-hir000000001, text: "Write the analyst job description"}
+    - {id: t-hir000000002, text: "Screen the first round of resumes"}
+    - {id: t-hir000000003, text: "Book the panel interview slots"}
+    - {id: t-hir000000004, text: "Draft onboarding week one plan"}
+  must_group:
+    - [t-kql000000001, t-kql000000002, t-kql000000003]
+    - [t-net000000001, t-net000000002, t-net000000003]
+    - [t-hir000000001, t-hir000000002, t-hir000000003, t-hir000000004]
+  must_separate:
+    - [t-kql000000001, t-net000000001]
+    - [t-net000000001, t-hir000000001]
+    - [t-kql000000003, t-hir000000004]
+
+- name: grouping-vendor-vs-internal-same-product
+  worker: grouping
+  tasks:
+    - {id: t-ven000000001, text: "Chase the Sentinel support ticket with Microsoft"}
+    - {id: t-ven000000002, text: "Review the Microsoft renewal quote"}
+    - {id: t-int000000001, text: "Refactor our Sentinel automation rules"}
+    - {id: t-int000000002, text: "Migrate our Sentinel workbooks to the new workspace"}
+  must_group:
+    - [t-ven000000001, t-ven000000002]
+    - [t-int000000001, t-int000000002]
+  must_separate:
+    - [t-ven000000001, t-int000000001]

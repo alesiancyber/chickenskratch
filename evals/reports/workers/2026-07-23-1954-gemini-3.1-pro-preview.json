@@ -1,0 +1,106 @@
+[
+  {
+    "name": "schema-meeting-missing-id",
+    "passed": true,
+    "clean_runs": 1,
+    "runs": 1,
+    "failures": [],
+    "seconds": 9.6,
+    "last_reply": {
+      "title": "Add missing ID to meeting note",
+      "summary": "Adds the required 'id' property to the frontmatter of the meeting note.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-15 Sprint Sync.md",
+            "key": "id",
+            "value": "m-0123456789ab"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-meeting-date-from-filename",
+    "passed": true,
+    "clean_runs": 1,
+    "runs": 1,
+    "failures": [],
+    "seconds": 6.7,
+    "last_reply": {
+      "title": "Fix missing id and date in meeting note",
+      "summary": "Add the required 'id' and 'date' properties to the frontmatter.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-15 Incident Retro.md",
+            "key": "id",
+            "value": "m-00aa11bb22cc"
+          }
+        },
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-15 Incident Retro.md",
+            "key": "date",
+            "value": "2026-07-15"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-meeting-prose-untouched",
+    "passed": true,
+    "clean_runs": 1,
+    "runs": 1,
+    "failures": [],
+    "seconds": 4.7,
+    "last_reply": {
+      "title": "Add missing id to meeting frontmatter",
+      "summary": "Added the required 'id' property to the frontmatter of the meeting note.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-10 Vendor Call.md",
+            "key": "id",
+            "value": "m-feedbeefcafe"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-meeting-with-action-items",
+    "passed": true,
+    "clean_runs": 1,
+    "runs": 1,
+    "failures": [],
+    "seconds": 8.9,
+    "last_reply": {
+      "title": "Fix meeting schema issues",
+      "summary": "Add missing id to frontmatter and block references to tasks.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-17 Team Weekly.md",
+            "key": "id",
+            "value": "m-4455667788aa"
+          }
+        },
+        {
+          "tool": "replace_section",
+          "args": {
+            "path": "Meetings/2026-07-17 Team Weekly.md",
+            "heading": "Action items",
+            "content": "- [ ] send the onboarding checklist to Priya ^t-ffffffffff01\n- [ ] book the Q3 planning room 📅 2026-07-25 ^t-ffffffffff02"
+          }
+        }
+      ]
+    }
+  }
+]
