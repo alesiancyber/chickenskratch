@@ -9,6 +9,7 @@ description = "Headless trigger for the tezcat engine: watch the vault, wait for
 # until the poll measurably costs something"), and std has everything a
 # watch-debounce-spawn loop needs.
 [dependencies]
+notify = "8.2.0"
 
 [profile.release]
 strip = true
