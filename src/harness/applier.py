@@ -1,4 +1,4 @@
-"""In-process proposal applier (DEVPLAN B8).
+"""In-process proposal applier.
 
 Approving a proposal executes its apply plan through the same vault
 operations a chat turn uses — obsidian_mcp.server's tool functions are

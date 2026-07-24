@@ -1,4 +1,4 @@
-//! tezcatd — the headless trigger (DEVPLAN Phase 8, DESIGN-processors.md §2).
+//! tezcatd — the headless trigger.
 //!
 //! Deliberately dumb: watch one directory tree, wait for it to go quiet,
 //! run one command (`uv run harness-watch`). Every ounce of engine

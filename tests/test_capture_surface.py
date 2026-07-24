@@ -1,4 +1,4 @@
-"""The vault-side capture surface (DESIGN-vault.md §5, DEVPLAN 5.1):
+"""The vault-side capture surface:
 Harness/Capture.md → extraction worker → capture proposal in Review.md →
 approve adds tasks to the inbox and clears the surface. A scripted fake
 extractor stands in for the worker LLM."""

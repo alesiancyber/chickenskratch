@@ -1,5 +1,4 @@
-"""The processor engine: a pipeline, not a process (DESIGN-processors.md,
-DESIGN-review-dashboard.md §1).
+"""The processor engine: a pipeline, not a process.
 
 One pass = act on Review.md checkboxes → (if the vault moved) run every
 registered processor's deterministic `scan`, draft up to N proposals via

@@ -1,4 +1,4 @@
-"""Permanent labeled training corpus (DESIGN-training-corpus.md).
+"""Permanent labeled training corpus.
 
 Every human judgment that flows through the harness — approve/deny on a
 gated write, a bug report, a git revert, a dashboard proposal decision —
@@ -115,7 +115,7 @@ def record_dashboard(
     decision: str,
     corpus_dir: Path | None = None,
 ) -> Path | None:
-    """A review-dashboard decision (DESIGN-review-dashboard.md §5). Cleaner
+    """A review-dashboard decision. Cleaner
     than chat labels: the row endorses one self-contained proposal, not a
     whole trajectory, so the proposal itself is the payload."""
     label = {

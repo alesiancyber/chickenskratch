@@ -1,4 +1,4 @@
-"""Harness/Changes.md — the audit surface (DEVPLAN B13, Phase 10).
+"""Harness/Changes.md — the audit surface.
 
 Verified auto-apply means the harness edits the vault without a
 checkbox; this surface answers "what changed while I wasn't looking"

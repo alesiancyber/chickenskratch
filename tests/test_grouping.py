@@ -1,4 +1,4 @@
-"""Grouping G1 (DESIGN-review-dashboard.md §3): structural candidate
+"""Grouping G1: structural candidate
 building, partition integrity, byte-identical section rewrites, and the
 watcher pipeline end to end with a scripted grouping drafter."""
 

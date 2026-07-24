@@ -1,4 +1,4 @@
-"""Phase 7 (DESIGN-processors.md §1): the engine is generic. Processors
+"""Phase 7: the engine is generic. Processors
 are registry entries, priority is registry order, rollback is a name in
 `disabled`, and concurrent passes are serialized by the pass lock."""
 

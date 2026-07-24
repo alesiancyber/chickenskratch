@@ -1,5 +1,5 @@
 """Corpus capture: every human judgment lands as a self-contained JSONL
-row (DESIGN-training-corpus.md), and empty trajectories never do."""
+row, and empty trajectories never do."""
 
 import json
 

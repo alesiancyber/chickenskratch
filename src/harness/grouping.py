@@ -1,4 +1,4 @@
-"""Grouping G1: organize one flat task list (DESIGN-review-dashboard.md §3).
+"""Grouping G1: organize one flat task list.
 
 Candidate sets are built in code, from entity boundaries, before any
 model runs — semantic similarity alone can't know two clients' tasks

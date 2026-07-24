@@ -1,4 +1,4 @@
-"""Vault spec loader (DEVPLAN B2): folder→entity-type map, exclusions,
+"""Vault spec loader: folder→entity-type map, exclusions,
 harness surfaces.
 
 The vault describes itself: the user-facing keys (folders, inboxes,

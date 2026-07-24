@@ -1,4 +1,4 @@
-"""Small dedicated LLM workers (DEVPLAN B6) — the one bounded-LLM-call
+"""Small dedicated LLM workers — the one bounded-LLM-call
 mechanism in this package.
 
 A worker is a WorkerSpec: prompt template, jsonschema for the reply,

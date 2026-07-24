@@ -1,4 +1,4 @@
-"""Entity schema validation (DESIGN-vault-schema.md): note frontmatter,
+"""Entity schema validation: note frontmatter,
 task/card/deliverable lines, and the research Sources requirement."""
 
 import datetime as dt

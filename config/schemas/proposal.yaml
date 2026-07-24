@@ -1,5 +1,5 @@
 # Not a vault entity: the shape of a review-dashboard proposal file
-# (data/proposals/*.json, DESIGN-review-dashboard.md §2) — validated by
+# (data/proposals/*.json) — validated by
 # the same jsonschema machinery as everything else. A proposal is data
 # describing gated tool calls; approving it executes them through the
 # normal snapshot-guaranteed vault operations.

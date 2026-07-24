@@ -1,4 +1,4 @@
-"""Proposal queue for the review dashboard (DESIGN-review-dashboard.md §2).
+"""Proposal queue for the review dashboard.
 
 One JSON file per proposal under data/proposals/ — human-skimmable
 singles, like bug reports (high-volume append logs stay JSONL). Every

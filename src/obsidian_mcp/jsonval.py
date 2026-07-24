@@ -1,4 +1,4 @@
-"""The one validation idiom for everything structured (DEVPLAN B1).
+"""The one validation idiom for everything structured.
 
 Entity frontmatter, worker replies, and proposal files all validate
 through this helper — no ad-hoc json.loads-plus-manual-checks anywhere

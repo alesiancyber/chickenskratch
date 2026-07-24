@@ -1,4 +1,4 @@
-"""Processor registry (DESIGN-processors.md §1, DEVPLAN B9).
+"""Processor registry.
 
 A processor is one transformation in two stages: `scan` is deterministic
 code that turns vault state into work items, `draft` is at most one

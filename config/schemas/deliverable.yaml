@@ -1,4 +1,4 @@
-# Line entity: a task owed to a person (DESIGN-vault.md §3) — same line
+# Line entity: a task owed to a person — same line
 # format as task, but accountability is mechanical: `for` (a [for:: Name]
 # inline field) and `due` are REQUIRED. A deliverable missing either is
 # nonconforming; an identical plain task is fine. If this enforcement

@@ -1,4 +1,4 @@
-"""Phase-0 foundations (DEVPLAN): jsonval, the vault spec's folder→type
+"""Phase-0 foundations: jsonval, the vault spec's folder→type
 map, id/block-ref primitives, Private/ exclusions, Chat-Id trailers."""
 
 import pytest

@@ -1,6 +1,6 @@
-"""Entity identity primitives (DEVPLAN B3) — the one id format.
+"""Entity identity primitives — the one id format.
 
-An id is a review watermark (DESIGN-vault-schema.md): stamped when the
+An id is a review watermark: stamped when the
 harness creates an entity, or when the user approves a normalization
 from the review dashboard — never written by hand. Note-level entities
 carry it in frontmatter; line-level entities (tasks, cards) carry it as

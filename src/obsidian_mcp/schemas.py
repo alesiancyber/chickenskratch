@@ -1,4 +1,4 @@
-"""Entity schema validation (DESIGN-vault-schema.md).
+"""Entity schema validation.
 
 config/schemas/<type>.yaml declares each entity type's required shape.
 Ids are review watermarks: `no id` means never reviewed; `has id` means

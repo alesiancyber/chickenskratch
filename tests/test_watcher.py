@@ -1,4 +1,4 @@
-"""The review-dashboard pipeline end to end (DESIGN-review-dashboard.md):
+"""The review-dashboard pipeline end to end:
 scan → draft → render Review.md → checkbox approve/reject → apply through
 the gated tools, with staleness and the git memo. A scripted fake drafter
 stands in for the worker LLM, same philosophy as FakeOpenAI."""

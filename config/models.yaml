@@ -63,12 +63,12 @@ models:
     confirm_writes: true
     servers: [obsidian]        # 4b gets the minimal tool surface
 
-  # Cloud profiles (DESIGN-mixed-models.md §5 Tier 4). As of 2026-07-22
+  # Cloud profiles. As of 2026-07-22
   # the cloud switch is deliberately ON: gemini-3.1-pro is the default
   # chat profile. Requires GEMINI_API_KEY exported in your shell; the
   # harness never stores the key. Vault text (minus Private/, excluded in
   # code) leaves the machine on these profiles — the no-secrets rule
-  # (DESIGN-philosophy.md I4) is load-bearing here.
+  # (PHILOSOPHY.md I4) is load-bearing here.
   #
   # Background workers follow the top-level `worker:` profile reference;
   # explicit WORKER_BASE_URL / WORKER_MODEL / WORKER_API_KEY env vars

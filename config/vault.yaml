@@ -1,4 +1,4 @@
-# Vault spec DEFAULTS (DESIGN-vault.md). The vault describes itself:
+# Vault spec DEFAULTS. The vault describes itself:
 # once a vault has a `Harness/Spec.md`, that note's frontmatter is the
 # live source for folders/inboxes/exclusions (edited in Obsidian, read
 # every engine pass). This file seeds new vaults and covers the
