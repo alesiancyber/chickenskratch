@@ -35,29 +35,44 @@ testvault/          scratch vault the default config points at
 
 ## Setup
 
-One command (prereqs: `brew install uv`, a rust toolchain, git):
+Prereqs: `brew install uv`, a rust toolchain, git.
+
+**The short way** — `deploy.sh` scripts the manual steps below; it's a
+convenience, not a replacement (everything it does, you can do by hand):
 
 ```sh
-./deploy.sh --vault ~/Vaults/personal --foam    # --foam: VSCode/Foam settings
+./deploy.sh --vault ~/Vaults/personal --foam
+# --foam: VSCode/Foam settings   --remote <git-url>: vault backup remote
+# --no-launchd: skip the agents  --uninstall: remove them   (idempotent)
 ```
 
-That builds everything, scaffolds the vault, runs the first engine pass
-(seeds Spec.md, inits the vault's git repo, renders every surface), and
-installs two launch agents: the event daemon and the 6am heartbeat.
-`--remote <git-url>` wires an off-machine backup for the vault repo;
-`--no-launchd` skips the agents; `--uninstall` removes them. Idempotent
-— re-run after pulling to rebuild and reload.
+**The manual steps** (what the script automates):
 
-Models: any OpenAI-compatible endpoint — profiles in
-`config/models.yaml`, cloud keys via `.env` (`api_key_env`), local
-servers under `backends:`. Manual daemon run (what launchd manages):
+1. **Build.** `uv sync`, then `cd daemon && cargo build --release`.
+2. **Point at a vault.** Precedence: `--vault` flag > `OBSIDIAN_VAULT_PATH`
+   (put it in `.env` to pin it for every CLI) > `vault:` in
+   `config/models.yaml`.
+3. **Models.** Any OpenAI-compatible endpoint: profiles in
+   `config/models.yaml`, cloud keys via `.env` (`api_key_env` — keys
+   never live in config or the vault), local servers under `backends:`
+   (start/stop with `harness-backends`).
+4. **First engine pass.** `uv run harness-watch` — the engine is
+   self-bootstrapping: seeds `Harness/Spec.md` from `config/vault.yaml`
+   defaults, inits the vault's own git repo, renders every surface.
+5. **The daemon.** Manual run:
 
-```sh
-daemon/target/release/tezcatd --vault <vault> --repo <this repo> \
-  --fast-file <vault>/Harness/Review.md          # --poll for network mounts
-```
+   ```sh
+   daemon/target/release/tezcatd --vault <vault> --repo <this repo> \
+     --fast-file <vault>/Harness/Review.md      # --poll for network mounts
+   ```
 
-One engine pass by hand (what the daemon runs): `uv run harness-watch`.
+   Login-start: fill `__REPO__`/`__VAULT__` in
+   `config/launchd/com.tezcat.watch.plist` (the event daemon,
+   KeepAlive) and `com.tezcat.heartbeat.plist` (one 6am pass for the
+   date rollover), copy both to `~/Library/LaunchAgents/`, `launchctl
+   load` them. Logs land in `data/logs/`.
+6. **Vault backup** (recommended): the vault is its own git repo —
+   `git -C <vault> remote add origin <url> && git push -u origin HEAD`.
 
 ## Using it
 
