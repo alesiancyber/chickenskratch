@@ -108,6 +108,35 @@ def search_vault(query: str, folder: str = "", limit: int = 20, offset: int = 0)
 
 # --------------- writing notes ---------------
 
+def _writable(path: str, spec_key: str | None = None) -> str:
+    """Machine surfaces (Review/Changes/Today) and the vault spec are not
+    tool-writable. Review.md is the consent channel: a model that can
+    write it can check its own approve boxes — manufactured consent (I2).
+    Spec.md edits could lift the Private/ exclusion or extend auto_apply
+    trust (I4); config is the human's, edited in an editor. The engine
+    renders surfaces through vault.write directly, so nothing legitimate
+    routes here. Capture.md stays writable: it only feeds the proposal
+    queue, so writing it can never bypass a checkbox.
+
+    One sanctioned exception: update_frontmatter on Spec.md's `folders`
+    map — the spec_drift processor's approved proposals land there, and
+    the key carries no trust (typing, not consent or exclusion)."""
+    v = get_vault()
+    cfg = vc.get_config()
+    target = v.resolve(path)
+    protected = [rel for key, rel in cfg.surfaces.items() if key != "capture" and rel]
+    protected.append(vc.SPEC_REL)
+    for rel in protected:
+        if target == v.resolve(rel):
+            if rel == vc.SPEC_REL and spec_key == "folders":
+                return path
+            raise VaultError(
+                f"{rel} is machine-managed and not tool-writable. Decisions are "
+                "checkboxes the user ticks in their editor; config is their "
+                "Spec.md edit; surfaces re-render every engine pass.")
+    return path
+
+
 @mcp.tool()
 def create_note(path: str, content: str = "") -> dict:
     """Create a new note. Fails if the note already exists (use append_to_note or
@@ -115,6 +144,7 @@ def create_note(path: str, content: str = "") -> dict:
 
     Example: create_note(path="Tasks/Vector DBs.md", content="# Vector DBs\\n\\n- ...")
     """
+    _writable(path)
     v = get_vault()
     p = v.resolve(path)
     with v.locked():
@@ -135,6 +165,7 @@ def append_to_note(path: str, content: str, section: str = "") -> dict:
 
     Example: append_to_note(path="Daily/2026-07-17", section="Notes", content="- Called the vendor")
     """
+    _writable(path)
     v = get_vault()
     p = v.resolve(path)  # validate before snapshotting
     with v.locked():
@@ -164,6 +195,7 @@ def replace_section(path: str, heading: str, content: str) -> dict:
     Example: replace_section(path="Projects/Website Redesign", heading="Status",
                              content="On track. Launch moved to Aug 3.")
     """
+    _writable(path)
     v = get_vault()
     with v.locked():
         text = v.read(path)
@@ -185,6 +217,7 @@ def replace_line(path: str, line_text: str, content: str) -> dict:
     Example: replace_line(path="Daily/2026-07-23", line_text="//azure alert correlation",
                           content="**//azure alert correlation**\\n- ...")
     """
+    _writable(path)
     v = get_vault()
     with v.locked():
         text = v.read(path)
@@ -209,6 +242,7 @@ def update_frontmatter(path: str, key: str, value: str) -> dict:
 
     Example: update_frontmatter(path="Tasks/Vector DBs", key="status", value="in-progress")
     """
+    _writable(path, spec_key=key)
     v = get_vault()
     with v.locked():
         text = v.read(path)
@@ -306,6 +340,7 @@ def add_task(path: str, text: str, due: str = "", priority: str = "", section: s
 
     Example: add_task(path="Tasks/Inbox", text="Renew domain", due="2026-07-25", priority="high")
     """
+    _writable(path)
     line = tk.format_task(text, due or None, priority or None, block_id=ids.stamp_id("t"))
     if section:
         return append_to_note(path, line, section)
@@ -337,6 +372,7 @@ def set_task_status(path: str, task_text: str, done: bool = True) -> dict:
 
     Example: set_task_status(path="Tasks/Inbox", task_text="Renew domain", done=true)
     """
+    _writable(path)
     v = get_vault()
     # Read and locate the task under the lock: parsing outside it would let
     # a concurrent writer shift line numbers between read and write, and the
@@ -391,9 +427,11 @@ def archive_done_tasks(path: str, archive_path: str = "") -> dict:
       {"archived": 3, "archive": "Tasks/Archive.md"}
     """
     v = get_vault()
+    _writable(path)
     archive = (archive_path or vc.get_config().done_archive).strip()
     if not archive:
         raise VaultError("no archive configured (vault spec `done_archive` is empty)")
+    _writable(archive)
     if v.resolve(path) == v.resolve(archive):
         return {"archived": 0, "archive": archive}  # never archive the archive
     with v.locked():
@@ -539,6 +577,7 @@ def create_board(path: str, columns: str = "Backlog, Doing, Done") -> dict:
 
     Example: create_board(path="Projects/Marketing.md", columns="Ideas, Active, Shipped")
     """
+    _writable(path)
     v = get_vault()
     p = v.resolve(path)
     names = [c.strip() for c in columns.split(",") if c.strip()]
@@ -580,6 +619,7 @@ def add_card(path: str, column: str, text: str) -> dict:
 
     Example: add_card(path="Projects/Project Board", column="Backlog", text="Draft pricing page")
     """
+    _writable(path)
     v = get_vault()
     with v.locked():
         board = kb.parse_board(v.read(path))
@@ -599,6 +639,7 @@ def move_card(path: str, card: str, to_column: str) -> dict:
 
     Example: move_card(path="Projects/Project Board", card="Draft pricing page", to_column="Doing")
     """
+    _writable(path)
     v = get_vault()
     with v.locked():
         board = kb.parse_board(v.read(path))

@@ -433,3 +433,21 @@ def test_kanban_card_blank_lines_and_complete_literal_round_trip(vault):
     # and the real Done-column marker kept its place above the done cards
     assert "  **Complete**" in after
     assert "**Complete**\n- [x] Set up staging environment" in after
+
+
+def test_machine_surfaces_and_spec_are_never_tool_writable(vault):
+    """The consent channel is not tool-writable: a model that could write
+    Review.md could check its own approve boxes, and a Spec.md edit could
+    lift the Private/ exclusion or extend auto_apply trust."""
+    for rel in ("Harness/Review.md", "Harness/Changes", "Harness/Today.md"):
+        with pytest.raises(vault_mod.VaultError, match="machine-managed"):
+            server.append_to_note(rel, "- [x] approve p-000000000000")
+    with pytest.raises(vault_mod.VaultError, match="machine-managed"):
+        server.update_frontmatter("Harness/Spec", "exclude", "[]")
+    with pytest.raises(vault_mod.VaultError, match="machine-managed"):
+        server.add_task("Harness/Review", "sneaky approval")
+    with pytest.raises(vault_mod.VaultError, match="machine-managed"):
+        server.archive_done_tasks("Tasks/Inbox", archive_path="Harness/Review.md")
+    # Capture is an input surface: writing it only ever feeds the proposal
+    # queue, so it stays writable (dump-from-chat is a legitimate flow).
+    server.append_to_note("Harness/Capture.md", "brain dump line")

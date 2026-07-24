@@ -219,10 +219,11 @@ def test_faithful_capture_lands_and_clears_without_checkbox(vault, make_watcher)
     assert proposals.pending(w.proposals_dir) == []
 
 
-def test_schema_fix_aimed_at_another_note_never_auto_applies(vault, make_watcher):
-    """The path pin: the worker authors full tool args, so a plan step
-    targeting any note but the drafted one is unvouchable — simulate
-    would otherwise vouch for an edit apply() makes somewhere else."""
+def test_schema_fix_aimed_at_another_note_is_never_a_proposal(vault, make_watcher):
+    """The path pin: the worker authors full tool args, and a schema fix
+    has no legitimate cross-note step — so a plan aimed anywhere but the
+    drafted note is a malfunction that dies at draft time. It must not
+    even queue: an inattentive approve would still execute it."""
     note = vault / "Meetings/Sync.md"
     note.write_text(MEETING_NO_ID)
     inbox_before = (vault / "Tasks/Inbox.md").read_text()
@@ -241,10 +242,43 @@ def test_schema_fix_aimed_at_another_note_never_auto_applies(vault, make_watcher
     w = make_watcher(vault, drafter=hijacking_drafter, n_max=20,
                      disabled=("capture", "inbox_extract", "spec_drift", "grouping", "archive_done"))
     summary = run(w)
-    assert summary["auto"] == 0  # queued for a human, never auto
+    assert summary["auto"] == 0
     assert (vault / "Tasks/Inbox.md").read_text() == inbox_before
     assert "id: m-" not in note.read_text()
-    assert len(proposals.pending(w.proposals_dir)) >= 1
+    # no proposal for Sync.md at all — the cross-note plan died at draft
+    # time (the fixture Inbox draws its own, legitimately same-note, draft)
+    assert [p for p in proposals.pending(w.proposals_dir)
+            if p["drafted_against"]["note"] == "Meetings/Sync.md"] == []
+
+
+def test_verify_pins_the_target_note_as_defense_in_depth():
+    """Layer two of the path pin: even if a cross-note plan reached the
+    auto-apply gate some other way, the verifier refuses to vouch."""
+    from harness.processors import verify_schema_fix
+
+    item = {"note": "Meetings/Sync.md", "content": MEETING_NO_ID}
+    plan = {"apply": [{"tool": "append_to_note",
+                       "args": {"path": "Tasks/Inbox.md", "content": "# x"}}]}
+    failures = verify_schema_fix(None, item, plan)
+    assert failures and "targets" in failures[0]
+
+
+def test_dropped_worker_date_forces_the_checkbox(vault, make_watcher):
+    """Faithful text but a lost date: the fidelity verifier can't see
+    structured fields, so a sanitized-away impossible date must force
+    the checkbox and say so in the issues list."""
+    async def date_dropper(text, today):
+        return [{"text": "buy a car", "due": None, "priority": None,
+                 "owed_by": None, "dropped_due": "2026-13-01"}]
+
+    w = make_watcher(vault, capture_extractor=date_dropper, disabled=FOCUS, n_max=20)
+    inbox = vault / "Tasks/Inbox.md"
+    inbox.write_text(inbox.read_text().rstrip("\n") + "\nbuy a car\n")
+    summary = run(w)
+    assert summary["auto"] == 0
+    (p,) = proposals.pending(w.proposals_dir)
+    assert p["needs_review"] is True
+    assert any("2026-13-01" in i for i in p["issues"])
 
 
 def test_schema_fix_suffixless_path_still_counts_as_the_target(vault, make_watcher):

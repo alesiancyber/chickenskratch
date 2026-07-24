@@ -27,7 +27,11 @@ servers:
     env:
       FILES_ROOTS: "~"       # colon-separated allowlist of searchable dirs
     enabled: true
-    # tools declare readOnlyHint themselves — never approval-gated
+    # tools declare readOnlyHint themselves — never approval-gated.
+    # LOCAL profiles only: every cloud profile in models.yaml allowlists
+    # this server away (`servers: [obsidian, ms-learn]`) — filesystem
+    # content must never ride into cloud context (I4's spirit; the vault
+    # already excludes Private/ at its own layer).
 
   ms-learn:
     transport: http

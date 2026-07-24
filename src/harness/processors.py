@@ -124,7 +124,7 @@ async def draft_capture(w: Watcher, item: dict) -> dict | None:
     parts = ([f"{n_own} captured task(s) to {w.capture_inbox}"] if n_own else []) + (
         [f"{n_owed} waiting-on item(s) to {w.waiting_inbox}"] if n_owed else []
     )
-    return proposals.new_proposal(
+    p = proposals.new_proposal(
         kind="capture",
         note=item["note"],
         vault_sha=item["vault_sha"],
@@ -137,7 +137,7 @@ async def draft_capture(w: Watcher, item: dict) -> dict | None:
             + (f" — due {t['due']}" if t.get("due") else "")
             + (f", {t['priority']}" if t.get("priority") else "")
             for t in tasks
-        ],
+        ] + _dropped_date_issues(tasks),
         apply=[
             {"tool": "add_task", "args": {
                 "path": w.waiting_inbox if t.get("owed_by") else w.capture_inbox,
@@ -148,11 +148,29 @@ async def draft_capture(w: Watcher, item: dict) -> dict | None:
             for t in tasks
         ],
     )
+    return _flag_dropped_dates(p, tasks)
 
 
 def _capture_applied(w: Watcher, p: dict) -> None:
     if w.capture_rel:
         reset_capture(w)
+
+
+def _dropped_date_issues(tasks: list[dict]) -> list[str]:
+    return [
+        f"⚠ impossible due date {t['dropped_due']!r} was dropped from {t['text']!r} — set it by hand"
+        for t in tasks if t.get("dropped_due")
+    ]
+
+
+def _flag_dropped_dates(p: dict, tasks: list[dict]) -> dict:
+    """A worker date the sanitizer had to drop means the extraction lost
+    information the fidelity verifier can't see (dates live in structured
+    fields, not text) — so the proposal forces its checkbox regardless of
+    what the verifier says."""
+    if any(t.get("dropped_due") for t in tasks):
+        p["needs_review"] = True
+    return p
 
 
 # ---- inbox_extract: free text typed into the task inbox -> real tasks ----
@@ -242,7 +260,7 @@ async def draft_inbox(w: Watcher, item: dict) -> dict | None:
     parts = ([f"{len(own)} task(s)"] if own else []) + (
         [f"{len(owed)} waiting-on item(s) to {w.waiting_inbox}"] if owed else []
     )
-    return proposals.new_proposal(
+    p = proposals.new_proposal(
         kind="inbox_extract",
         note=item["note"],
         vault_sha=item["vault_sha"],
@@ -257,7 +275,7 @@ async def draft_inbox(w: Watcher, item: dict) -> dict | None:
             + (f" — due {t['due']}" if t.get("due") else "")
             + (f", {t['priority']}" if t.get("priority") else "")
             for t in tasks
-        ],
+        ] + _dropped_date_issues(tasks),
         apply=[{"tool": "replace_section", "args": {
             "path": item["note"], "heading": item["section"], "content": content,
         }}] + [
@@ -269,6 +287,7 @@ async def draft_inbox(w: Watcher, item: dict) -> dict | None:
             for t in owed
         ],
     )
+    return _flag_dropped_dates(p, tasks)
 
 
 # ---- extraction verifier: the fidelity gate that makes auto-apply safe ----
@@ -531,6 +550,15 @@ def scan_schema(w: Watcher) -> list[dict]:
 
 async def draft_schema(w: Watcher, item: dict) -> dict | None:
     reply = await w.drafter(item)
+    # A schema fix has no legitimate cross-note step, so a wrong path is a
+    # worker malfunction — never a proposal (the grouping rule: broken
+    # output dies here, not in the queue where an inattentive approve
+    # could still execute it). verify_schema_fix re-checks this for
+    # defense in depth on the auto-apply path.
+    for step in reply["apply"]:
+        target = step.get("args", {}).get("path")
+        if target is None or not applier.same_note(str(target), item["note"]):
+            return None
     return proposals.new_proposal(
         kind="schema_fix",
         note=item["note"],

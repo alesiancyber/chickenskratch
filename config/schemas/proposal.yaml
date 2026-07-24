@@ -60,5 +60,10 @@ properties:
                  replace_line, archive_done_tasks]
         args:
           type: object
+  needs_review:
+    # set by a drafter that noticed something a human must see (e.g. an
+    # impossible worker date was dropped): forces the checkbox even for
+    # a trusted processor whose verifier passes
+    type: boolean
   resolved:
     type: ["object", "null"]

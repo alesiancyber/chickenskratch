@@ -30,7 +30,9 @@ def validate(instance, schema: dict) -> list[str]:
     Each issue reads "<path>: <problem>", e.g. "attendees: 3 is not of
     type 'array'" or "(root): 'id' is a required property".
     """
-    validator = _validator(json.dumps(schema, sort_keys=True))
+    # default=str: schemas come from YAML, where an unquoted date value
+    # parses to datetime.date — a cache key must never crash on it.
+    validator = _validator(json.dumps(schema, sort_keys=True, default=str))
     issues = []
     for err in sorted(validator.iter_errors(instance), key=lambda e: list(e.absolute_path)):
         path = ".".join(str(p) for p in err.absolute_path) or "(root)"

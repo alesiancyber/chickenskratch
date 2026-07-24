@@ -291,9 +291,11 @@ class Watcher:
             drafted += 1
             # Auto-apply: only processors the vault's Spec.md trusts, only
             # with a verifier, only when it passes, only against an unmoved
-            # note. Any failure means the proposal simply keeps its
-            # checkbox — verification degrades to review, never blocks.
-            if proc.name in auto_trusted and proc.verify:
+            # note — and never when the drafter itself flagged something a
+            # human must see (needs_review). Any failure means the proposal
+            # simply keeps its checkbox — verification degrades to review,
+            # never blocks.
+            if proc.name in auto_trusted and proc.verify and not p.get("needs_review"):
                 if proc.verify(self, item, p) or applier.is_stale(p, self.vault_path):
                     continue
                 try:

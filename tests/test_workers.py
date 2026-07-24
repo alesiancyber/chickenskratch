@@ -102,4 +102,6 @@ def test_impossible_due_dates_are_dropped(monkeypatch):
     monkeypatch.setattr(workers, "_worker_client", lambda: fake_client(json.dumps(payload)))
     tasks = asyncio.run(workers.extract_tasks("stuff to do", "2026-07-20"))
     assert tasks[0]["due"] is None
+    assert tasks[0]["dropped_due"] == "2026-13-01"  # surfaced so drafters force a checkbox
     assert tasks[1]["due"] == "2026-07-24"
+    assert "dropped_due" not in tasks[1]

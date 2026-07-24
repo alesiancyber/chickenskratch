@@ -279,12 +279,19 @@ def _real_date_or_none(value) -> str | None:
 async def extract_tasks(text: str, today: str) -> list[dict]:
     """Pull structured tasks out of free text via the extract_tasks worker."""
     data = await run_worker(WORKERS["extract_tasks"], today=today, text=text.strip())
-    return [
-        {
+    out = []
+    for t in data["tasks"]:
+        due = _real_date_or_none(t.get("due"))
+        task = {
             "text": t["text"].strip(),
-            "due": _real_date_or_none(t.get("due")),
+            "due": due,
             "priority": t.get("priority") or None,
             "owed_by": (t.get("owed_by") or "").strip() or None,
         }
-        for t in data["tasks"]
-    ]
+        if t.get("due") and due is None:
+            # Surfaced, not swallowed: drafters turn this into a forced
+            # checkbox — losing a date silently in an auto-applied task
+            # would hide exactly the kind of drift the verifiers exist for.
+            task["dropped_due"] = str(t["due"])
+        out.append(task)
+    return out
