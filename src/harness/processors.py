@@ -53,6 +53,11 @@ class ProcessorSpec:
     render_diff: bool = True  # False: the issues list IS the payload; no diff block
     ensure: Callable[[Watcher], None] | None = None  # pass-start hook (create surfaces)
     on_applied: Callable[[Watcher, dict], None] | None = None  # post-apply hook
+    # Fired when a pending proposal of this kind flips stale. Extractors
+    # re-arm their seen-hash here: stale + seen-suppression otherwise
+    # silently drops the extraction forever (the 2026-07-24 capture bug —
+    # fixed there by text-hashing, generalized here for every extractor).
+    on_stale: Callable[[Watcher, dict], None] | None = None
     # Deterministic safety check enabling auto-apply (Spec.md `auto_apply`):
     # (w, item, proposal) -> failure strings. Empty = safe to apply without
     # a checkbox; any failure (or no verifier) = the Review.md queue.
@@ -160,6 +165,14 @@ async def draft_capture(w: Watcher, item: dict) -> dict | None:
 def _capture_applied(w: Watcher, p: dict) -> None:
     if w.capture_rel:
         reset_capture(w)
+
+
+def _capture_stale(w: Watcher, p: dict) -> None:
+    w._capture_seen = ""  # stale voided the draft; the re-draft must be guaranteed
+
+
+def _inbox_stale(w: Watcher, p: dict) -> None:
+    w._inbox_seen = ""
 
 
 def _dropped_date_issues(tasks: list[dict]) -> list[str]:
@@ -695,10 +708,10 @@ def verify_archive(w: Watcher, item: dict, proposal: dict) -> list[str]:
 CAPTURE = ProcessorSpec(
     "capture", scan_capture, draft_capture,
     render_diff=False, ensure=ensure_capture, on_applied=_capture_applied,
-    verify=verify_extraction,
+    verify=verify_extraction, on_stale=_capture_stale,
 )
 INBOX_EXTRACT = ProcessorSpec("inbox_extract", scan_inbox, draft_inbox,
-                              verify=verify_extraction)
+                              verify=verify_extraction, on_stale=_inbox_stale)
 SPEC_DRIFT = ProcessorSpec("spec_drift", scan_spec_drift, draft_spec_drift)
 SCHEMA_FIX = ProcessorSpec("schema_fix", scan_schema, draft_schema,
                            verify=verify_schema_fix)

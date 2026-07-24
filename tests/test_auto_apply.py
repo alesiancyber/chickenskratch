@@ -298,3 +298,23 @@ def test_schema_fix_suffixless_path_still_counts_as_the_target(vault, make_watch
     summary = run(w)
     assert summary["auto"] >= 1
     assert "id: m-" in note.read_text()
+
+
+def test_stale_extraction_re_arms_instead_of_vanishing(vault, make_watcher):
+    """The capture silent-drop bug, generalized (on_stale): a pending
+    extraction that goes stale from note churn must clear its seen-hash,
+    or the unchanged prose would never re-draft and the extraction would
+    silently vanish."""
+    (vault / "Harness").mkdir(exist_ok=True)
+    (vault / "Harness/Spec.md").write_text("---\nauto_apply: []\n---\n\n# Vault Spec\n")
+    w = make_watcher(vault, capture_extractor=faithful, disabled=FOCUS, n_max=20)
+    inbox = vault / "Tasks/Inbox.md"
+    inbox.write_text(inbox.read_text().rstrip("\n") + "\nbuy a car\n")
+    run(w)
+    (p1,) = proposals.pending(w.proposals_dir)
+    # whitespace-only churn (autosave artifact): voids the pending draft
+    inbox.write_text(inbox.read_text() + "\n\n")
+    summary = run(w)
+    assert summary["stale"] >= 1
+    (p2,) = proposals.pending(w.proposals_dir)
+    assert p2["kind"] == "inbox_extract" and p2["id"] != p1["id"]  # re-drafted, not dropped

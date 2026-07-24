@@ -22,6 +22,7 @@ import tempfile
 import time
 from pathlib import Path
 
+import anyio
 import yaml
 
 from obsidian_mcp import kanban as kb
@@ -205,9 +206,13 @@ async def run_case(case: dict, profile, subs: dict[str, str]) -> dict:
             prof, specs, log=lambda n, a: calls.append(n), confirm=confirm, skills=load_skills()
         ) as agent:
             for turn in case.get("turns", []):
-                answer = await asyncio.wait_for(
-                    agent.run(fill(turn, subs)), timeout=case.get("timeout", DEFAULT_TIMEOUT)
-                )
+                # anyio.fail_after, not asyncio.wait_for: agent.run drives
+                # MCP sessions (anyio cancel scopes), and wait_for's
+                # cancellation escapes as a bare CancelledError that would
+                # kill the whole eval run instead of failing this case
+                # (same class as mcp_client's connect timeout, 2026-07-24).
+                with anyio.fail_after(case.get("timeout", DEFAULT_TIMEOUT)):
+                    answer = await agent.run(fill(turn, subs))
     except TimeoutError:
         error = f"timeout after {case.get('timeout', DEFAULT_TIMEOUT)}s"
     except Exception as e:

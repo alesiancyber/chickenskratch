@@ -342,6 +342,7 @@ class Watcher:
             reason = applier.is_stale(p, self.vault_path)
             if reason:
                 proposals.resolve(p, "stale", self.proposals_dir)
+                self._notify_stale(p)
                 acted["stale"] += 1
                 continue
             try:
@@ -381,10 +382,20 @@ class Watcher:
         for p in pending:
             if applier.is_stale(p, self.vault_path, state):
                 proposals.resolve(p, "stale", self.proposals_dir)
+                self._notify_stale(p)
                 flipped += 1
             else:
                 keep.append(p)
         return flipped, keep
+
+    def _notify_stale(self, p: dict) -> None:
+        """A stale proposal voided its draft; the owning processor may
+        need to re-arm (ProcessorSpec.on_stale) — extractors' seen-hashes
+        would otherwise suppress the re-draft and the extraction would
+        silently vanish."""
+        spec = self._by_kind.get(p["kind"])
+        if spec and spec.on_stale:
+            spec.on_stale(self, p)
 
     # ---- render ----
 
@@ -516,6 +527,10 @@ class Watcher:
                     self._render_changes()
                     self._render_today()
                 self._sweep_late_decisions(summary)
+                # Persist any on_stale re-arm (seen-hashes) — losing it here
+                # would resurrect the suppression on the next full pass. The
+                # memo passes through untouched, so that pass still scans.
+                self._save_state(state.get("fingerprint") or {})
                 return summary
             if sum(acted.values()):
                 self._render()  # visible feedback beats drafting latency

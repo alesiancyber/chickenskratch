@@ -154,6 +154,11 @@ class Agent:
             tools=self._tools,
             temperature=self.profile.temperature,
         )
+        # A reasoning model that spends its whole token budget on hidden
+        # thought returns choices=[] (the workers hit this 2026-07-24).
+        # Fold it into the empty-content path, which already nudges once.
+        if not response.choices:
+            return "", [], _usage_dict(response)
         msg = response.choices[0].message
         return msg.content or "", list(msg.tool_calls or []), _usage_dict(response)
 
