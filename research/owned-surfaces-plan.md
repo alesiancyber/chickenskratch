@@ -37,11 +37,13 @@ commands = inline execute; proposals = rich diff + approve/reject.
 2. **`config/models.yaml` orphaned comment** (the "# 8192). Only used
    for the chat UI's ctx% meter" fragment — mid-sentence leftover from a
    deleted field) and the "(⚡ Servers panel)" reference. Delete/reword.
-3. **`corpus.record_confirm` + `record_bug_report`** (+ their tests) —
-   chat-era writers, zero production callers since the UI deletion.
-   Git history is the schema of record; if the new UI grows those
-   affordances they return UI-shaped. **Keep `record_revert`** — the
-   Phase-2 revert button calls it unchanged.
+3. **`corpus.record_bug_report`** (+ its tests) — chat-era writer,
+   zero production callers since the UI deletion; git history is the
+   schema of record. **Keep `record_revert`** (Phase-2 revert button
+   calls it) and — amended 2026-07-25 — **keep `record_confirm`**: the
+   Phase-4 pane's inline write gate is its returning caller. (It was
+   on this list; the pane decision reprieved it. Subtract-before-add
+   working as intended: deletions wait for the phase that proves them.)
 4. **Doc rot that lies to the user**: `changes.py` HEADER text renders
    "revert from the web UI's ↺ Changes" into every vault — the UI it
    names doesn't exist (should say `harness-revert`). Same stale "web
@@ -111,6 +113,25 @@ commands = inline execute; proposals = rich diff + approve/reject.
 3. **Canvas.** Ingest box with inline extraction preview (proposal
    renders beside what you typed; approve without leaving), instant
    command execution. "Only two surfaces" becomes literally true.
+4. **The escape-hatch pane** (decided 2026-07-25). A collapsible side
+   pane hosting chat + visible MCP interactions. This is NOT a third
+   surface and NOT chat growing features — it is the existing frozen
+   escape hatch (the `harness` CLI's Agent loop, verbatim: same
+   profiles, same server allowlists, same write gate) re-homed where
+   its tool activity is visible. Contract, enforced in design:
+   - **Collapsed by default**; summoned (⌘J / palette), closed when
+     done. If it's open all day, the processors are failing — that
+     signal goes to the processor backlog, not into pane features.
+   - **Tool calls render as visible rows** (the Agent's existing `log`
+     hook); expandable to the raw result. MCP made legible.
+   - **Write gate inline**: `confirm_writes` prompts become Allow/Deny
+     chips (the Agent's existing `confirm` hook) — and every decision
+     is recorded via `corpus.record_confirm`, which returns to
+     production use (0-A ledger amended below).
+   - **Transcripts stay scratch** (the vault is the archive); no chat
+     history surface, no pinned conversations, no chat-first features.
+     A prompt issued twice is still a processor/command candidate —
+     principle 7 keeps its teeth.
 
 **Degraded-mode contract (hard requirement):** after every phase, a
 machine with no UI process still has a fully working vault in
@@ -198,6 +219,9 @@ localhost server; don't start there.
 
 ## Out of scope
 
-Chat in the UI (CLI stays the frozen escape hatch), mobile, multi-user,
-cloud sync, any new processor capability — this build changes renderers
-and input channels, never the trust model or the engine's contracts.
+Mobile, multi-user, cloud sync, any new processor capability — this
+build changes renderers and input channels, never the trust model or
+the engine's contracts. Chat exists ONLY as the Phase-4 escape-hatch
+pane under its contract above (the CLI remains for terminals); chat
+history surfaces, pinned conversations, and chat-first features stay
+out — that's the line the deleted 2026-07-23 UI crossed.
