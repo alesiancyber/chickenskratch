@@ -1,6 +1,6 @@
 # Home
 
-Test vault for the tool harness.
+Test vault for the tool tezcat.
 
 - Projects live in [[Projects/Website Redesign|Projects]]
 - The kanban board is at [[Boards/Project Board]]

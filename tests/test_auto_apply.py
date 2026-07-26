@@ -7,8 +7,8 @@ import datetime as _dt
 
 import pytest
 
-from harness import proposals
-from harness.processors import CAPTURE_SKELETON
+from tezcat import proposals
+from tezcat.processors import CAPTURE_SKELETON
 
 TODAY = _dt.date.today().isoformat()
 
@@ -253,7 +253,7 @@ def test_schema_fix_aimed_at_another_note_is_never_a_proposal(vault, make_watche
 def test_verify_pins_the_target_note_as_defense_in_depth():
     """Layer two of the path pin: even if a cross-note plan reached the
     auto-apply gate some other way, the verifier refuses to vouch."""
-    from harness.processors import verify_schema_fix
+    from tezcat.processors import verify_schema_fix
 
     item = {"note": "Meetings/Sync.md", "content": MEETING_NO_ID}
     plan = {"apply": [{"tool": "append_to_note",

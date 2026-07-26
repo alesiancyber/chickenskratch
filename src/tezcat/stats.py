@@ -12,7 +12,7 @@ import datetime as dt
 import json
 from pathlib import Path
 
-from obsidian_mcp.vault import atomic_write_text
+from tezcat_vault.vault import atomic_write_text
 
 from .bootstrap import ROOT
 

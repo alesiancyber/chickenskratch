@@ -6,7 +6,7 @@ write into a silently deleted proposal."""
 import json
 import threading
 
-from harness import proposals
+from tezcat import proposals
 
 
 def test_a_concurrent_reader_never_sees_a_half_written_proposal(tmp_path):

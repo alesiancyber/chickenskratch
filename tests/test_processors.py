@@ -7,9 +7,9 @@ import fcntl
 
 import pytest
 
-from harness import applier, processors, proposals
-from harness.processors import ProcessorSpec
-from obsidian_mcp.vault import Vault
+from tezcat import applier, processors, proposals
+from tezcat.processors import ProcessorSpec
+from tezcat_vault.vault import Vault
 
 
 @pytest.fixture()
@@ -122,7 +122,7 @@ def test_one_mis_encoded_note_does_not_disable_schema_fixing(vault, make_watcher
     PROCESSOR, so one latin-1 note used to silently kill schema fixing
     entirely, every pass. The bad note loses its fix; the others keep
     theirs."""
-    from harness import applier
+    from tezcat import applier
     (vault / "Meetings").mkdir(exist_ok=True)
     (vault / "Meetings" / "2026-07-01 Bad.md").write_bytes(
         "---\ntype: meeting\n---\n# Caf\xe9 sync\n".encode("latin-1"))
@@ -139,7 +139,7 @@ def test_inbox_scan_survives_a_note_that_opens_with_a_horizontal_rule(vault, mak
     """The inbox scan used to hand-roll frontmatter stripping by splitting
     on "---", so a note whose FIRST line is a horizontal rule (no
     frontmatter at all) lost its opening line before the section walk."""
-    from harness import applier
+    from tezcat import applier
     inbox = vault / "Tasks" / "Inbox.md"
     inbox.write_text("---\n\n## Notes\n\ncall the bank about the wire\n")
     applier.use_vault(str(vault))

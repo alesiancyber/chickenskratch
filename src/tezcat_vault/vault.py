@@ -109,7 +109,7 @@ class Vault:
             p = p.with_suffix(".md")
         top = p.relative_to(self.root).parts
         if top and top[0].lower() in self._exclude_lower:
-            raise VaultError(f"{top[0]}/ is excluded from harness access (vault.yaml exclude)")
+            raise VaultError(f"{top[0]}/ is excluded from tezcat access (vault.yaml exclude)")
         if must_exist and not p.exists():
             hint = self._suggest(rel_path)
             raise VaultError(f"Note not found: {rel_path}" + (f". Did you mean: {hint}?" if hint else ""))
@@ -237,7 +237,7 @@ class Vault:
             self._git("init", "-q")
         if self._git("config", "user.email").returncode != 0:
             self._git("config", "user.email", "harness@local")
-            self._git("config", "user.name", "harness")
+            self._git("config", "user.name", "tezcat")
         _ensured_repos.add(str(self.root))
 
     def commit_if_dirty(self, message: str) -> bool:
@@ -347,9 +347,9 @@ _vault: Vault | None = None
 def get_vault() -> Vault:
     global _vault
     if _vault is None:
-        root = os.environ.get("OBSIDIAN_VAULT_PATH")
+        root = os.environ.get("TEZCAT_VAULT_PATH")
         if not root:
-            raise VaultError("OBSIDIAN_VAULT_PATH is not set")
+            raise VaultError("TEZCAT_VAULT_PATH is not set")
         _vault = Vault(
             root,
             chat_id=os.environ.get("HARNESS_CHAT_ID", ""),

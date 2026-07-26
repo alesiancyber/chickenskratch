@@ -47,13 +47,13 @@ fi
 
 # ---- resolve the vault ----
 if [ -z "$VAULT" ]; then
-  VAULT="${OBSIDIAN_VAULT_PATH:-}"
+  VAULT="${TEZCAT_VAULT_PATH:-}"
 fi
 if [ -z "$VAULT" ]; then
   VAULT="$(grep -E '^vault:' "$REPO/config/models.yaml" | sed 's/vault:[[:space:]]*//;s/[[:space:]]*#.*//' || true)"
   [ -n "$VAULT" ] && VAULT="$REPO/config/$VAULT"
 fi
-[ -n "$VAULT" ] || die "no vault: pass --vault <path> (or set OBSIDIAN_VAULT_PATH)"
+[ -n "$VAULT" ] || die "no vault: pass --vault <path> (or set TEZCAT_VAULT_PATH)"
 mkdir -p "$VAULT"
 VAULT="$(cd "$VAULT" && pwd)"
 say "Deploying tezcat  repo=$REPO  vault=$VAULT"
@@ -79,16 +79,16 @@ for d in Tasks Meetings Daily Projects Private; do mkdir -p "$VAULT/$d"; done
 ok "folders + inboxes (existing files untouched)"
 
 # ---- 4. pin the vault for every CLI (.env; exported shell vars still win) ----
-say "Pinning OBSIDIAN_VAULT_PATH in .env"
+say "Pinning TEZCAT_VAULT_PATH in .env"
 touch "$REPO/.env"
-grep -v '^OBSIDIAN_VAULT_PATH=' "$REPO/.env" > "$REPO/.env.tmp" || true
-printf 'OBSIDIAN_VAULT_PATH=%s\n' "$VAULT" >> "$REPO/.env.tmp"
+grep -v '^TEZCAT_VAULT_PATH=' "$REPO/.env" > "$REPO/.env.tmp" || true
+printf 'TEZCAT_VAULT_PATH=%s\n' "$VAULT" >> "$REPO/.env.tmp"
 mv "$REPO/.env.tmp" "$REPO/.env"
 ok ".env"
 
 # ---- 5. first engine pass: seeds Spec.md, inits vault git, scans ----
 say "Running the first engine pass"
-(cd "$REPO" && uv run harness-watch --vault "$VAULT") || die "first pass failed"
+(cd "$REPO" && uv run tezcat-watch --vault "$VAULT") || die "first pass failed"
 [ -f "$VAULT/Harness/Spec.md" ] && ok "Harness/Spec.md seeded"
 [ -f "$VAULT/Harness/Capture.md" ] && ok "capture surface ready"
 
@@ -112,7 +112,7 @@ JSON
   (cd "$REPO" && uv run python - "$VAULT" <<'PY'
 import sys
 from pathlib import Path
-from obsidian_mcp import markdown as md
+from tezcat_vault import markdown as md
 spec = Path(sys.argv[1]) / "Harness" / "Spec.md"
 fm, body = md.split_frontmatter(spec.read_text(encoding="utf-8"))
 fm["link_scheme"] = "vscode"
@@ -151,9 +151,9 @@ fi
 say "Deployed"
 cat <<EOF
 
-  Vault:     $VAULT   (git-snapshotted; revert via: uv run harness-revert)
-  Dashboard: uv run harness-ui        (127.0.0.1:8399 — the surface)
-  Headless:  uv run harness today | harness changes | harness decide <id> approve
+  Vault:     $VAULT   (git-snapshotted; revert via: uv run tezcat-revert)
+  Dashboard: uv run tezcat-ui        (127.0.0.1:8399 — the surface)
+  Headless:  uv run tezcat today | tezcat changes | tezcat decide <id> approve
   Config:    $VAULT/Harness/Spec.md   (worker model, auto_apply, knobs — live per pass)
   Daemon:    data/logs/tezcatd.log    ($([ "$LAUNCHD" = 1 ] && echo installed || echo "skipped — run: daemon/target/release/tezcatd --vault $VAULT --repo $REPO"))
 

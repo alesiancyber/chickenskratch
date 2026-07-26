@@ -7,7 +7,7 @@ counts, forbidden text) get pinned here.
 
 from __future__ import annotations
 
-from harness.worker_evals import score, score_grouping
+from tezcat.worker_evals import score, score_grouping
 
 SUBS = {"{today}": "2026-07-20", "{tomorrow}": "2026-07-21", "{plus14}": "2026-08-03"}
 
@@ -116,7 +116,7 @@ def _fix(*steps):
 
 
 def test_schema_fix_pass():
-    from harness.worker_evals import score_schema_fix
+    from tezcat.worker_evals import score_schema_fix
 
     reply = _fix({"tool": "update_frontmatter",
                   "args": {"path": SCHEMA_CASE["note"], "key": "id", "value": "m-0123456789ab"}})
@@ -124,7 +124,7 @@ def test_schema_fix_pass():
 
 
 def test_schema_fix_reworded_prose_fails():
-    from harness.worker_evals import score_schema_fix
+    from tezcat.worker_evals import score_schema_fix
 
     reply = _fix(
         {"tool": "update_frontmatter",
@@ -138,7 +138,7 @@ def test_schema_fix_reworded_prose_fails():
 
 
 def test_schema_fix_wrong_id_fails_after_contains():
-    from harness.worker_evals import score_schema_fix
+    from tezcat.worker_evals import score_schema_fix
 
     reply = _fix({"tool": "update_frontmatter",
                   "args": {"path": SCHEMA_CASE["note"], "key": "id", "value": "m-999999999999"}})
@@ -147,7 +147,7 @@ def test_schema_fix_wrong_id_fails_after_contains():
 
 
 def test_schema_fix_incomplete_fix_fails_conformance():
-    from harness.worker_evals import score_schema_fix
+    from tezcat.worker_evals import score_schema_fix
 
     # touches nothing the schema needs: result still nonconforming
     reply = _fix({"tool": "update_frontmatter",

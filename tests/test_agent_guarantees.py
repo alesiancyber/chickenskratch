@@ -12,9 +12,9 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from harness.agent import Agent
-from harness.profiles import Profile
-from harness.skills import Skill
+from tezcat.agent import Agent
+from tezcat.profiles import Profile
+from tezcat.skills import Skill
 
 # --------------- fakes ---------------
 
@@ -446,8 +446,8 @@ def test_cli_citations_are_plain_paths(tmp_path):
     and the line, printed. It used to be an obsidian:// URL; a terminal
     that launches another app to show you your own note is treating that
     app as the surface, which tezcat no longer does."""
-    from harness.agent import Agent
-    from harness.profiles import Profile
+    from tezcat.agent import Agent
+    from tezcat.profiles import Profile
 
     agent = Agent(Profile(name="f", model="f"), servers=[], vault=str(tmp_path))
     agent._cited = {"Meetings/Q3.md": {14}}
@@ -459,8 +459,8 @@ def test_cli_citations_are_plain_paths(tmp_path):
 def test_pane_citations_are_vault_links_carrying_the_line():
     """The pane owns an editor, so a source must open THERE — and on the
     line the answer actually drew from, not at the top of the note."""
-    from harness.agent import Agent, app_note_link
-    from harness.profiles import Profile
+    from tezcat.agent import Agent, app_note_link
+    from tezcat.profiles import Profile
 
     agent = Agent(Profile(name="f", model="f"), servers=[], vault="/v",
                   note_link=app_note_link)
@@ -471,8 +471,8 @@ def test_pane_citations_are_vault_links_carrying_the_line():
 
 
 def test_citations_still_skip_notes_the_model_already_named():
-    from harness.agent import Agent, app_note_link
-    from harness.profiles import Profile
+    from tezcat.agent import Agent, app_note_link
+    from tezcat.profiles import Profile
 
     agent = Agent(Profile(name="f", model="f"), servers=[], vault="/v",
                   note_link=app_note_link)

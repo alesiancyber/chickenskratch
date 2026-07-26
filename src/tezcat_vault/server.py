@@ -5,7 +5,7 @@ note tools (search, read, section edits). Any MCP client can use this
 server; the harness in this repo is just one of them. Every mutation is
 bracketed by git snapshots so changes are always revertible.
 
-Run: OBSIDIAN_VAULT_PATH=/path/to/vault obsidian-mcp
+Run: TEZCAT_VAULT_PATH=/path/to/vault tezcat-vault-mcp
 """
 
 from __future__ import annotations
@@ -711,7 +711,7 @@ def create_meeting_note(title: str, date: str = "", attendees: str = "") -> dict
 
 
 def main() -> None:
-    get_vault()  # fail fast if OBSIDIAN_VAULT_PATH is bad
+    get_vault()  # fail fast if TEZCAT_VAULT_PATH is bad
     mcp.run()
 
 

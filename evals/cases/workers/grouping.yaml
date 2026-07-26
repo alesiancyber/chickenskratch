@@ -1,5 +1,5 @@
 # Judgment cases for the grouping worker (DESIGN-review-dashboard.md §3,
-# gate D2). Run live:  uv run harness-worker-eval -k grouping
+# gate D2). Run live:  uv run tezcat-worker-eval -k grouping
 #
 # Case schema (worker: grouping):
 #   tasks:         the candidate set, [{id, text}] — ids are what's scored

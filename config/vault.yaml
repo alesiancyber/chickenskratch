@@ -33,8 +33,8 @@ schemas_dir: schemas
 # review/today/changes were retired: they were renderings of state the
 # dashboard shows better, and Review.md was a second consent channel that
 # cost the engine a checkbox parser, a render guard, a mid-pass sweep,
-# and the daemon's whole fast lane. `harness today` / `harness changes`
-# print the retired views on demand; `harness decide` is consent without
+# and the daemon's whole fast lane. `tezcat today` / `tezcat changes`
+# print the retired views on demand; `tezcat decide` is consent without
 # a UI. Capture.md is NOT in that category — it is the canvas's
 # write-ahead log, written before extraction so a dump survives it.
 surfaces:

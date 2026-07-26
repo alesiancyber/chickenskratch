@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import re
 
-from obsidian_mcp.vault import Vault, VaultError
-from obsidian_mcp.vaultconfig import get_config
+from tezcat_vault.vault import Vault, VaultError
+from tezcat_vault.vaultconfig import get_config
 
 from . import cancel, commands, events, processors, proposals
 from .corpus import record_revert
@@ -96,7 +96,7 @@ def complete_task(vault_path: str, note: str, text: str) -> dict:
     moved — the row was stale, refetch)."""
     from . import applier
     applier.use_vault(vault_path)
-    from obsidian_mcp import server
+    from tezcat_vault import server
 
     result = server.set_task_status(note, text, True)
     events.emit(vault_path, "vault_changed", {"reason": "task_done", "note": note})

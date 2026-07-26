@@ -16,14 +16,14 @@
 servers:
   obsidian:
     transport: stdio
-    command: ["{python}", "-m", "obsidian_mcp.server"]
+    command: ["{python}", "-m", "tezcat_vault.server"]
     env:
-      OBSIDIAN_VAULT_PATH: "{vault}"
+      TEZCAT_VAULT_PATH: "{vault}"
     enabled: true
 
   files:
     transport: stdio
-    command: ["{python}", "-m", "files_mcp.server"]
+    command: ["{python}", "-m", "tezcat_files.server"]
     env:
       FILES_ROOTS: "~"       # colon-separated allowlist of searchable dirs
     enabled: true

@@ -10,7 +10,7 @@ import asyncio
 
 import pytest
 
-from harness import diffs, proposals
+from tezcat import diffs, proposals
 
 
 def test_diff_rows_marks_rows_and_words():
@@ -54,7 +54,7 @@ def test_a_queued_proposal_previews_as_a_unified_diff(vault, make_watcher):
     """One drafted proposal, two renderings of the same simulate: the
     dashboard's rows and the plain unified fence. Neither is HTML — the
     inline-styled emitter was cut in Phase 0 and must not come back."""
-    from harness import applier
+    from tezcat import applier
 
     async def rewording_drafter(item):
         return {"title": f"Rework {item['note']}", "summary": "reword",
@@ -82,7 +82,7 @@ def test_a_plan_that_cannot_be_simulated_is_described_not_raised():
     malformed YAML used to throw yaml.ScannerError straight out — into
     the dashboard's /api/review (a 500 that empties the queue view) and,
     once the verifier shared this walk, into the auto-apply gate."""
-    from harness import applier
+    from tezcat import applier
 
     p = {"drafted_against": {"note": "Home.md"}, "apply": [
         {"tool": "add_task", "args": {"path": "Home.md", "text": "x"}},

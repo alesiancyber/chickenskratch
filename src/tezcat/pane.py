@@ -26,7 +26,7 @@ import asyncio
 import os
 import uuid
 
-from obsidian_mcp import ids
+from tezcat_vault import ids
 
 from . import cancel
 from .corpus import record_confirm

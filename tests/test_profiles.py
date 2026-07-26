@@ -2,7 +2,7 @@
 
 import pytest
 
-from harness.profiles import load_config
+from tezcat.profiles import load_config
 
 MINIMAL_YAML = """
 default: local-model

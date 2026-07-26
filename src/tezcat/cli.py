@@ -1,7 +1,7 @@
 """CLI entry point.
 
 One-shot:     harness "add a task to renew the domain by next friday"
-Interactive:  harness -i
+Interactive:  tezcat -i
 Model swap:   harness -m qwen3-8b "..."
 Skip gates:   harness --yes "..."   (auto-approve write tools)
 
@@ -10,9 +10,9 @@ research/surface-subtraction-plan.md). Today.md, Changes.md, and
 Review.md were retired as machine-rendered surfaces; these print or act
 on exactly the same state, on demand, without a running dashboard:
 
-  harness today                     the attention view
-  harness changes                   recent snapshots
-  harness decide <pid> approve      consent, headless
+  tezcat today                     the attention view
+  tezcat changes                   recent snapshots
+  tezcat decide <pid> approve      consent, headless
 
 That last one matters most: retiring Review.md removed a consent
 channel, and consent must never be reachable from only one process.
@@ -37,8 +37,8 @@ def _run_verb(verb: str, rest: list[str], vault: str) -> int:
     straight to the collectors the dashboard uses; `decide` goes through
     service.decide, so it takes the same pass lock and the same _act as
     the button — one decision path, two front doors."""
-    from obsidian_mcp.vault import Vault
-    from obsidian_mcp.vaultconfig import get_config
+    from tezcat_vault.vault import Vault
+    from tezcat_vault.vaultconfig import get_config
 
     from . import changes as changes_mod
     from . import proposals, service
@@ -55,7 +55,7 @@ def _run_verb(verb: str, rest: list[str], vault: str) -> int:
         return 0
     # decide
     if len(rest) != 2 or rest[1] not in ("approve", "reject"):
-        print("usage: harness decide <proposal-id> approve|reject")
+        print("usage: tezcat decide <proposal-id> approve|reject")
         return 2
     pid, verdict = rest
     try:
@@ -67,7 +67,8 @@ def _run_verb(verb: str, rest: list[str], vault: str) -> int:
         print(f"not applied: {e}")
         return 1
     done = summary["approved"] or summary["rejected"]
-    print(f"{verdict}d {pid}" if done else
+    past = "approved" if verdict == "approve" else "rejected"
+    print(f"{past} {pid}" if done else
           f"nothing applied — {pid} was stale or already resolved")
     return 0 if done else 1
 
@@ -80,20 +81,20 @@ async def _confirm(name: str, args: dict) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="harness",
+        prog="tezcat",
         description="tezcat's chat escape hatch, plus the today/changes/decide verbs")
     parser.add_argument("prompt", nargs="*",
                         help="request to run (omit with -i for a REPL), or one of: "
                              + ", ".join(_VERBS))
     parser.add_argument("-m", "--model", help="model profile name from models.yaml")
-    parser.add_argument("-v", "--vault", help="vault path (default: config, or $OBSIDIAN_VAULT_PATH)")
+    parser.add_argument("-v", "--vault", help="vault path (default: config, or $TEZCAT_VAULT_PATH)")
     parser.add_argument("-c", "--config", default=str(DEFAULT_MODELS), help="path to models.yaml")
     parser.add_argument("--mcp-config", default=str(DEFAULT_MCP), help="path to mcp.yaml")
     parser.add_argument("-i", "--interactive", action="store_true", help="multi-turn REPL")
     parser.add_argument("-y", "--yes", action="store_true", help="auto-approve write tools")
     args = parser.parse_args()
 
-    # The verbs run before any model machinery is touched: `harness today`
+    # The verbs run before any model machinery is touched: `tezcat today`
     # must work with every endpoint down.
     if args.prompt and args.prompt[0] in _VERBS:
         _config, vault, _servers = load_runtime(args.config, args.mcp_config, args.vault)

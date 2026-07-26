@@ -1,6 +1,6 @@
 """Usage stats: persistent per-model totals."""
 
-from harness.stats import record_run, totals
+from tezcat.stats import record_run, totals
 
 
 def test_record_and_totals_accumulate(tmp_path):

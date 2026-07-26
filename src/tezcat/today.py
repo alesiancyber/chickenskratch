@@ -1,8 +1,10 @@
-"""Harness/Today.md — the attention surface (v1: deterministic aggregator).
+"""The attention view (deterministic aggregator).
 
 A dashboard is a VIEW, not a mutation: it proposes attention, never
-changes, so it needs none of the trust machinery — no checkbox, no
-verifier, no staleness. Wrongness costs a glance. v1 is pure tier-0
+changes, so it needs none of the trust machinery — no verdict, no
+verifier, no staleness. Wrongness costs a glance. `collect` feeds
+/api/today; `to_markdown` is what `tezcat today` prints (it was rendered
+into Harness/Today.md until 2026-07-26). v1 is pure tier-0
 code over the existing parsers; a triage worker (ranking, nudges) is a
 later, separately-evaled layer that must earn its place over this
 deterministic core.
@@ -27,10 +29,10 @@ from __future__ import annotations
 
 import datetime as dt
 
-from obsidian_mcp import kanban as kb
-from obsidian_mcp import markdown as md
-from obsidian_mcp import tasks as tk
-from obsidian_mcp.vault import Vault, VaultError, read_lossy
+from tezcat_vault import kanban as kb
+from tezcat_vault import markdown as md
+from tezcat_vault import tasks as tk
+from tezcat_vault.vault import Vault, VaultError, read_lossy
 
 SOON_DAYS = 3   # "due soon" horizon
 MAX_ROWS = 8    # per section; the rest folds behind a "+N more"
@@ -247,7 +249,7 @@ def _in_flight_row_md(r: dict) -> str:
 
 def to_markdown(model: dict) -> str:
     """Pure function of the view-model. This stopped being written into
-    the vault on 2026-07-26 — it is now what `harness today` prints, the
+    the vault on 2026-07-26 — it is now what `tezcat today` prints, the
     headless view for when the dashboard isn't running."""
     today = dt.date.fromisoformat(model["date"])
     capture = model["surfaces"]["capture"]
@@ -261,7 +263,7 @@ def to_markdown(model: dict) -> str:
 
     if model["pending_decisions"]:
         lines += ["", f"⚠ **{model['pending_decisions']} pending decision(s) — "
-                      f"the dashboard, or `harness decide <id> approve`**"]
+                      f"the dashboard, or `tezcat decide <id> approve`**"]
 
     lines += ["", "## Due", *_due_section_md(model["due"])]
 
@@ -284,7 +286,7 @@ def to_markdown(model: dict) -> str:
 
     if model["activity"]:
         lines += ["", f"_{model['activity']} vault change(s) since midnight "
-                      f"— `harness changes`_"]
+                      f"— `tezcat changes`_"]
 
     return "\n".join(lines) + "\n"
 

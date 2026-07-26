@@ -2,7 +2,7 @@
 
 import pytest
 
-from files_mcp import server
+from tezcat_files import server
 
 
 @pytest.fixture()

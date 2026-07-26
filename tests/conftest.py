@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-import obsidian_mcp.vault as vault_mod
-from harness.watcher import Watcher
-from obsidian_mcp.vault import Vault
+import tezcat_vault.vault as vault_mod
+from tezcat.watcher import Watcher
+from tezcat_vault.vault import Vault
 
 FIXTURE_VAULT = Path(__file__).resolve().parent / "fixture_vault"
 
@@ -23,11 +23,11 @@ def vault(tmp_path, monkeypatch):
     real data/ events files."""
     root = tmp_path / "vault"
     shutil.copytree(FIXTURE_VAULT, root, ignore=shutil.ignore_patterns(".git"))
-    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(root))
+    monkeypatch.setenv("TEZCAT_VAULT_PATH", str(root))
     monkeypatch.delenv("HARNESS_CHAT_ID", raising=False)
     monkeypatch.setattr(vault_mod, "_vault", None)
-    monkeypatch.setattr("harness.events.ROOT", tmp_path)
-    monkeypatch.setattr("harness.corpus.CORPUS_DIR", tmp_path / "corpus")
+    monkeypatch.setattr("tezcat.events.ROOT", tmp_path)
+    monkeypatch.setattr("tezcat.corpus.CORPUS_DIR", tmp_path / "corpus")
     return root
 
 
@@ -42,7 +42,7 @@ def gitvault(vault):
 def make_watcher(tmp_path, monkeypatch):
     """Watcher factory: isolated queue/state, corpus recording off. Kwargs
     pass through (drafters, n_max, registry, disabled)."""
-    monkeypatch.setattr("harness.watcher.record_dashboard", lambda *a, **k: None)
+    monkeypatch.setattr("tezcat.watcher.record_dashboard", lambda *a, **k: None)
 
     def make(vault_path, **kw):
         kw.setdefault("proposals_dir", tmp_path / "proposals")

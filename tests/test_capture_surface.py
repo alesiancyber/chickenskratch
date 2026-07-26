@@ -7,10 +7,10 @@ import asyncio
 
 import pytest
 
-import obsidian_mcp.vault as vault_mod
-from harness import proposals
-from harness.processors import CAPTURE_SKELETON
-from obsidian_mcp.vault import Vault
+import tezcat_vault.vault as vault_mod
+from tezcat import proposals
+from tezcat.processors import CAPTURE_SKELETON
+from tezcat_vault.vault import Vault
 
 EXTRACTED = [
     {"text": "Migrate the DNS records", "due": "2026-07-24", "priority": "high"},
@@ -83,7 +83,7 @@ def test_typed_text_becomes_a_capture_proposal(vault, watcher):
     # renders as steps, and what partial approval picks from
     assert "Migrate the DNS records — due 2026-07-24, high" in p["issues"]
     # capture is a no-diff kind: its issues list IS the payload
-    from harness.processors import REGISTRY
+    from tezcat.processors import REGISTRY
     assert not next(s for s in REGISTRY if s.name == "capture").render_diff
 
 
@@ -106,7 +106,7 @@ def test_same_text_is_never_drafted_twice(vault, watcher):
 
 def test_approve_adds_tasks_and_clears_the_surface(vault, watcher, monkeypatch):
     recorded = []
-    monkeypatch.setattr("harness.watcher.record_dashboard",
+    monkeypatch.setattr("tezcat.watcher.record_dashboard",
                         lambda p, d, **k: recorded.append((p["kind"], d)))
     run(watcher)
     type_into_capture(vault, "\nmigrate dns and revisit pricing\n")

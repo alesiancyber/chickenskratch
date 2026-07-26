@@ -3,7 +3,7 @@ lookups must tolerate model-side hyphen/underscore mangling."""
 
 import json
 
-from harness.mcp_client import (
+from tezcat.mcp_client import (
     MultiServerClient,
     ToolInfo,
     digest_docs_search,
@@ -63,7 +63,7 @@ def test_call_reconnects_a_rotted_session(monkeypatch):
     from contextlib import AsyncExitStack
     from types import SimpleNamespace
 
-    from harness.mcp_client import MultiServerClient, ServerSpec, ToolInfo
+    from tezcat.mcp_client import MultiServerClient, ServerSpec, ToolInfo
 
     spec = ServerSpec(name="docs", transport="http", url="http://x")
     c = MultiServerClient([spec])

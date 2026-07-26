@@ -12,9 +12,9 @@ import asyncio
 
 import pytest
 
-from harness import cancel, proposals, service
-from harness.agent import CANCELLED_TEXT, CANCELLED_TOOL_TEXT
-from harness.watcher import Watcher
+from tezcat import cancel, proposals, service
+from tezcat.agent import CANCELLED_TEXT, CANCELLED_TOOL_TEXT
+from tezcat.watcher import Watcher
 
 
 @pytest.fixture(autouse=True)
@@ -28,7 +28,7 @@ def clean_flags():
 
 @pytest.fixture()
 def wkw(tmp_path, monkeypatch):
-    monkeypatch.setattr("harness.watcher.record_dashboard", lambda *a, **k: None)
+    monkeypatch.setattr("tezcat.watcher.record_dashboard", lambda *a, **k: None)
     return {"proposals_dir": tmp_path / "proposals", "state_path": tmp_path / "state.json"}
 
 
@@ -93,9 +93,9 @@ def test_jobs_are_independent():
 
 def _agent(responses, should_cancel):
     """Same scripted fakes test_agent_guarantees uses, with a stop token."""
-    from harness.agent import Agent
-    from harness.profiles import Profile
     from tests.test_agent_guarantees import FakeMCP, FakeOpenAI
+    from tezcat.agent import Agent
+    from tezcat.profiles import Profile
 
     agent = Agent(Profile(name="fake", model="fake"), servers=[],
                   should_cancel=should_cancel)

@@ -10,7 +10,7 @@ default: gemini-3.1-pro   # explicit cloud switch 2026-07-22; local profiles bel
 worker: gemini-3.1-pro    # profile the background workers run on (WORKER_* env still overrides)
 vault: ../testvault   # relative to this config file
 
-# Local model servers, started/stopped with `harness-backends`.
+# Local model servers, started/stopped with `tezcat-backends`.
 # Profiles map to a backend by base_url. The harness only ever stops
 # processes it started itself; a backend launched elsewhere shows as
 # "external" and is left alone. Remote endpoints (the future homelab
@@ -25,7 +25,7 @@ backends:
     # env:
     #   OLLAMA_CONTEXT_LENGTH: "16384"
   mlx-worker:
-    # Dedicated worker model (task extraction — src/obsidian_mcp/workers.py).
+    # Dedicated worker model (task extraction — src/tezcat_vault/workers.py).
     # --chat-template-args disables Qwen3.5's default thinking mode: with it
     # on, every reply hides in `reasoning` and the worker fails loud.
     # A/B vs gemma4:e2b (2026-07-20, evals/reports/workers/): 7/8 vs 6/8,

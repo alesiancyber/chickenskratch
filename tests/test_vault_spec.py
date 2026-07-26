@@ -3,8 +3,8 @@ map, id/block-ref primitives, Private/ exclusions, Chat-Id trailers."""
 
 import pytest
 
-import obsidian_mcp.vault as vault_mod
-from obsidian_mcp import ids, jsonval, server, tasks, vaultconfig
+import tezcat_vault.vault as vault_mod
+from tezcat_vault import ids, jsonval, server, tasks, vaultconfig
 
 # ---- jsonval (B1) ----
 
@@ -125,7 +125,7 @@ def test_symlinked_notes_do_not_leak(vault):
 
 
 def test_write_is_atomic_and_leaves_no_litter(vault):
-    import obsidian_mcp.vault as vm
+    import tezcat_vault.vault as vm
     v = vm.get_vault()
     v.write("Tasks/Atomic.md", "one\n")
     v.write("Tasks/Atomic.md", "two\n")
@@ -182,7 +182,7 @@ def test_renderer_knobs_left_spec_with_the_owned_ui():
 def test_a_stale_link_scheme_in_vault_yaml_is_inert(tmp_path):
     """The knob is gone (tezcat opens notes in tezcat). A config file that
     still carries it loads fine and simply ignores it — an old vault.yaml
-    must never wedge the harness."""
+    must never wedge the tezcat."""
     cfg = tmp_path / "vault.yaml"
     cfg.write_text("link_scheme: vscode\n")
     loaded = vaultconfig.load_config(cfg)
@@ -201,7 +201,7 @@ def test_the_vault_lock_is_bounded_not_forever(tmp_path, monkeypatch):
 
     import pytest
 
-    from obsidian_mcp.vault import Vault, VaultError
+    from tezcat_vault.vault import Vault, VaultError
 
     root = tmp_path / "v"
     root.mkdir()
@@ -223,9 +223,9 @@ def test_meetings_dir_is_a_spec_key_like_daily_dir(vault, monkeypatch):
     meeting sections."""
     import datetime as dt
 
-    import obsidian_mcp.vault as vault_mod
-    from harness import today as today_mod
-    from obsidian_mcp import server, vaultconfig
+    import tezcat_vault.vault as vault_mod
+    from tezcat import today as today_mod
+    from tezcat_vault import server, vaultconfig
 
     spec = vault / "Harness" / "Spec.md"
     spec.parent.mkdir(parents=True, exist_ok=True)

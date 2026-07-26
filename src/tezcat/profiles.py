@@ -55,7 +55,7 @@ class Config:
             raise KeyError(f"No model profile {key!r}. Available: {', '.join(self.models)}")
         profile = self.models[key]
         # api_key_env resolves at use, not load: a cloud profile you never
-        # select must not demand its key just to start the harness.
+        # select must not demand its key just to start the tezcat.
         if profile.api_key_env:
             env_key = os.environ.get(profile.api_key_env)
             if not env_key:

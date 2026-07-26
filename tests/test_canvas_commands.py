@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from harness import commands, service
+from tezcat import commands, service
 
 
 @pytest.fixture()

@@ -1,13 +1,13 @@
 """The audit view for a system that edits without asking: renders the
 vault's git log and filters out the harness redrawing its own surfaces.
 Stopped being a note in the vault on 2026-07-26 — it is now what
-`harness changes` prints and what /api/changes serves."""
+`tezcat changes` prints and what /api/changes serves."""
 
 import asyncio
 
 import pytest
 
-from obsidian_mcp.vault import Vault
+from tezcat_vault.vault import Vault
 
 
 @pytest.fixture()
@@ -20,8 +20,8 @@ def run(w):
 
 
 def view(vault, limit=20):
-    from harness import changes
-    from obsidian_mcp.vaultconfig import get_config
+    from tezcat import changes
+    from tezcat_vault.vaultconfig import get_config
 
     return changes.render(Vault(vault), get_config(str(vault)), limit)
 

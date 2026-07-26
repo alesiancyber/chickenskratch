@@ -7,7 +7,7 @@ is the front end, not a companion to someone else's. You write; the
 harness extracts tasks, fixes structure, answers
 typed `//commands` in place, and queues anything needing judgment for a
 one-key verdict on the dashboard. Every mutation is a git commit;
-`harness-revert` undoes any of them. Principles and invariants:
+`tezcat-revert` undoes any of them. Principles and invariants:
 [PHILOSOPHY.md](PHILOSOPHY.md).
 
 Two classes of change, two contracts:
@@ -22,7 +22,7 @@ Two classes of change, two contracts:
 ## Layout
 
 ```
-src/obsidian_mcp/   vault core: path safety, git snapshots, markdown/task/
+src/tezcat_vault/   vault core: path safety, git snapshots, markdown/task/
                     kanban parsing, entity schemas, MCP server, LLM workers
 src/harness/        the engine: watcher pass, commands, processors, applier,
                     proposals, evals, CLI chat, backends
@@ -31,7 +31,7 @@ config/             models.yaml (profiles/backends/worker), mcp.yaml
                     (MCP servers), vault.yaml (spec defaults), schemas/
 data/               proposals, corpus (training labels), stats, logs
 evals/              agent suite + worker suite (the model-bakeoff gate)
-web/                the owned dashboard (React; built assets served by harness-ui)
+web/                the owned dashboard (React; built assets served by tezcat-ui)
 research/           plans and what-ifs; owned-surfaces-plan.md is the
                     operative UI spec, the rest is not canon
 testvault/          scratch vault the default config points at
@@ -53,14 +53,14 @@ convenience, not a replacement (everything it does, you can do by hand):
 **The manual steps** (what the script automates):
 
 1. **Build.** `uv sync`, then `cd daemon && cargo build --release`.
-2. **Point at a vault.** Precedence: `--vault` flag > `OBSIDIAN_VAULT_PATH`
+2. **Point at a vault.** Precedence: `--vault` flag > `TEZCAT_VAULT_PATH`
    (put it in `.env` to pin it for every CLI) > `vault:` in
    `config/models.yaml`.
 3. **Models.** Any OpenAI-compatible endpoint: profiles in
    `config/models.yaml`, cloud keys via `.env` (`api_key_env` — keys
    never live in config or the vault), local servers under `backends:`
-   (start/stop with `harness-backends`).
-4. **First engine pass.** `uv run harness-watch` — the engine is
+   (start/stop with `tezcat-backends`).
+4. **First engine pass.** `uv run tezcat-watch` — the engine is
    self-bootstrapping: seeds `Harness/Spec.md` from `config/vault.yaml`
    defaults and inits the vault's own git repo.
 5. **The daemon.** Manual run:
@@ -98,9 +98,9 @@ nothing the renderer alone doesn't.
 - **Headless**, when no UI is running:
 
   ```sh
-  uv run harness today                      # the attention view
-  uv run harness changes                    # the audit log
-  uv run harness decide p-8f3c21a09b4e approve
+  uv run tezcat today                      # the attention view
+  uv run tezcat changes                    # the audit log
+  uv run tezcat decide p-8f3c21a09b4e approve
   ```
 
   The 6am heartbeat (`config/launchd/com.tezcat.heartbeat.plist`) covers
@@ -114,7 +114,7 @@ nothing the renderer alone doesn't.
   Renderer choices are repo config, not Spec keys: diffs are always
   unified ```diff and callouts always `NOTE`. (There is no
   `link_scheme` any more — see "Editor notes" below.)
-- **The dashboard** — `uv run harness-ui` (127.0.0.1:8399): the live
+- **The dashboard** — `uv run tezcat-ui` (127.0.0.1:8399): the live
   attention/decision surface, and since 2026-07-26 the primary one.
   Pending proposals with rich side-by-side diffs, approve/reject/revert
   buttons (the same gated paths every other channel uses), j/k·a/r
@@ -127,7 +127,7 @@ nothing the renderer alone doesn't.
   you typed it. Same pipeline as Capture.md — the editor path keeps
   working identically.
 - **The pane** (⌘J) — the chat escape hatch, re-homed: the same Agent
-  loop as `harness -i`, with tool calls visible as expandable rows and
+  loop as `tezcat -i`, with tool calls visible as expandable rows and
   write-gated calls as Allow/Deny chips (every verdict recorded to the
   training corpus). Transcripts are scratch; the vault is the archive.
 - **The file explorer** (⌘B) — a collapsible rail for the times you
@@ -150,16 +150,16 @@ what the harness sees.
 ## CLI
 
 ```sh
-uv run harness "add a task to renew the domain by friday"   # chat escape hatch
-uv run harness -i                                           # REPL
-uv run harness today             # the attention view (was Harness/Today.md)
-uv run harness changes           # the audit log   (was Harness/Changes.md)
-uv run harness decide <pid> approve|reject    # consent without a UI process
-uv run harness-revert            # list snapshots; harness-revert <sha> undoes one
-uv run harness-ui                # the dashboard server (127.0.0.1:8399)
-uv run harness-backends          # list/start/stop local model servers
-uv run harness-eval -m <profile>         # agent suite (fixture vault, scored on files)
-uv run harness-worker-eval -m <model>    # worker suite: 69 cases × 3 repeats;
+uv run tezcat "add a task to renew the domain by friday"   # chat escape hatch
+uv run tezcat -i                                           # REPL
+uv run tezcat today             # the attention view (was Harness/Today.md)
+uv run tezcat changes           # the audit log   (was Harness/Changes.md)
+uv run tezcat decide <pid> approve|reject    # consent without a UI process
+uv run tezcat-revert            # list snapshots; tezcat-revert <sha> undoes one
+uv run tezcat-ui                # the dashboard server (127.0.0.1:8399)
+uv run tezcat-backends          # list/start/stop local model servers
+uv run tezcat-eval -m <profile>         # agent suite (fixture vault, scored on files)
+uv run tezcat-worker-eval -m <model>    # worker suite: 69 cases × 3 repeats;
                                          # schema_fix scored by the production verifier
 ```
 
@@ -170,7 +170,7 @@ Model swaps are eval-gated — reports land in `evals/reports/`.
 The vault server plugs into any MCP client (Claude Desktop/Code):
 
 ```sh
-OBSIDIAN_VAULT_PATH=~/Vaults/personal uv run obsidian-mcp
+TEZCAT_VAULT_PATH=~/Vaults/personal uv run tezcat-vault-mcp
 ```
 
 19 tools: notes (`list_notes`, `read_note`, `search_vault`,
@@ -182,7 +182,7 @@ OBSIDIAN_VAULT_PATH=~/Vaults/personal uv run obsidian-mcp
 correctness (a model never hand-edits kanban markdown); edits are
 anchored to headings/tasks/lines — whole-file rewrites don't exist.
 
-Read-only filesystem search: `FILES_ROOTS="~" uv run files-mcp`.
+Read-only filesystem search: `FILES_ROOTS="~" uv run tezcat-files-mcp`.
 
 ## Tests
 

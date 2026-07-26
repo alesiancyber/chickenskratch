@@ -3,7 +3,7 @@
 Verified auto-apply means the harness edits the vault without asking, so
 this exists to answer for it. A rendered view of the vault's own git log:
 every row is one snapshot commit, so revert (the dashboard's ↺, or
-`harness-revert`) always applies.
+`tezcat-revert`) always applies.
 
 It was a note in the vault until 2026-07-26; now it is what `harness
 changes` prints and what /api/changes serves. Deliberately never a
@@ -12,14 +12,14 @@ revert checkbox: destructive actions don't ride text files.
 
 from __future__ import annotations
 
-from obsidian_mcp.vault import Vault
+from tezcat_vault.vault import Vault
 
 HEADER = """\
 # Changes
 
 _Recent vault snapshots, newest first — everything the harness (or you,
 between passes) committed. Every row is one git commit; undo from the
-dashboard, or `harness-revert <sha>` in a terminal. Rows made inside a
+dashboard, or `tezcat-revert <sha>` in a terminal. Rows made inside a
 chat turn carry its chat id._
 """
 

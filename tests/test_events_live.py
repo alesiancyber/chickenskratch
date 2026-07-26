@@ -10,12 +10,12 @@ import asyncio
 
 import pytest
 
-from harness import events
+from tezcat import events
 
 
 @pytest.fixture()
 def anchored(tmp_path, monkeypatch):
-    monkeypatch.setattr("harness.events.ROOT", tmp_path)
+    monkeypatch.setattr("tezcat.events.ROOT", tmp_path)
     return "/some/vault"
 
 

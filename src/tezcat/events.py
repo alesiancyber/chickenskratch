@@ -15,7 +15,7 @@ import datetime as dt
 import json
 from pathlib import Path
 
-from obsidian_mcp.vault import atomic_write_text
+from tezcat_vault.vault import atomic_write_text
 
 from .bootstrap import ROOT, vault_digest
 from .fanout import Fanout
@@ -29,7 +29,7 @@ FANOUT_MAX = 200
 # task checked off, a note saved — so the file tail is the wrong delivery
 # path for them: it costs a poll interval of latency for something we
 # already have in hand. The file stays the durable record and the ONLY
-# path for other processes (harness-watch, the cron heartbeat), which is
+# path for other processes (tezcat-watch, the cron heartbeat), which is
 # why this is an addition, not a replacement. The bounded per-listener
 # fanout itself lives in fanout.py — the pane needs the same thing.
 _live = Fanout(FANOUT_MAX)

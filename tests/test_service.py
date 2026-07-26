@@ -7,9 +7,9 @@ import asyncio
 
 import pytest
 
-from harness import events, proposals, service
-from harness.watcher import Watcher
-from obsidian_mcp.vault import Vault, VaultError
+from tezcat import events, proposals, service
+from tezcat.watcher import Watcher
+from tezcat_vault.vault import Vault, VaultError
 
 
 @pytest.fixture()
@@ -20,7 +20,7 @@ def vault(gitvault):
 @pytest.fixture()
 def wkw(tmp_path, monkeypatch):
     """Watcher injection kwargs: isolated queue/state, corpus off."""
-    monkeypatch.setattr("harness.watcher.record_dashboard", lambda *a, **k: None)
+    monkeypatch.setattr("tezcat.watcher.record_dashboard", lambda *a, **k: None)
     return {"proposals_dir": tmp_path / "proposals", "state_path": tmp_path / "state.json"}
 
 
@@ -59,7 +59,7 @@ def test_decide_validates_its_inputs(vault, wkw):
 
 
 def test_the_same_verdict_twice_never_double_applies(vault, wkw):
-    """Two clicks, a retried request, the dashboard and `harness decide`
+    """Two clicks, a retried request, the dashboard and `tezcat decide`
     racing — the proposal resolves once. _act's resolved-set is the
     convergence guarantee, and it is now the ONLY thing standing between
     a double-submit and a doubled edit (2026-07-26: the checkbox channel
@@ -76,7 +76,7 @@ def test_ingest_feeds_the_capture_pipeline(vault, wkw):
     capture surface, extraction, and — capture being auto-trusted by
     default with a passing fidelity verifier — auto-apply + surface
     reset. The dump itself survives in git (the ingest snapshot)."""
-    from obsidian_mcp.vault import Vault
+    from tezcat_vault.vault import Vault
 
     async def extractor(text, today):
         assert "renew the domain" in text
@@ -90,7 +90,7 @@ def test_ingest_feeds_the_capture_pipeline(vault, wkw):
     assert result["summary"]["auto"] == 1
     assert "renew the domain" in (vault / "Tasks/Inbox.md").read_text()
     # applied -> the surface reset for the next dump; the dump text is
-    # one `harness-revert` away regardless
+    # one `tezcat-revert` away regardless
     assert "renew the domain" not in (vault / "Harness/Capture.md").read_text()
     assert any("ingest into" in c["subject"] for c in Vault(vault).history(10))
 
@@ -120,7 +120,7 @@ def test_ingest_empty_text_is_a_no_op(vault, wkw):
 def test_revert_undoes_a_snapshot_and_rejects_junk(vault, wkw):
     p = plant_proposal(vault, wkw)
     asyncio.run(service.decide(str(vault), p["id"], "approve", **wkw))
-    from obsidian_mcp.vault import Vault
+    from tezcat_vault.vault import Vault
 
     sha = next(c["sha"] for c in Vault(vault).history(10)
                if "Tasks/Inbox.md" in c["files"])
@@ -176,7 +176,7 @@ def test_complete_task_checks_off_through_the_gated_tool(vault, wkw):
     service.complete_task(str(vault), "Tasks/Inbox.md", "rotate the leaked service key")
     text = (vault / "Tasks/Inbox.md").read_text()
     assert "- [x] rotate the leaked service key" in text
-    from obsidian_mcp.vault import Vault
+    from tezcat_vault.vault import Vault
 
     assert Vault(vault).history(3)[0]["files"] == ["Tasks/Inbox.md"]  # snapshotted
 
@@ -284,7 +284,7 @@ def test_a_decision_that_never_gets_the_lock_fails_loud(vault, wkw, monkeypatch)
     reporting a pass that quietly did nothing."""
     import fcntl
 
-    from harness import watcher as watcher_mod
+    from tezcat import watcher as watcher_mod
     monkeypatch.setattr(watcher_mod, "DECISION_LOCK_WAIT_S", 0.2)
     monkeypatch.setattr(service, "DECISION_LOCK_WAIT_S", 0.2)
     p = plant_proposal(vault, wkw)
@@ -305,7 +305,7 @@ def test_a_lost_lock_restores_a_partially_approved_proposal(vault, wkw, monkeypa
     retry on."""
     import fcntl
 
-    from harness import watcher as watcher_mod
+    from tezcat import watcher as watcher_mod
     monkeypatch.setattr(watcher_mod, "DECISION_LOCK_WAIT_S", 0.2)
     monkeypatch.setattr(service, "DECISION_LOCK_WAIT_S", 0.2)
     p = proposals.new_proposal(
@@ -331,7 +331,7 @@ def test_ingest_defers_rather_than_losing_the_dump(vault, wkw, monkeypatch):
     surface — so losing the lock is deferral, not failure, and it says so."""
     import fcntl
 
-    from harness import watcher as watcher_mod
+    from tezcat import watcher as watcher_mod
     monkeypatch.setattr(watcher_mod, "DECISION_LOCK_WAIT_S", 0.2)
     monkeypatch.setattr(service, "DECISION_LOCK_WAIT_S", 0.2)
     lock_path = wkw["state_path"].with_suffix(".lock")

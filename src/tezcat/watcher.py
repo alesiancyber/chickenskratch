@@ -4,13 +4,13 @@ One pass = act on decisions handed in by a human verb → (if the vault
 moved) run every registered processor's deterministic `scan`, draft up
 to N proposals via their bounded `draft` calls → memoize the vault's git
 state so an unchanged vault makes the next pass free. `uv run
-harness-watch` runs one by hand or cron; tezcatd runs one when the vault
+tezcat-watch` runs one by hand or cron; tezcatd runs one when the vault
 settles.
 
 The markdown surfaces this engine used to render — Review.md, Today.md,
 Changes.md — were retired 2026-07-26 (research/surface-subtraction-plan.md).
 Consent arrives through `decisions` from a human verb (the dashboard
-button, `harness decide`), never by parsing a note back: the vault is
+button, `tezcat decide`), never by parsing a note back: the vault is
 storage again, not an input device. What survives is the queue in
 `data/` (authoritative all along) and `_act`, which both channels always
 shared. Capture.md stays — it is the canvas's write-ahead log, not a
@@ -32,11 +32,11 @@ import json
 import time
 from pathlib import Path
 
-from obsidian_mcp import markdown as md
-from obsidian_mcp import vaultconfig as vc
-from obsidian_mcp import workers as wk
-from obsidian_mcp.vault import Vault, VaultError, atomic_write_text
-from obsidian_mcp.vaultconfig import get_config
+from tezcat_vault import markdown as md
+from tezcat_vault import vaultconfig as vc
+from tezcat_vault import workers as wk
+from tezcat_vault.vault import Vault, VaultError, atomic_write_text
+from tezcat_vault.vaultconfig import get_config
 
 from . import applier, commands, events, processors, proposals
 from .bootstrap import ROOT, apply_worker_profile, vault_digest
@@ -272,7 +272,7 @@ class Watcher:
         user's edit won and the order lapses."""
         if not self.commands_enabled:
             return
-        from obsidian_mcp import server
+        from tezcat_vault import server
 
         cfg = get_config(self.vault_path)
         for item in commands.scan(self.vault, cfg.surface_dirs):
@@ -500,7 +500,7 @@ class Watcher:
             summary["locked"] = True
             return summary
         try:
-            # Point obsidian_mcp's in-process singleton at THIS vault for the
+            # Point tezcat_vault's in-process singleton at THIS vault for the
             # whole pass — scans, verifiers, and applies all resolve through
             # it, and no processor may depend on a sibling having set it.
             applier.use_vault(self.vault_path)
@@ -609,10 +609,10 @@ def main() -> None:
     from .bootstrap import load_runtime
 
     parser = argparse.ArgumentParser(
-        prog="harness-watch",
+        prog="tezcat-watch",
         description="One engine pass: scan the vault, draft proposals, auto-apply what verifies",
     )
-    parser.add_argument("-v", "--vault", help="vault path (default: config, or $OBSIDIAN_VAULT_PATH)")
+    parser.add_argument("-v", "--vault", help="vault path (default: config, or $TEZCAT_VAULT_PATH)")
     parser.add_argument("--n-max", type=int, default=None,
                         help="max proposals drafted this pass (default: Spec.md n_max)")
     parser.add_argument(

@@ -1,5 +1,5 @@
 # Judgment cases for the extract_tasks worker (DESIGN-mixed-models.md §7.4).
-# Run live:  uv run harness-worker-eval -m <worker model>
+# Run live:  uv run tezcat-worker-eval -m <worker model>
 # Scored structurally against the returned JSON, never against prose.
 #
 # Expectation schema per case:

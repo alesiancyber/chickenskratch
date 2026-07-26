@@ -8,7 +8,7 @@ import datetime as _dt
 
 import pytest
 
-from harness import proposals
+from tezcat import proposals
 
 TODAY = _dt.date.today().isoformat()
 

@@ -1,10 +1,10 @@
 //! tezcatd — the headless trigger.
 //!
 //! Deliberately dumb: watch one directory tree, wait for it to go quiet,
-//! run one command (`uv run harness-watch`). Every ounce of engine
+//! run one command (`uv run tezcat-watch`). Every ounce of engine
 //! intelligence stays in Python — the pass lock over there serializes
 //! concurrent triggers, so this daemon needs no coordination with anything.
-//! If this binary disappears, `harness-watch` by hand or cron does the
+//! If this binary disappears, `tezcat-watch` by hand or cron does the
 //! same job; nothing depends on it.
 //!
 //! Trigger model (2026-07-23): events as the trigger, fingerprint as the
@@ -109,12 +109,12 @@ struct Config {
 const USAGE: &str = "\
 tezcatd — watch the vault, wait for quiet, run one engine pass
 
-USAGE: tezcatd --vault <path> [--repo <path>] [--cmd \"uv run harness-watch\"]
+USAGE: tezcatd --vault <path> [--repo <path>] [--cmd \"uv run tezcat-watch\"]
                [--settle-secs 3] [--poll] [--interval-secs 5] [--tick-ms 300]
 
-  --vault             vault to watch (or OBSIDIAN_VAULT_PATH env)
+  --vault             vault to watch (or TEZCAT_VAULT_PATH env)
   --repo              working directory for the pass command (default: cwd)
-  --cmd               pass command, whitespace-split (default: uv run harness-watch)
+  --cmd               pass command, whitespace-split (default: uv run tezcat-watch)
   --settle-secs       quiet time required before a pass fires (default 3)
   --poll              use the legacy timer loop instead of filesystem events
   --interval-secs     [poll mode] seconds between tree scans (default 5)
@@ -122,13 +122,13 @@ USAGE: tezcatd --vault <path> [--repo <path>] [--cmd \"uv run harness-watch\"]
 
 Note: the --fast-file/--fast-cmd decision lane was removed 2026-07-26 with
 the Review.md checkbox channel. Decisions now arrive through the dashboard
-or `harness decide`, neither of which needs a file watcher.";
+or `tezcat decide`, neither of which needs a file watcher.";
 
 impl Config {
     fn parse(mut args: impl Iterator<Item = String>) -> Result<Config, String> {
-        let mut vault = env::var("OBSIDIAN_VAULT_PATH").ok().map(PathBuf::from);
+        let mut vault = env::var("TEZCAT_VAULT_PATH").ok().map(PathBuf::from);
         let mut repo = env::current_dir().map_err(|e| e.to_string())?;
-        let mut cmd = "uv run harness-watch".to_string();
+        let mut cmd = "uv run tezcat-watch".to_string();
         let mut interval = 5u64;
         let mut settle = 3u64;
         let mut tick = 300u64;
@@ -147,7 +147,7 @@ impl Config {
                 other => return Err(format!("unknown flag {other}\n\n{USAGE}")),
             }
         }
-        let vault = vault.ok_or(format!("--vault (or OBSIDIAN_VAULT_PATH) is required\n\n{USAGE}"))?;
+        let vault = vault.ok_or(format!("--vault (or TEZCAT_VAULT_PATH) is required\n\n{USAGE}"))?;
         if !vault.is_dir() {
             return Err(format!("vault directory not found: {}", vault.display()));
         }
@@ -179,10 +179,6 @@ fn run_cmd(cmd: &[String], repo: &Path) {
 
 fn run_pass(cfg: &Config) {
     run_cmd(&cfg.cmd, &cfg.repo);
-}
-
-fn mtime_of(p: &Path) -> Option<SystemTime> {
-    std::fs::metadata(p).and_then(|m| m.modified()).ok()
 }
 
 /// The event loop: block on filesystem events, fire a full pass once the
@@ -383,7 +379,7 @@ mod tests {
         let cfg = Config::parse(
             vec!["--vault".to_string(), dir.to_string_lossy().into_owned()].into_iter(),
         ).unwrap();
-        assert_eq!(cfg.cmd.join(" "), "uv run harness-watch");
+        assert_eq!(cfg.cmd.join(" "), "uv run tezcat-watch");
         assert!(!cfg.poll, "events are the default; --poll is the fallback");
         let _ = fs::remove_dir_all(&dir);
     }

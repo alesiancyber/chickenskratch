@@ -10,7 +10,7 @@ import asyncio
 import threading
 import time
 
-from harness import engine
+from tezcat import engine
 
 
 def test_a_blocking_coroutine_leaves_the_calling_loop_free():

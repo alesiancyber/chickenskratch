@@ -40,9 +40,9 @@ inside our UI.
 
    **The markdown surfaces were retired 2026-07-26**
    (`research/surface-subtraction-plan.md`). Review.md, Today.md, and
-   Changes.md are gone as notes; the same views are `harness today`,
-   `harness changes`, and the dashboard, and the same consent is a
-   dashboard button or `harness decide`. What survives is the rule that
+   Changes.md are gone as notes; the same views are `tezcat today`,
+   `tezcat changes`, and the dashboard, and the same consent is a
+   dashboard button or `tezcat decide`. What survives is the rule that
    mattered: **no surface owns state the vault and `data/` don't already
    hold**, so the data is never trapped — not the weaker claim that
    every view must also be a file. Anything that can't ride a surface
@@ -79,15 +79,15 @@ inside our UI.
    plan that could only be a malfunction (a cross-note schema fix) is
    never a proposal at all. Review isn't the product; *control* is.
 6. **Model swaps are measured, never vibes.** Any worker or chat model
-   change goes through the eval suites (`harness-eval`,
-   `harness-worker-eval`); the worker suite's scorers are the
+   change goes through the eval suites (`tezcat-eval`,
+   `tezcat-worker-eval`); the worker suite's scorers are the
    production verifiers, so a passing case means "would have
    auto-applied". Paraphrase clusters guard against a model passing on
    phrasing luck.
 7. **Chat is a frozen escape hatch.** It handles what no processor or
    command covers yet, and it gains no features — a prompt you issue
    twice is a processor or command candidate. It has two homes with one
-   contract: the CLI (`harness`, `harness -i`) and the collapsible
+   contract: the CLI (`tezcat`, `tezcat -i`) and the collapsible
    pane (⌘J, built 2026-07-25 — the same Agent loop with its hooks
    pointed at the pane: collapsed by default; tool calls visible as
    expandable rows; write gate inline as Allow/Deny chips, every
@@ -106,11 +106,11 @@ inside our UI.
 - **I1 — Every vault mutation goes through the gated vault operations,
   git-snapshotted before and after.** No processor, worker, command
   handler, or UI endpoint writes files directly. Revert is always one
-  commit away (`harness-revert`; the UI's undo is the same revert).
+  commit away (`tezcat-revert`; the UI's undo is the same revert).
 - **I2 — Proposals apply only through the queue, gated by consent —
   human or verified — and the consent channel is not model-reachable.**
   Default gate: a human verdict, which since 2026-07-26 means a
-  dashboard button or `harness decide` — both landing in the same
+  dashboard button or `tezcat decide` — both landing in the same
   `Watcher._act` under the same pass lock, so two front doors can never
   double-apply. The Review.md checkbox was the third door and is gone;
   consent no longer lives in a file at all, which is a stronger
@@ -136,7 +136,7 @@ inside our UI.
   keys stay repo-side (`models.yaml`, `.env`); the vault's `worker:`
   key picks a profile *name* only.
 - **I5 — Views are free; writes are not.** A read-only view (the
-  dashboard's reads, `harness today`) needs no trust machinery —
+  dashboard's reads, `tezcat today`) needs no trust machinery —
   wrongness costs a glance, never data. The dashboard's buttons are not
   views but I2 consent, riding the same gated paths. `Harness/` stays
   excluded from schema scans, grouping, capture extraction, and command
@@ -161,7 +161,7 @@ inside our UI.
                  vault (user writes, any editor)          data/ (queue, corpus)
                           ↓  filesystem events (tezcatd; --poll fallback)
                  engine pass (flock-serialized)
-   1. act on decisions — dashboard or `harness decide`   (human judgment)
+   1. act on decisions — dashboard or `tezcat decide`   (human judgment)
    2. execute //commands in place                        (user orders)
    3. scan → draft (one worker) → verify                 (suggestions, n_max-budgeted)
       → auto-apply if trusted+verified+unflagged, else queue
@@ -170,13 +170,13 @@ inside our UI.
             gated vault ops → git snapshot per mutation
 ```
 
-Every trigger — daemon, `harness-watch`, cron, the UI server — invokes
+Every trigger — daemon, `tezcat-watch`, cron, the UI server — invokes
 the same engine; the pass lock makes concurrent triggers safe. Spec.md
 is re-read every pass: worker model, n_max, disabled processors are
 note edits, no restart. The owned surfaces are a second renderer over
 the same state through the same gated paths — they add no state, no
 trust class, and no write that bypasses I1–I6. Built so far
-(2026-07-25): the live dashboard (`harness-ui`, 127.0.0.1-only — JSON
+(2026-07-25): the live dashboard (`tezcat-ui`, 127.0.0.1-only — JSON
 view-models + SSE over the pass's event log) with Phase-2 decisions:
 approve/reject/revert buttons and `run_pass`, every verb through
 `service.py`, resolving in one `_act` under one pass lock, so no two
@@ -221,8 +221,8 @@ parser and its render guard, the mid-pass late-decision sweep, the
 per-pass worker-reachability probe and git-log walk that existed to draw
 Changes.md, the full vault walk that existed to draw Today.md, and
 tezcatd's `--fast-file` lane (which now *rejects* the flag rather than
-ignoring it, so a stale plist fails loudly). `harness today`, `harness
-changes`, and `harness decide <id> approve|reject` keep every retired
+ignoring it, so a stale plist fails loudly). `tezcat today`, `harness
+changes`, and `tezcat decide <id> approve|reject` keep every retired
 view and the consent verb reachable with no UI process running.
 
 One bug surfaced by the removal, worth remembering: those per-pass

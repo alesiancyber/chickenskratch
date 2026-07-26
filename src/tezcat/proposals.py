@@ -3,8 +3,9 @@
 One JSON file per proposal under data/proposals/ — human-skimmable
 singles, like bug reports (high-volume append logs stay JSONL). Every
 file is validated against config/schemas/proposal.yaml on save: junk
-never enters the queue. data/ stays authoritative; Harness/Review.md is
-a rendered view of the pending set.
+never enters the queue. data/ is authoritative and, since the Review.md
+surface was retired (2026-07-26), it is the only record: the dashboard
+and `tezcat decide` both read the pending set straight from here.
 """
 
 from __future__ import annotations
@@ -16,9 +17,9 @@ import sys
 import time
 from pathlib import Path
 
-from obsidian_mcp import ids, jsonval
-from obsidian_mcp.schemas import load_schemas
-from obsidian_mcp.vault import atomic_write_text
+from tezcat_vault import ids, jsonval
+from tezcat_vault.schemas import load_schemas
+from tezcat_vault.vault import atomic_write_text
 
 from .bootstrap import ROOT, vault_digest
 

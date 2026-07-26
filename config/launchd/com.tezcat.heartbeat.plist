@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- The morning heartbeat: one engine pass at 06:00, so time-based
-     surfaces (Harness/Today.md's date rollover; future weekly review)
-     render even when the vault was quiet overnight. The engine's memo
-     makes it nearly free when nothing changed.
+<!-- The morning heartbeat: one engine pass at 06:00, so a vault that
+     was quiet overnight still gets scanned and the day's date-based
+     views (`tezcat today`) are computed against the new date. The
+     engine's memo makes it nearly free when nothing changed.
      Install: replace __REPO__ with the absolute repo path, then
        cp config/launchd/com.tezcat.heartbeat.plist ~/Library/LaunchAgents/
        launchctl load ~/Library/LaunchAgents/com.tezcat.heartbeat.plist -->
@@ -14,7 +14,7 @@
   <array>
     <string>/opt/homebrew/bin/uv</string>
     <string>run</string>
-    <string>harness-watch</string>
+    <string>tezcat-watch</string>
   </array>
   <key>WorkingDirectory</key><string>__REPO__</string>
   <key>StartCalendarInterval</key>
@@ -27,7 +27,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-    <key>OBSIDIAN_VAULT_PATH</key><string>__VAULT__</string>
+    <key>TEZCAT_VAULT_PATH</key><string>__VAULT__</string>
   </dict>
 </dict>
 </plist>

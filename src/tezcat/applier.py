@@ -1,7 +1,7 @@
 """In-process proposal applier.
 
 Approving a proposal executes its apply plan through the same vault
-operations a chat turn uses — obsidian_mcp.server's tool functions are
+operations a chat turn uses — tezcat_vault.server's tool functions are
 plain callables in this venv, and every write guarantee (path safety,
 git snapshots, loop-visible commits) lives in vault.py underneath them,
 so nothing is re-implemented and no MCP round-trip is needed. The
@@ -23,10 +23,10 @@ from pathlib import Path
 
 import yaml
 
-import obsidian_mcp.vault as vault_mod
-from obsidian_mcp import markdown as md
-from obsidian_mcp.vault import Vault
-from obsidian_mcp.vaultconfig import get_config
+import tezcat_vault.vault as vault_mod
+from tezcat_vault import markdown as md
+from tezcat_vault.vault import Vault
+from tezcat_vault.vaultconfig import get_config
 
 from .capture import capture_text
 from .proposals import content_hash
@@ -41,7 +41,7 @@ ALLOWED_TOOLS = {
 
 
 def use_vault(vault_path: str) -> None:
-    """Point obsidian_mcp's vault singleton at this vault for in-process
+    """Point tezcat_vault's vault singleton at this vault for in-process
     tool calls (the same env+reset idiom the test suite uses).
 
     DO NOT make this idempotent. Skipping the reset when the path is
@@ -53,7 +53,7 @@ def use_vault(vault_path: str) -> None:
     folder the user just excluded. Rebuilding is cheap — get_config is
     mtime-cached — so pay it.
     """
-    os.environ["OBSIDIAN_VAULT_PATH"] = str(vault_path)
+    os.environ["TEZCAT_VAULT_PATH"] = str(vault_path)
     vault_mod._vault = None
 
 
@@ -131,7 +131,7 @@ def apply(proposal: dict, vault_path: str) -> list[dict]:
     """Execute the plan through the gated vault tools. Each step snapshots
     itself, so a mid-plan failure leaves per-step commits in ↺ Changes."""
     use_vault(vault_path)
-    from obsidian_mcp import server  # after use_vault: tools resolve this vault
+    from tezcat_vault import server  # after use_vault: tools resolve this vault
 
     results = []
     for step in proposal["apply"]:

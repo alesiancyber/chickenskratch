@@ -7,9 +7,9 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from harness import proposals
-from harness.processors import ProcessorSpec
-from obsidian_mcp import server, workers
+from tezcat import proposals
+from tezcat.processors import ProcessorSpec
+from tezcat_vault import server, workers
 
 
 def run(w):
@@ -76,7 +76,7 @@ def test_untracked_note_edits_move_the_pass_fingerprint(gitvault, make_watcher):
     markdown surfaces every pass, and those commits swept untracked notes
     into git as a side effect. Retiring the surfaces removed the
     accidental heartbeat — so the fingerprint has to see content itself."""
-    from harness import applier
+    from tezcat import applier
 
     note = gitvault / "Tasks/brand-new.md"
     note.write_text("# New\n\nfirst thought\n")

@@ -6,8 +6,8 @@ import asyncio
 
 import pytest
 
-from harness import grouping, proposals
-from obsidian_mcp.vault import Vault
+from tezcat import grouping, proposals
+from tezcat_vault.vault import Vault
 
 STAMPED_LIST = """# Braindump
 

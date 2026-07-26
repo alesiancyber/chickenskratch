@@ -21,11 +21,11 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from obsidian_mcp import ids
-from obsidian_mcp import markdown as md
-from obsidian_mcp import tasks as tk
-from obsidian_mcp.vault import VaultError, read_lossy
-from obsidian_mcp.vaultconfig import SPEC_REL, get_config
+from tezcat_vault import ids
+from tezcat_vault import markdown as md
+from tezcat_vault import tasks as tk
+from tezcat_vault.vault import VaultError, read_lossy
+from tezcat_vault.vaultconfig import SPEC_REL, get_config
 
 from . import applier, grouping, proposals
 
@@ -446,7 +446,7 @@ def verify_schema_fix(w: Watcher, item: dict, proposal: dict) -> list[str]:
     every step must target the drafted note — the worker authors full
     tool args, and "nothing touched but the target" is only provable
     when the target is pinned in code, not in the prompt."""
-    from obsidian_mcp import server
+    from tezcat_vault import server
 
     for step in proposal["apply"]:
         target = step.get("args", {}).get("path")
@@ -534,9 +534,9 @@ async def draft_spec_drift(w: Watcher, item: dict) -> dict | None:
 def scan_schema(w: Watcher) -> list[dict]:
     """Deterministic work items per nonconforming note. Harness/ and
     Private/ are excluded by the validate_schema implementation itself
-    (the engine points obsidian_mcp at this vault at pass start);
+    (the engine points tezcat_vault at this vault at pass start);
     coverage dedupe and sha stamping are engine context."""
-    from obsidian_mcp import server
+    from tezcat_vault import server
 
     items = []
     for row in server.validate_schema(limit=10_000)["nonconforming"]:

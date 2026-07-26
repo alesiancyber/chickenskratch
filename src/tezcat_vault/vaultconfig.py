@@ -155,7 +155,7 @@ def get_config(vault_path: str | None = None) -> VaultConfig:
         _base_cache[base_key] = load_config()
     base = _base_cache[base_key]
 
-    root = vault_path or os.environ.get("OBSIDIAN_VAULT_PATH") or ""
+    root = vault_path or os.environ.get("TEZCAT_VAULT_PATH") or ""
     if not root:
         return base
     spec = Path(root) / SPEC_REL

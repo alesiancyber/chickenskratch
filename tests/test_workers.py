@@ -14,8 +14,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from obsidian_mcp import workers
-from obsidian_mcp.vault import VaultError
+from tezcat_vault import workers
+from tezcat_vault.vault import VaultError
 
 
 def fake_client(content: str | None = None, raises: Exception | None = None):

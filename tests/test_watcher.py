@@ -13,10 +13,10 @@ import json
 
 import pytest
 
-from harness import proposals
-from harness.watcher import Watcher
-from obsidian_mcp import vaultconfig as vc
-from obsidian_mcp.vault import Vault
+from tezcat import proposals
+from tezcat.watcher import Watcher
+from tezcat_vault import vaultconfig as vc
+from tezcat_vault.vault import Vault
 
 
 async def fake_drafter(item):
@@ -77,7 +77,7 @@ def test_unchanged_vault_second_pass_is_free(vault, watcher):
 
 def test_approve_applies_and_records(vault, watcher, monkeypatch):
     recorded = []
-    monkeypatch.setattr("harness.watcher.record_dashboard", lambda p, d, **k: recorded.append((p["id"], d)))
+    monkeypatch.setattr("tezcat.watcher.record_dashboard", lambda p, d, **k: recorded.append((p["id"], d)))
     run(watcher)
     target = proposals.pending(watcher.proposals_dir)[0]
     note = target["drafted_against"]["note"]
@@ -97,7 +97,7 @@ def test_approve_applies_and_records(vault, watcher, monkeypatch):
 
 def test_reject_records_without_touching_vault(vault, watcher, monkeypatch):
     recorded = []
-    monkeypatch.setattr("harness.watcher.record_dashboard", lambda p, d, **k: recorded.append(d))
+    monkeypatch.setattr("tezcat.watcher.record_dashboard", lambda p, d, **k: recorded.append(d))
     run(watcher)
     target = proposals.pending(watcher.proposals_dir)[0]
     before = (vault / target["drafted_against"]["note"]).read_text()
@@ -179,7 +179,7 @@ def test_post_scan_applies_are_rescanned_next_pass(vault, make_watcher):
 
 
 def test_invalid_drafter_output_never_enters_queue(vault, tmp_path, monkeypatch):
-    monkeypatch.setattr("harness.watcher.record_dashboard", lambda *a, **k: None)
+    monkeypatch.setattr("tezcat.watcher.record_dashboard", lambda *a, **k: None)
 
     async def bad_drafter(item):
         return {"title": "x", "summary": "y",
@@ -212,9 +212,9 @@ def test_typed_json_values_apply_cleanly(vault, watcher):
     """The 2026-07-23 wedge, first half: a drafter emitting a typed JSON
     value (null) in update_frontmatter must apply as that value, not
     crash yaml.safe_load."""
-    from harness import applier
+    from tezcat import applier
     applier.use_vault(str(vault))
-    from obsidian_mcp import server
+    from tezcat_vault import server
 
     p = proposals.new_proposal(
         kind="schema_fix", note="Home.md", vault_sha="",
@@ -289,8 +289,8 @@ def test_stale_rearms_its_processor_generically(watcher):
 
 def _spec_with(**kw):
     """A one-off processor whose scan/draft always produce one proposal."""
-    from harness import proposals as pr
-    from harness.processors import ProcessorSpec
+    from tezcat import proposals as pr
+    from tezcat.processors import ProcessorSpec
 
     def scan(w):
         # the REAL note text, or the proposal is stale before it is decided

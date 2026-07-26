@@ -8,7 +8,7 @@ change the user ORDERED by typing it: trust is intrinsic, nothing
 queues, and staleness is scoped to the one line the order anchors on —
 replace_line's exactly-once anchor IS the staleness check. Both classes
 share the same substrate: gated vault tools, snapshot-per-mutation,
-Changes.md, harness-revert.
+Changes.md, tezcat-revert.
 
 A line starting with a known //command at column 0 of any non-surface
 note is executed on the next engine pass and replaced in place by its
@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 from collections.abc import Awaitable, Callable
 
-from obsidian_mcp.vault import Vault, read_lossy
+from tezcat_vault.vault import Vault, read_lossy
 
 _CMD_RE = re.compile(r"^//([a-z][\w-]*)\s+(\S.*)$")
 _CMD_PREFIX_RE = re.compile(r"^//([a-z][\w-]*)\b")

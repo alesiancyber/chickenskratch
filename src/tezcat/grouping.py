@@ -11,8 +11,8 @@ byte-identical.
 
 from __future__ import annotations
 
-from obsidian_mcp import markdown as md
-from obsidian_mcp import tasks as tk
+from tezcat_vault import markdown as md
+from tezcat_vault import tasks as tk
 
 # A list shorter than this isn't worth a proposal.
 MIN_TASKS = 4

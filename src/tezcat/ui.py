@@ -35,8 +35,8 @@ from starlette.responses import JSONResponse, PlainTextResponse, StreamingRespon
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from obsidian_mcp.vault import Vault, VaultError, VaultLocked
-from obsidian_mcp.vaultconfig import get_config
+from tezcat_vault.vault import Vault, VaultError, VaultLocked
+from tezcat_vault.vaultconfig import get_config
 
 from . import (
     applier,
@@ -194,7 +194,7 @@ def _worker_reachable(base: str) -> bool:
 
 
 def health_model(vault_path: str) -> dict:
-    from obsidian_mcp.workers import worker_base_url, worker_model
+    from tezcat_vault.workers import worker_base_url, worker_model
 
     base = worker_base_url()
     head, _dirty = applier.vault_state(vault_path)
@@ -437,7 +437,7 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         """Live first, tail second. Events raised in this process — a
         click's pass, a checked task, a saved note — arrive the instant
         they're emitted. The file tail still runs on the idle tick so
-        events from OTHER processes (harness-watch, the cron heartbeat)
+        events from OTHER processes (tezcat-watch, the cron heartbeat)
         are never missed; it's the fallback, not the mechanism."""
         try:
             offset = events.events_path(vault_path).stat().st_size
@@ -493,7 +493,7 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
     async def lifespan(app):
         """Shutdown was unhandled: the pane's Agent spawns MCP servers as
         child processes on the first turn, and nothing ever closed the
-        session — every server run orphaned an obsidian-mcp (plus files-mcp
+        session — every server run orphaned an tezcat-vault-mcp (plus tezcat-files-mcp
         and any HTTP sessions) and leaked HARNESS_CHAT_ID into the
         environment. Close the session, then stop the engine thread."""
         yield
@@ -507,9 +507,9 @@ def main() -> None:
     from .bootstrap import load_runtime
 
     parser = argparse.ArgumentParser(
-        prog="harness-ui",
+        prog="tezcat-ui",
         description="The owned dashboard: live views + SSE, decide/revert buttons")
-    parser.add_argument("-v", "--vault", help="vault path (default: config, or $OBSIDIAN_VAULT_PATH)")
+    parser.add_argument("-v", "--vault", help="vault path (default: config, or $TEZCAT_VAULT_PATH)")
     parser.add_argument("--port", type=int, default=8399)
     args = parser.parse_args()
     _config, vault, _servers = load_runtime(vault=args.vault)

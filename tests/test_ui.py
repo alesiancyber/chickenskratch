@@ -9,8 +9,8 @@ import asyncio
 import pytest
 from starlette.testclient import TestClient
 
-from harness import proposals, ui
-from harness.watcher import Watcher
+from tezcat import proposals, ui
+from tezcat.watcher import Watcher
 
 
 @pytest.fixture()
@@ -22,10 +22,10 @@ def vault(gitvault):
 def client(vault, tmp_path, monkeypatch):
     """A server over the fixture vault, queue isolated like the engine
     fixtures — the server derives the queue dir, so dir_for is patched."""
-    monkeypatch.setattr("harness.watcher.record_dashboard", lambda *a, **k: None)
+    monkeypatch.setattr("tezcat.watcher.record_dashboard", lambda *a, **k: None)
     pdir = tmp_path / "proposals"
-    monkeypatch.setattr("harness.proposals.dir_for", lambda vp: pdir)
-    monkeypatch.setattr("harness.watcher.STATE_PATH", tmp_path / "state.json")
+    monkeypatch.setattr("tezcat.proposals.dir_for", lambda vp: pdir)
+    monkeypatch.setattr("tezcat.watcher.STATE_PATH", tmp_path / "state.json")
     return TestClient(ui.build_app(str(vault)))
 
 
@@ -120,7 +120,7 @@ def test_decide_button_applies_and_offers_undo(client, vault):
     for sha in body["undo"]:
         rr = client.post("/api/revert", json={"sha": sha})
         assert rr.status_code == 200
-    from obsidian_mcp import markdown as md
+    from tezcat_vault import markdown as md
 
     fm, _ = md.split_frontmatter((vault / "Home.md").read_text())
     assert fm.get("status") != "x"
@@ -173,7 +173,7 @@ def test_canvas_ingest_splits_commands_from_capture(client, vault, monkeypatch):
     instantly (I3), the prose rides the capture pipeline — here
     auto-trusted extraction files the task and the dump survives in
     git."""
-    from harness import commands as cmd_mod
+    from tezcat import commands as cmd_mod
 
     async def fake_azure(args, vault_path):
         return f"- [Ranked hit for {args}](https://learn.microsoft.com/x)"
@@ -183,7 +183,7 @@ def test_canvas_ingest_splits_commands_from_capture(client, vault, monkeypatch):
         return [{"text": "renew the domain", "due": "2026-08-01"}]
 
     monkeypatch.setitem(cmd_mod.INLINE_COMMANDS, "azure", fake_azure)
-    monkeypatch.setattr("obsidian_mcp.workers.extract_tasks", fake_extract)
+    monkeypatch.setattr("tezcat_vault.workers.extract_tasks", fake_extract)
     r = client.post("/api/ingest", json={
         "text": "//azure sentinel alert rules\nrenew the domain by friday\n"})
     assert r.status_code == 200
@@ -195,7 +195,7 @@ def test_canvas_ingest_splits_commands_from_capture(client, vault, monkeypatch):
 
 
 def test_canvas_command_only_dump_never_touches_capture(client, vault, monkeypatch):
-    from harness import commands as cmd_mod
+    from tezcat import commands as cmd_mod
 
     async def fake_azure(args, vault_path):
         return "- [hit](https://learn.microsoft.com/y)"
@@ -213,7 +213,7 @@ def test_cancel_route_marks_the_job_and_takes_the_consent_gate(client):
     """The stop button's channel: a write verb, so it takes the same
     JSON-only gate as decide/revert — and it only accepts known jobs, so
     a typo can't silently no-op while the UI says "stopping"."""
-    from harness import cancel
+    from tezcat import cancel
 
     cancel.clear(cancel.PASS)
     try:
@@ -234,7 +234,7 @@ def test_cancelling_chat_denies_the_gate_it_is_parked_on(client):
     future nobody will ever resolve — stopping settles it as a deny."""
     import asyncio
 
-    from harness import cancel
+    from tezcat import cancel
 
     async def scenario():
         session = ui.pane.ChatSession("/tmp/x")
@@ -255,13 +255,13 @@ def test_a_busy_engine_409s_the_decision_instead_of_swallowing_it(client, vault,
     apply" on a row the UI had already marked decided."""
     import fcntl
 
-    from harness import service
-    from harness import watcher as watcher_mod
+    from tezcat import service
+    from tezcat import watcher as watcher_mod
     monkeypatch.setattr(watcher_mod, "DECISION_LOCK_WAIT_S", 0.2)
     monkeypatch.setattr(service, "DECISION_LOCK_WAIT_S", 0.2)
     p = plant(vault, proposals.dir_for(str(vault)))
     # the same per-vault lock file the Watcher derives (bootstrap.vault_digest)
-    from harness.bootstrap import vault_digest
+    from tezcat.bootstrap import vault_digest
     lock_path = watcher_mod.STATE_PATH.with_name(
         f"watcher_state-{vault_digest(str(vault))}.json").with_suffix(".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)

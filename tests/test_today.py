@@ -1,6 +1,6 @@
 """The attention view. A read-only render: no trust machinery,
 deterministic within a day, one screen. It stopped being written into the
-vault on 2026-07-26 — it is what `harness today` prints and what the
+vault on 2026-07-26 — it is what `tezcat today` prints and what the
 dashboard's /api/today collects — so these tests render it directly
 instead of reading a note back."""
 
@@ -9,7 +9,7 @@ import datetime as dt
 
 import pytest
 
-from harness import proposals
+from tezcat import proposals
 
 TODAY = dt.date.today()
 
@@ -43,9 +43,9 @@ def run(w):
 
 def view(vault, pending=0):
     """The Today view as text — the CLI's exact render path."""
-    from harness import today as today_mod
-    from obsidian_mcp.vault import Vault
-    from obsidian_mcp.vaultconfig import get_config
+    from tezcat import today as today_mod
+    from tezcat_vault.vault import Vault
+    from tezcat_vault.vaultconfig import get_config
 
     cfg = get_config(str(vault))
     return today_mod.render(Vault(str(vault), exclude=cfg.exclude), cfg, pending)

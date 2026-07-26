@@ -10,7 +10,7 @@ read-only: they return structured suggestions; the caller acts on them
 through the normal write-gated tools, so the harness's write guarantees
 stay exactly where they already live.
 
-Config via env, mirroring OBSIDIAN_VAULT_PATH:
+Config via env, mirroring TEZCAT_VAULT_PATH:
   WORKER_BASE_URL  - OpenAI-compatible endpoint (default: the mlx-worker
                      backend from models.yaml, port 8081)
   WORKER_MODEL     - model name (default: Qwen3.5-4B MLX — beat

@@ -3,8 +3,8 @@
 import sys
 import time
 
-from harness.backends import BackendManager, _pid_alive
-from harness.profiles import BackendSpec
+from tezcat.backends import BackendManager, _pid_alive
+from tezcat.profiles import BackendSpec
 
 
 def spec(name="dummy", command=None):
