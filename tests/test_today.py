@@ -1,6 +1,8 @@
-"""Harness/Today.md — the attention surface. A read-only view: no trust
-machinery, deterministic within a day, one screen, and its own render
-commit must never change what it renders (no self-feeding)."""
+"""The attention view. A read-only render: no trust machinery,
+deterministic within a day, one screen. It stopped being written into the
+vault on 2026-07-26 — it is what `harness today` prints and what the
+dashboard's /api/today collects — so these tests render it directly
+instead of reading a note back."""
 
 import asyncio
 import datetime as dt
@@ -39,10 +41,20 @@ def run(w):
     return asyncio.run(w.run_once())
 
 
+def view(vault, pending=0):
+    """The Today view as text — the CLI's exact render path."""
+    from harness import today as today_mod
+    from obsidian_mcp.vault import Vault
+    from obsidian_mcp.vaultconfig import get_config
+
+    cfg = get_config(str(vault))
+    return today_mod.render(Vault(str(vault), exclude=cfg.exclude), cfg, pending)
+
+
 def test_today_renders_the_attention_surface(vault, make_watcher):
     w = make_watcher(vault, registry=())
     run(w)
-    text = (vault / "Harness/Today.md").read_text()
+    text = view(vault)
     assert f"# Today — {TODAY.strftime('%A %Y-%m-%d')}" in text
     # due section: overdue marked, today marked, soon dated, horizon excluded
     assert "rotate the leaked key — ⚠ **2d overdue**" in text
@@ -75,21 +87,19 @@ def test_today_shows_pending_decision_count(vault, make_watcher):
     proposals.save(p, w.proposals_dir)
     (vault / "Home.md").write_text("nudge\n")
     run(w)
-    assert "1 pending decision(s)" in (vault / "Harness/Today.md").read_text()
+    assert "1 pending decision(s)" in view(vault, pending=1)
 
 
-def test_today_is_stable_and_never_feeds_itself(vault, make_watcher):
-    """Two passes with an unchanged vault: byte-identical surface, no
-    re-write — the render's own commit must not change the activity
-    count (Harness/-only commits are excluded from it)."""
+def test_today_is_deterministic_and_writes_nothing(vault, make_watcher):
+    """Two passes with an unchanged vault: byte-identical view, and the
+    pass leaves no note behind. Rendering this used to BE a vault write —
+    a commit whose only purpose was to redraw a view of itself."""
     w = make_watcher(vault, registry=())
     run(w)
-    surface = vault / "Harness/Today.md"
-    text = surface.read_text()
-    stamp = surface.stat().st_mtime
+    text = view(vault)
     run(w)
-    assert surface.read_text() == text
-    assert surface.stat().st_mtime == stamp
+    assert view(vault) == text
+    assert not (vault / "Harness/Today.md").exists()
 
 
 def test_waiting_age_and_stranded_meeting_actions(vault, make_watcher):
@@ -101,7 +111,7 @@ def test_waiting_age_and_stranded_meeting_actions(vault, make_watcher):
         "# Vendor Sync\n\n## Action items\n\n- [ ] chase the SOW redlines\n")
     w = make_watcher(vault, registry=())
     run(w)
-    text = (vault / "Harness/Today.md").read_text()
+    text = view(vault)
     assert "Marcus: firewall logs (12d waiting)" in text
     assert "## Stranded in meetings" in text
     assert "chase the SOW redlines — 10d old" in text
@@ -118,7 +128,7 @@ def test_impossible_dates_report_instead_of_crashing_the_pass(vault, make_watche
         "# Waiting\n\n- [ ] Marcus: firewall logs ➕ 2026-13-01\n")
     w = make_watcher(vault, registry=())
     run(w)  # a ValueError here used to kill every pass until the note was fixed
-    text = (vault / "Harness/Today.md").read_text()
+    text = view(vault)
     assert "typo'd deadline" in text and "not a real date" in text
     assert "Marcus: firewall logs" in text  # row survives, bogus age suppressed
     assert "waiting)" not in text

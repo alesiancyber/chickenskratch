@@ -16,6 +16,7 @@ other notes changed. Anything else ⇒ stale, never applied.
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -57,22 +58,45 @@ def use_vault(vault_path: str) -> None:
 
 
 def vault_state(vault_path: str) -> tuple[str, str]:
-    """(HEAD sha, `git status --porcelain` text + working-tree diff).
+    """(HEAD sha, a text fingerprint of everything not yet committed).
     Empty sha if the repo has no commits yet; empty text = clean tree.
 
-    The diff is load-bearing: porcelain alone lists dirty PATHS, so a
-    second edit to an already-dirty note left the pass fingerprint
-    unchanged and the engine skipped the scan — an armed //command in a
-    dirty inbox never retried (2026-07-24). Content edits to untracked
-    files can still hide, but only until the engine's next commit tracks
-    them."""
+    Three sources, and each one is load-bearing:
+
+    - `status --porcelain` — which paths are dirty or untracked.
+    - `diff HEAD` — the CONTENT of tracked edits. Porcelain alone lists
+      paths, so a second edit to an already-dirty note left the pass
+      fingerprint unchanged and the engine skipped the scan; an armed
+      //command in a dirty inbox never retried (2026-07-24).
+    - content hashes of UNTRACKED files — the same hole, one step
+      further out. Porcelain reports `?? Tasks/typing.md` identically no
+      matter what the file says, so typing a //command into a brand-new
+      note left the fingerprint unmoved and the command never fired.
+      This was masked until 2026-07-26: the engine re-rendered its
+      markdown surfaces every pass, and those commits swept untracked
+      notes into git as a side effect. Retiring the surfaces removed the
+      accidental heartbeat and exposed the real bug.
+    """
     v = Vault(vault_path)
     v.ensure_repo()
     head = v._git("rev-parse", "HEAD")
     sha = head.stdout.strip() if head.returncode == 0 else ""
-    dirty = v._git("status", "--porcelain").stdout
+    porcelain = v._git("status", "--porcelain").stdout
+    dirty = porcelain
     if sha:
         dirty += v._git("diff", "HEAD").stdout
+    for line in porcelain.splitlines():
+        if not line.startswith("?? "):
+            continue
+        rel = line[3:].strip().strip('"')
+        p = v.root / rel
+        try:
+            # Tolerant by design (I6): an unreadable or vanished file
+            # must cost this line its precision, never the whole pass.
+            if p.is_file():
+                dirty += f"\n{rel}:{hashlib.sha1(p.read_bytes()).hexdigest()}"
+        except OSError:
+            continue
     return sha, dirty
 
 

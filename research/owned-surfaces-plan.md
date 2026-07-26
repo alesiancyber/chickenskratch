@@ -208,6 +208,63 @@ user signed off on), three classes of gap, all approved to build:
   all-or-nothing — the checkbox grammar stays two lines, and degraded
   mode loses nothing it ever had.
 
+### Amendment, 2026-07-26 (the file explorer — user-requested)
+
+The plan had no manual-navigation surface: notes were reachable only
+from the rows the dashboard happened to be showing and from ⌘K. That's
+the right *default* and the wrong *only* — knowing where a note lives
+and being unable to walk there is a hole no processor closes.
+
+- **A collapsible left rail** (⌘B, collapsed by default, state in
+  localStorage) rendering the vault's folder shape from a new read-only
+  view-model, `/api/tree`. It sits OUTSIDE the two-column split, so
+  opening it never re-proportions the dashboard/canvas fraction the
+  user dragged.
+- **It adds no state and no trust class.** The tree is
+  `Vault.iter_notes` — the same walk, the same exclusions (I4), the
+  same dot-dir blindness (I5) — served flat and bounded
+  (`MAX_TREE_NOTES`, I6). Clicking a note opens it in the editor that
+  already exists; the rail owns no verb of its own.
+- **Not built, deliberately:** create / rename / delete / move from the
+  rail. Those are vault mutations, and every mutation belongs to a
+  gated tool with a snapshot and a consent story (I1/I2) — a new write
+  class is its own decision, not a side effect of wanting to browse.
+  The editor and the CLI keep those hands.
+- **Why the rail doesn't violate the anti-machinery tripwire:** it's a
+  view of the user's own writing, not a screen for harness internals.
+  The tripwire is aimed at servers/settings/status panels; the vault
+  itself is the one thing that IS touched daily.
+
+### Amendment, 2026-07-26 (Obsidian is not a surface — user-decided)
+
+Clicking "filed → Inbox" in the canvas prompted the browser to launch
+Obsidian. That was the plan working as written — deep-link-out was an
+explicit affordance — and the plan was wrong. **Obsidian is where this
+started, not an alternative front end.** Compatibility is a byproduct
+of the vault being markdown; it is not a goal, and it buys no other app
+an affordance inside our UI. Executed:
+
+- `noteHref` (deleted), the dashboard's ↗ `OpenLink` on every row
+  (deleted), and the canvas's "filed → Inbox" link (now opens our
+  editor).
+- The agent's `_editor_link` (deleted). Chat citations are a `vault:`
+  link in the pane and a plain `Note (line N)` path in the CLI — a
+  terminal has no editor to open, and launching someone else's isn't
+  our job.
+- The `link_scheme` config knob, its Spec/vault.yaml plumbing, and its
+  `/api/health` field: gone. Nothing was left for it to choose. A stale
+  `link_scheme:` in a config file is inert, not an error.
+- **Enforced at the choke point, not just the producers:**
+  `web/src/text.jsx` — the one place model-written links become
+  clickable — now renders anything that isn't `http(s)` or `vault:` as
+  plain text. A future producer emitting `obsidian://` cannot put a
+  launcher back on screen.
+
+Not touched: the markdown surfaces (`Harness/*.md`) still render every
+pass. That is the degraded-mode contract below and principle 1's
+no-state-outside-the-vault rule — it is about the *format* not trapping
+the data, not about Obsidian being a peer surface.
+
 **Degraded-mode contract (hard requirement):** after every phase, a
 machine with no UI process still has a fully working vault in
 Obsidian/Foam — capture via Capture.md, decisions via checkboxes,

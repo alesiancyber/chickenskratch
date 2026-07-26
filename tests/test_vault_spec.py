@@ -165,8 +165,8 @@ def test_no_chat_id_env_no_trailer(vault):
 
 def test_renderer_knobs_left_spec_with_the_owned_ui():
     """The 0-B move: the vault describes its content, the repo describes
-    its renderers. link_scheme is repo config (vault.yaml) — a Spec.md
-    key for it (or the deleted diff_style/callout_type) is inert."""
+    its renderers. A Spec.md key for a deleted renderer knob
+    (diff_style/callout_type/link_scheme) is inert, never a crash."""
     from pathlib import Path
 
     base = vaultconfig.VaultConfig(
@@ -174,17 +174,19 @@ def test_renderer_knobs_left_spec_with_the_owned_ui():
     out = vaultconfig._spec_overrides(
         base, {"callout_type": "TIP", "link_scheme": "vscode",
                "diff_style": "unified", "daily_dir": "journal/"})
-    assert out.link_scheme == "obsidian"       # Spec.md no longer decides
     assert not hasattr(out, "callout_type") and not hasattr(out, "diff_style")
+    assert not hasattr(out, "link_scheme")     # deleted 2026-07-26
     assert out.daily_dir == "journal"          # content knobs still live here
 
 
-def test_link_scheme_is_repo_config(tmp_path):
+def test_a_stale_link_scheme_in_vault_yaml_is_inert(tmp_path):
+    """The knob is gone (tezcat opens notes in tezcat). A config file that
+    still carries it loads fine and simply ignores it — an old vault.yaml
+    must never wedge the harness."""
     cfg = tmp_path / "vault.yaml"
     cfg.write_text("link_scheme: vscode\n")
-    assert vaultconfig.load_config(cfg).link_scheme == "vscode"
-    cfg.write_text("link_scheme: emacs\n")
-    assert vaultconfig.load_config(cfg).link_scheme == "obsidian"  # unknown -> default
+    loaded = vaultconfig.load_config(cfg)
+    assert not hasattr(loaded, "link_scheme")
 
 
 def test_the_vault_lock_is_bounded_not_forever(tmp_path, monkeypatch):

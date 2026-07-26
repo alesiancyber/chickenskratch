@@ -169,11 +169,7 @@ def test_grouping_proposal_drafted_and_applied(vault, make_watcher):
     assert p["drafted_against"]["entity_ids"] == IDS
     assert p["apply"][0]["tool"] == "replace_section"
 
-    review = vault / "Harness/Review.md"
-    assert p["title"] in review.read_text()
-    review.write_text(review.read_text().replace(
-        f"- [ ] approve {p['id']}", f"- [x] approve {p['id']}"))
-    summary = run(w)
+    summary = asyncio.run(w.run_once(decisions=[(p["id"], "approve")]))
 
     assert summary["approved"] == 1
     after = (vault / "Tasks/Braindump.md").read_text()
@@ -187,10 +183,7 @@ def test_grouped_note_is_not_recandidated(vault, make_watcher):
     w = make_watcher(vault)
     run(w)
     p = grouping_rows(w)[0]
-    review = vault / "Harness/Review.md"
-    review.write_text(review.read_text().replace(
-        f"- [ ] approve {p['id']}", f"- [x] approve {p['id']}"))
-    run(w)
+    asyncio.run(w.run_once(decisions=[(p['id'], "approve")]))
     # the rewritten section now has sub-headings -> structurally not a
     # flat list -> the next scan proposes nothing for it
     run(w)

@@ -139,6 +139,35 @@ def review_model(vault_path: str) -> list[dict]:
     return out
 
 
+# A vault is a folder of markdown, and the explorer renders the folder.
+# Bounded anyway (I6): a pathological vault must cost one big response,
+# not an unbounded one, and 5k rows is already past what anyone browses.
+MAX_TREE_NOTES = 5000
+
+
+def tree_model(vault_path: str) -> dict:
+    """The file explorer's view-model: every note the harness can see, as
+    flat vault-relative paths. Flat on purpose — nesting is a rendering
+    decision, and the client already has to sort and fold anyway.
+
+    Exclusions and dot-directories are gone before we ever see a path
+    (Vault.iter_notes, one choke point), so Private/ is as invisible here
+    as everywhere else (I4). `surface_dirs` rides along so the client can
+    ghost the machine-rendered folders instead of hard-coding "Harness"."""
+    v = _vault(vault_path)
+    notes, truncated = [], False
+    for p in v.iter_notes():
+        if len(notes) >= MAX_TREE_NOTES:
+            truncated = True
+            break
+        notes.append(v.rel(p))
+    return {
+        "notes": notes,
+        "surface_dirs": sorted(get_config(vault_path).surface_dirs),
+        "truncated": truncated,
+    }
+
+
 def changes_model(vault_path: str, limit: int = 20) -> dict:
     """Recent snapshots minus machine renders — literally the same filter
     the Changes.md surface applies (changes.recent_news), so the two
@@ -167,7 +196,6 @@ def _worker_reachable(base: str) -> bool:
 def health_model(vault_path: str) -> dict:
     from obsidian_mcp.workers import worker_base_url, worker_model
 
-    cfg = get_config(vault_path)
     base = worker_base_url()
     head, _dirty = applier.vault_state(vault_path)
     _off, recs = events.read_new(vault_path, 0)
@@ -177,7 +205,6 @@ def health_model(vault_path: str) -> dict:
         "vault": vault_path,
         "head": head,
         "pending": len(proposals.pending(proposals.dir_for(vault_path))),
-        "link_scheme": cfg.link_scheme,
         "last_pass": last_pass,
         "worker": {"model": worker_model(), "base_url": base,
                    "reachable": _worker_reachable(base)},
@@ -441,6 +468,7 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         Route("/api/review", api(review_model)),
         Route("/api/changes", api(changes_model)),
         Route("/api/health", api(health_model)),
+        Route("/api/tree", api(tree_model)),
         Route("/api/events", sse),
         Route("/api/decide", decide_route, methods=["POST"]),
         Route("/api/revert", revert_route, methods=["POST"]),

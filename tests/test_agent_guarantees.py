@@ -295,7 +295,8 @@ def test_vault_citations_appended_from_reads():
     out = run(agent)
     assert "From your vault:" in out
     assert "Projects/Website Redesign.md" in out
-    assert "obsidian://open?path=/vault/Projects/Website%20Redesign.md" in out
+    # a path, not a launcher: no consumer of this answer opens another app
+    assert "://" not in out
     # persisted, not just returned
     assert agent.messages[-1]["content"] == out
 
@@ -425,37 +426,34 @@ def test_slash_command_expands_before_model_sees_it():
     assert "some input" in user_msg["content"]
 
 
-def test_vault_citations_use_vscode_scheme_when_configured(monkeypatch):
-    from pathlib import Path
-
-    from obsidian_mcp import vaultconfig as vc
-
-    cfg = vc.VaultConfig(folder_types={}, exclude=(), surfaces={},
-                         schemas_dir=Path("."), link_scheme="vscode")
-    monkeypatch.setattr(vc, "get_config", lambda *a, **k: cfg)
+def test_vault_citations_never_launch_another_editor():
+    """There is no link_scheme any more (2026-07-26). A citation is a path
+    the consumer decides what to do with — it is never a URL that hands
+    the user's own note to Obsidian, VSCode, or anything else."""
     agent = make_agent([
         response(tool_calls=[FakeToolCall("read_note", '{"path": "Projects/Website Redesign"}')]),
         response(content="The launch moved to Aug 3."),
     ])
     agent.vault = "/vault"
     out = run(agent)
-    assert "vscode://file//vault/Projects/Website%20Redesign.md" in out
-    assert "obsidian://" not in out
+    assert "obsidian://" not in out and "vscode://" not in out and "file://" not in out
 
 
 # --------------- vault citations: where a source opens ---------------
 
-def test_citations_default_to_the_configured_editor(tmp_path, monkeypatch):
-    """The CLI has no editor of its own, so a cited note stays a deep link
-    into Obsidian/VSCode — unchanged behaviour."""
+def test_cli_citations_are_plain_paths(tmp_path):
+    """The CLI has no editor of its own — so a citation is the vault path
+    and the line, printed. It used to be an obsidian:// URL; a terminal
+    that launches another app to show you your own note is treating that
+    app as the surface, which tezcat no longer does."""
     from harness.agent import Agent
     from harness.profiles import Profile
 
     agent = Agent(Profile(name="f", model="f"), servers=[], vault=str(tmp_path))
     agent._cited = {"Meetings/Q3.md": {14}}
     out = agent._with_vault_citations("the answer")
-    assert "obsidian://open?path=" in out
-    assert "Meetings/Q3.md (line 14)" in out
+    assert "- Meetings/Q3.md (line 14)" in out
+    assert "://" not in out
 
 
 def test_pane_citations_are_vault_links_carrying_the_line():

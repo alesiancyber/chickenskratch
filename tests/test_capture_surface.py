@@ -1,5 +1,5 @@
 """The vault-side capture surface:
-Harness/Capture.md → extraction worker → capture proposal in Review.md →
+Harness/Capture.md → extraction worker → capture proposal in the queue →
 approve adds tasks to the inbox and clears the surface. A scripted fake
 extractor stands in for the worker LLM."""
 
@@ -79,12 +79,12 @@ def test_typed_text_becomes_a_capture_proposal(vault, watcher):
         "path": "Tasks/Inbox.md", "text": "Migrate the DNS records",
         "due": "2026-07-24", "priority": "high",
     }
-    review = (vault / "Harness/Review.md").read_text()
-    assert "Migrate the DNS records — due 2026-07-24, high" in review
-    assert f"- [ ] approve {p['id']}" in review
-    # capture proposals list their tasks; no meaningless diff block
-    section = review.split(p["title"])[1]
-    assert "```diff" not in section.split("---")[0]
+    # the proposal carries its tasks as issues — what the dashboard
+    # renders as steps, and what partial approval picks from
+    assert "Migrate the DNS records — due 2026-07-24, high" in p["issues"]
+    # capture is a no-diff kind: its issues list IS the payload
+    from harness.processors import REGISTRY
+    assert not next(s for s in REGISTRY if s.name == "capture").render_diff
 
 
 def test_same_text_is_never_drafted_twice(vault, watcher):
@@ -95,10 +95,7 @@ def test_same_text_is_never_drafted_twice(vault, watcher):
     # while pending: covered; after reject: hash memo
     run(watcher)
     assert len(capture_rows(watcher)) == 1
-    review = vault / "Harness/Review.md"
-    review.write_text(review.read_text().replace(
-        f"- [ ] reject {p['id']}", f"- [x] reject {p['id']}"))
-    run(watcher)
+    asyncio.run(watcher.run_once(decisions=[(p['id'], "reject")]))
     run(watcher)
     assert capture_rows(watcher) == []  # rejected text not re-extracted
     # …until the user edits the surface again
@@ -116,10 +113,7 @@ def test_approve_adds_tasks_and_clears_the_surface(vault, watcher, monkeypatch):
     run(watcher)
     (p,) = capture_rows(watcher)
 
-    review = vault / "Harness/Review.md"
-    review.write_text(review.read_text().replace(
-        f"- [ ] approve {p['id']}", f"- [x] approve {p['id']}"))
-    summary = run(watcher)
+    summary = asyncio.run(watcher.run_once(decisions=[(p['id'], "approve")]))
 
     assert summary["approved"] == 1
     inbox = (vault / "Tasks/Inbox.md").read_text()
@@ -147,12 +141,9 @@ def test_owed_items_route_to_the_waiting_list(vault, watcher):
     assert p["title"] == "Add 1 captured task(s) to Tasks/Inbox.md + 1 waiting-on item(s) to Tasks/Waiting.md"
     assert p["apply"][0]["args"]["path"] == "Tasks/Inbox.md"
     assert p["apply"][1]["args"] == {"path": "Tasks/Waiting.md", "text": "Nadia: Send the vendor contract"}
-    assert "waiting on Nadia: Send the vendor contract" in (vault / "Harness/Review.md").read_text()
+    assert "waiting on Nadia: Send the vendor contract" in p["issues"]
 
-    review = vault / "Harness/Review.md"
-    review.write_text(review.read_text().replace(
-        f"- [ ] approve {p['id']}", f"- [x] approve {p['id']}"))
-    summary = run(watcher)
+    summary = asyncio.run(watcher.run_once(decisions=[(p['id'], "approve")]))
     assert summary["approved"] == 1
     # waiting list is created on first use, task born stamped
     assert "Nadia: Send the vendor contract" in (vault / "Tasks/Waiting.md").read_text()

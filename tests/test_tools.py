@@ -435,19 +435,23 @@ def test_kanban_card_blank_lines_and_complete_literal_round_trip(vault):
     assert "**Complete**\n- [x] Set up staging environment" in after
 
 
-def test_machine_surfaces_and_spec_are_never_tool_writable(vault):
-    """The consent channel is not tool-writable: a model that could write
-    Review.md could check its own approve boxes, and a Spec.md edit could
-    lift the Private/ exclusion or extend auto_apply trust."""
-    for rel in ("Harness/Review.md", "Harness/Changes", "Harness/Today.md"):
-        with pytest.raises(vault_mod.VaultError, match="machine-managed"):
-            server.append_to_note(rel, "- [x] approve p-000000000000")
+def test_spec_is_never_tool_writable_and_capture_still_is(vault):
+    """What a model must not be able to write. This list used to be led
+    by Review.md — writing it meant checking your own approve boxes. That
+    file is gone (2026-07-26) and consent moved to the localhost-only
+    HTTP channel and the CLI, neither of which a model can reach at all.
+
+    Spec.md remains: an edit there could lift the Private/ exclusion or
+    extend auto_apply trust. Capture.md remains deliberately writable —
+    writing it only ever feeds the proposal queue, which is gated
+    downstream anyway (dump-from-chat is a legitimate flow)."""
     with pytest.raises(vault_mod.VaultError, match="machine-managed"):
         server.update_frontmatter("Harness/Spec", "exclude", "[]")
     with pytest.raises(vault_mod.VaultError, match="machine-managed"):
-        server.add_task("Harness/Review", "sneaky approval")
+        server.append_to_note("Harness/Spec.md", "auto_apply: [everything]")
     with pytest.raises(vault_mod.VaultError, match="machine-managed"):
-        server.archive_done_tasks("Tasks/Inbox", archive_path="Harness/Review.md")
-    # Capture is an input surface: writing it only ever feeds the proposal
-    # queue, so it stays writable (dump-from-chat is a legitimate flow).
+        server.archive_done_tasks("Tasks/Inbox", archive_path="Harness/Spec.md")
+    # (the `folders` exception — typing, not trust — is covered where it is
+    # actually exercised, in test_spec_note's approval path)
+    # Capture is an input surface: writing it only ever feeds the queue.
     server.append_to_note("Harness/Capture.md", "brain dump line")

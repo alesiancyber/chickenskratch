@@ -1,6 +1,7 @@
-"""Harness/Changes.md (Phase 10): the audit surface for a system that
-now edits without asking. Renders the vault's git log, filters its own
-render commits, and never feeds itself."""
+"""The audit view for a system that edits without asking: renders the
+vault's git log and filters out the harness redrawing its own surfaces.
+Stopped being a note in the vault on 2026-07-26 — it is now what
+`harness changes` prints and what /api/changes serves."""
 
 import asyncio
 
@@ -18,35 +19,27 @@ def run(w):
     return asyncio.run(w.run_once())
 
 
-def test_changes_surface_renders_and_never_loops(vault, make_watcher):
+def view(vault, limit=20):
+    from harness import changes
+    from obsidian_mcp.vaultconfig import get_config
+
+    return changes.render(Vault(vault), get_config(str(vault)), limit)
+
+
+def test_changes_renders_news_and_filters_harness_redraws(vault, make_watcher):
     w = make_watcher(vault, registry=())
     run(w)
-    surface = vault / "Harness/Changes.md"
-    text = surface.read_text()
-    assert "seed Harness/Spec.md" in text  # this pass's own commits are news
-    assert "update Harness/Changes.md" not in text  # ...except its own renders
-    stamp = surface.stat().st_mtime
+    text = view(vault)
+    assert "seed Harness/Spec.md" in text        # this pass's own commits are news
+    # the retired surfaces' historical render commits stay filtered, so a
+    # vault upgraded from the surface era doesn't drown in old redraws
+    assert "update Harness/Changes.md" not in text
+    assert "update Harness/Review.md" not in text
+    assert "update Harness/Today.md" not in text
 
-    run(w)  # nothing new happened: identical render, no write, no loop
-    assert surface.read_text() == text
-    assert surface.stat().st_mtime == stamp
-
-
-def test_status_line_shows_worker_and_reachability(vault, make_watcher, monkeypatch):
-    """The UI's ops visibility, folded into the surface: which worker
-    drafts proposals and whether its endpoint answers (as of last pass)."""
-    monkeypatch.setenv("WORKER_MODEL", "test-model-9b")
-    monkeypatch.setenv("WORKER_BASE_URL", "http://127.0.0.1:9")
-    monkeypatch.setattr("harness.backends.endpoint_alive_sync", lambda base, timeout=1.5: True)
-    w = make_watcher(vault, registry=())
-    run(w)
-    text = (vault / "Harness/Changes.md").read_text()
-    assert "`test-model-9b`" in text and "reachable" in text
-
-    monkeypatch.setattr("harness.backends.endpoint_alive_sync", lambda base, timeout=1.5: False)
-    (vault / "Home.md").write_text("nudge\n")  # move the vault so the pass renders
-    run(w)
-    assert "UNREACHABLE" in (vault / "Harness/Changes.md").read_text()
+    run(w)  # nothing new happened: identical render, and no note written
+    assert view(vault) == text
+    assert not (vault / "Harness/Changes.md").exists()
 
 
 def test_new_commits_appear_with_files_and_chat_attribution(vault, make_watcher):
@@ -58,7 +51,7 @@ def test_new_commits_appear_with_files_and_chat_attribution(vault, make_watcher)
     v.commit_if_dirty("manual edits (test)")
     v._git("commit", "--allow-empty", "-m", "chat edit", "-m", "Chat-Id: chat-abc123def")
     run(w)
-    text = (vault / "Harness/Changes.md").read_text()
+    text = view(vault)
     assert "manual edits (test)" in text
     assert "`Tasks/Inbox.md`" in text  # files touched are listed
     assert "chat edit" in text

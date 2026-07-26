@@ -100,11 +100,8 @@ struct Config {
     cmd: Vec<String>,
     interval: Duration,
     settle: Duration,
-    /// Decision surface (Review.md): a checkbox toggle is an atomic write,
-    /// so it gets a fast lane — acted on immediately, no settle.
-    fast_file: Option<PathBuf>,
-    fast_cmd: Vec<String>,
-    fast_interval: Duration,
+    /// Poll period for the legacy timer loop.
+    tick: Duration,
     /// Force the legacy timer loop instead of filesystem events.
     poll: bool,
 }
@@ -113,18 +110,19 @@ const USAGE: &str = "\
 tezcatd — watch the vault, wait for quiet, run one engine pass
 
 USAGE: tezcatd --vault <path> [--repo <path>] [--cmd \"uv run harness-watch\"]
-               [--settle-secs 3] [--fast-file <path>] [--fast-cmd \"...\"]
-               [--poll] [--interval-secs 5] [--fast-interval-ms 300]
+               [--settle-secs 3] [--poll] [--interval-secs 5] [--tick-ms 300]
 
   --vault             vault to watch (or OBSIDIAN_VAULT_PATH env)
   --repo              working directory for the pass command (default: cwd)
   --cmd               pass command, whitespace-split (default: uv run harness-watch)
   --settle-secs       quiet time required before a pass fires (default 3)
-  --fast-file         decision surface acted on immediately, no settle
-  --fast-cmd          command for fast-file changes (default: cmd + --decisions-only)
   --poll              use the legacy timer loop instead of filesystem events
   --interval-secs     [poll mode] seconds between tree scans (default 5)
-  --fast-interval-ms  [poll mode] fast lane check period (default 300)";
+  --tick-ms           [poll mode] sleep granularity (default 300)
+
+Note: the --fast-file/--fast-cmd decision lane was removed 2026-07-26 with
+the Review.md checkbox channel. Decisions now arrive through the dashboard
+or `harness decide`, neither of which needs a file watcher.";
 
 impl Config {
     fn parse(mut args: impl Iterator<Item = String>) -> Result<Config, String> {
@@ -133,9 +131,7 @@ impl Config {
         let mut cmd = "uv run harness-watch".to_string();
         let mut interval = 5u64;
         let mut settle = 3u64;
-        let mut fast_file: Option<PathBuf> = None;
-        let mut fast_cmd: Option<String> = None;
-        let mut fast_interval = 300u64;
+        let mut tick = 300u64;
         let mut poll = false;
         while let Some(flag) = args.next() {
             let mut value = |name: &str| args.next().ok_or(format!("{name} needs a value"));
@@ -145,9 +141,7 @@ impl Config {
                 "--cmd" => cmd = value("--cmd")?,
                 "--interval-secs" => interval = value("--interval-secs")?.parse().map_err(|_| "bad --interval-secs")?,
                 "--settle-secs" => settle = value("--settle-secs")?.parse().map_err(|_| "bad --settle-secs")?,
-                "--fast-file" => fast_file = Some(PathBuf::from(value("--fast-file")?)),
-                "--fast-cmd" => fast_cmd = Some(value("--fast-cmd")?),
-                "--fast-interval-ms" => fast_interval = value("--fast-interval-ms")?.parse().map_err(|_| "bad --fast-interval-ms")?,
+                "--tick-ms" => tick = value("--tick-ms")?.parse().map_err(|_| "bad --tick-ms")?,
                 "--poll" => poll = true,
                 "--help" | "-h" => return Err(USAGE.to_string()),
                 other => return Err(format!("unknown flag {other}\n\n{USAGE}")),
@@ -158,23 +152,13 @@ impl Config {
             return Err(format!("vault directory not found: {}", vault.display()));
         }
         let cmd: Vec<String> = cmd.split_whitespace().map(str::to_string).collect();
-        let fast_cmd = match fast_cmd {
-            Some(s) => s.split_whitespace().map(str::to_string).collect(),
-            None => {
-                let mut c = cmd.clone();
-                c.push("--decisions-only".to_string());
-                c
-            }
-        };
         Ok(Config {
             vault,
             repo,
             cmd,
             interval: Duration::from_secs(interval),
             settle: Duration::from_secs(settle),
-            fast_file,
-            fast_cmd,
-            fast_interval: Duration::from_millis(fast_interval.max(50)),
+            tick: Duration::from_millis(tick.max(50)),
             poll,
         })
     }
@@ -201,56 +185,38 @@ fn mtime_of(p: &Path) -> Option<SystemTime> {
     std::fs::metadata(p).and_then(|m| m.modified()).ok()
 }
 
-/// The event loop: block on filesystem events, fire the fast lane
-/// immediately on decision-surface writes, fire a full pass once the tree
-/// has been quiet for `settle` — verified against the fingerprint so noise
-/// events (or our own drained-and-missed writes) never spawn a pass.
+/// The event loop: block on filesystem events, fire a full pass once the
+/// tree has been quiet for `settle` — verified against the fingerprint so
+/// noise events (or our own drained-and-missed writes) never spawn a pass.
 fn event_loop(cfg: &Config, baseline: &mut Snapshot) -> notify::Result<()> {
     let root = cfg.vault.canonicalize().unwrap_or_else(|_| cfg.vault.clone());
-    let fast = cfg
-        .fast_file
-        .as_ref()
-        .map(|p| p.canonicalize().unwrap_or_else(|_| p.clone()));
 
-    let (tx, rx) = mpsc::channel::<(bool, bool)>(); // (tree_changed, fast_changed)
-    let (root_cb, fast_cb) = (root.clone(), fast.clone());
+    let (tx, rx) = mpsc::channel::<bool>(); // tree_changed
+    let root_cb = root.clone();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let ev = match res {
             Ok(ev) => ev,
             // Watch errors (queue overflow etc.): assume the tree moved —
             // the fingerprint check makes a false positive free.
             Err(_) => {
-                let _ = tx.send((true, false));
+                let _ = tx.send(true);
                 return;
             }
         };
         if ev.kind.is_access() {
             return;
         }
-        let mut tree = false;
-        let mut fastc = false;
-        for p in &ev.paths {
-            if fast_cb.as_deref() == Some(p.as_path()) {
-                fastc = true;
-                tree = true; // a checkbox edit is also a vault change
-            } else if relevant(&root_cb, p) {
-                tree = true;
-            }
-        }
-        if tree || fastc {
-            let _ = tx.send((tree, fastc));
+        if ev.paths.iter().any(|p| relevant(&root_cb, p)) {
+            let _ = tx.send(true);
         }
     })?;
     watcher.watch(&root, RecursiveMode::Recursive)?;
     log("event watch active (notify/FSEvents) — zero idle scans, latency = settle time");
 
     let mut pending: Option<Instant> = None; // last relevant tree event
-    let mut fast_pending = false;
     loop {
         // Wait for the next event, or only as long as the settle deadline.
-        let received = if fast_pending {
-            rx.try_recv().ok()
-        } else if let Some(t0) = pending {
+        let received = if let Some(t0) = pending {
             let wait = cfg.settle.saturating_sub(t0.elapsed());
             if wait.is_zero() { None } else { rx.recv_timeout(wait).ok() }
         } else {
@@ -259,29 +225,14 @@ fn event_loop(cfg: &Config, baseline: &mut Snapshot) -> notify::Result<()> {
                 Err(_) => return Ok(()), // watcher gone; caller falls back to polling
             }
         };
-        if let Some((tree, fastc)) = received {
-            if tree {
-                pending = Some(Instant::now()); // every event resets the settle clock
-            }
-            fast_pending |= fastc;
+        if received.is_some() {
+            pending = Some(Instant::now()); // every event resets the settle clock
         }
         // absorb the rest of the burst (editors write in flurries)
-        while let Ok((tree, fastc)) = rx.try_recv() {
-            if tree {
-                pending = Some(Instant::now());
-            }
-            fast_pending |= fastc;
+        while rx.try_recv().is_ok() {
+            pending = Some(Instant::now());
         }
 
-        if fast_pending {
-            log("decision surface changed — fast pass");
-            run_cmd(&cfg.fast_cmd, &cfg.repo);
-            while rx.try_recv().is_ok() {} // our own re-render isn't a decision
-            fast_pending = false;
-            // the apply/render moved the tree; let a full pass follow settle
-            pending = Some(Instant::now());
-            continue;
-        }
         if let Some(t0) = pending {
             if t0.elapsed() >= cfg.settle {
                 pending = None;
@@ -308,21 +259,10 @@ fn event_loop(cfg: &Config, baseline: &mut Snapshot) -> notify::Result<()> {
 /// The legacy timer loop (`--poll`, and the automatic fallback when the
 /// event watcher can't start — e.g. network mounts without inotify).
 fn poll_loop(cfg: &Config, mut baseline: Snapshot) -> ! {
-    let ticks_per_full = (cfg.interval.as_millis() / cfg.fast_interval.as_millis()).max(1);
-    let mut last_fast = cfg.fast_file.as_deref().and_then(mtime_of);
+    let ticks_per_full = (cfg.interval.as_millis() / cfg.tick.as_millis()).max(1);
     let mut tick: u128 = 0;
     loop {
-        thread::sleep(cfg.fast_interval);
-        if let Some(ff) = cfg.fast_file.as_deref() {
-            let m = mtime_of(ff);
-            if m != last_fast {
-                log("decision surface changed — fast pass");
-                run_cmd(&cfg.fast_cmd, &cfg.repo);
-                last_fast = mtime_of(ff); // our own re-render isn't a decision
-            } else {
-                last_fast = m;
-            }
-        }
+        thread::sleep(cfg.tick);
         tick += 1;
         if tick % ticks_per_full != 0 {
             continue;
@@ -345,7 +285,6 @@ fn poll_loop(cfg: &Config, mut baseline: Snapshot) -> ! {
         log("vault changed and settled — running pass");
         run_pass(cfg);
         baseline = scan(&cfg.vault).unwrap_or(cur);
-        last_fast = cfg.fast_file.as_deref().and_then(mtime_of);
     }
 }
 
@@ -439,15 +378,30 @@ mod tests {
     }
 
     #[test]
-    fn fast_cmd_defaults_to_decisions_only() {
+    fn defaults_are_events_and_one_pass_command() {
         let dir = temp_vault("cfg");
         let cfg = Config::parse(
-            vec!["--vault".to_string(), dir.to_string_lossy().into_owned(),
-                 "--fast-file".to_string(), "Review.md".to_string()].into_iter(),
+            vec!["--vault".to_string(), dir.to_string_lossy().into_owned()].into_iter(),
         ).unwrap();
-        assert_eq!(cfg.fast_cmd.last().unwrap(), "--decisions-only");
         assert_eq!(cfg.cmd.join(" "), "uv run harness-watch");
         assert!(!cfg.poll, "events are the default; --poll is the fallback");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_retired_decision_lane_is_rejected_not_ignored() {
+        // A stale launchd plist or shell alias still passing --fast-file
+        // must fail loudly: silently dropping it would leave someone
+        // believing checkbox decisions still work.
+        let dir = temp_vault("cfg-fast");
+        let err = match Config::parse(
+            vec!["--vault".to_string(), dir.to_string_lossy().into_owned(),
+                 "--fast-file".to_string(), "Review.md".to_string()].into_iter(),
+        ) {
+            Err(e) => e,
+            Ok(_) => panic!("--fast-file was accepted; it must be rejected"),
+        };
+        assert!(err.contains("unknown flag --fast-file"), "got: {err}");
         let _ = fs::remove_dir_all(&dir);
     }
 

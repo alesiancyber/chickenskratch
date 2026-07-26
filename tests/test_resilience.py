@@ -64,3 +64,27 @@ def test_mis_encoded_note_never_crashes_walks_or_the_pass(gitvault, make_watcher
     w = make_watcher(gitvault, registry=())
     summary = run(w)                                # Today render + command scan survive
     assert not summary["locked"]
+
+
+def test_untracked_note_edits_move_the_pass_fingerprint(gitvault, make_watcher):
+    """A brand-new note is untracked, and `git status --porcelain` says
+    `?? Tasks/typing.md` no matter what the file contains. So editing it
+    left the pass fingerprint unchanged, the engine skipped the scan, and
+    a //command typed there never fired.
+
+    This was invisible until 2026-07-26: the engine re-rendered its
+    markdown surfaces every pass, and those commits swept untracked notes
+    into git as a side effect. Retiring the surfaces removed the
+    accidental heartbeat — so the fingerprint has to see content itself."""
+    from harness import applier
+
+    note = gitvault / "Tasks/brand-new.md"
+    note.write_text("# New\n\nfirst thought\n")
+    first = applier.vault_state(str(gitvault))
+    note.write_text("# New\n\nsecond thought\n")
+    second = applier.vault_state(str(gitvault))
+    assert first != second, "an untracked note's content must reach the fingerprint"
+
+    # and a deleted untracked file doesn't crash the walk (I6: tolerant reads)
+    note.unlink()
+    assert applier.vault_state(str(gitvault)) != second

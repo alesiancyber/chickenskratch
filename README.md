@@ -1,10 +1,12 @@
 # tezcat
 
-A model-agnostic maintenance layer for a folder of markdown notes
-(Obsidian, Foam/VSCode, or any editor — none of them execute harness
-code). You write; the harness extracts tasks, fixes structure, answers
-typed `//commands` in place, and queues anything needing judgment as a
-checkbox in `Harness/Review.md`. Every mutation is a git commit;
+A model-agnostic maintenance layer for a folder of markdown notes, with
+its own surfaces: dashboard, canvas, editor, file explorer, chat pane.
+The vault is plain markdown, so nothing traps your notes — but tezcat
+is the front end, not a companion to someone else's. You write; the
+harness extracts tasks, fixes structure, answers
+typed `//commands` in place, and queues anything needing judgment for a
+one-key verdict on the dashboard. Every mutation is a git commit;
 `harness-revert` undoes any of them. Principles and invariants:
 [PHILOSOPHY.md](PHILOSOPHY.md).
 
@@ -13,8 +15,8 @@ Two classes of change, two contracts:
 | | **Commands** (`//azure query` + Enter) | **Proposals** (capture, schema fixes, grouping) |
 |---|---|---|
 | origin | you typed it | the harness inferred it |
-| trust | intrinsic | checkbox, or verifier + Spec.md `auto_apply` |
-| result | replaces its own line (callout) in ~settle-time | queued in Review.md with a diff |
+| trust | intrinsic | your verdict, or verifier + Spec.md `auto_apply` |
+| result | replaces its own line (callout) in ~settle-time | queued with a diff, decided on the dashboard |
 | staleness | the exact-line anchor; your edit wins | whole-note hash |
 
 ## Layout
@@ -60,12 +62,12 @@ convenience, not a replacement (everything it does, you can do by hand):
    (start/stop with `harness-backends`).
 4. **First engine pass.** `uv run harness-watch` — the engine is
    self-bootstrapping: seeds `Harness/Spec.md` from `config/vault.yaml`
-   defaults, inits the vault's own git repo, renders every surface.
+   defaults and inits the vault's own git repo.
 5. **The daemon.** Manual run:
 
    ```sh
-   daemon/target/release/tezcatd --vault <vault> --repo <this repo> \
-     --fast-file <vault>/Harness/Review.md      # --poll for network mounts
+   daemon/target/release/tezcatd --vault <vault> --repo <this repo>
+   # --poll for network mounts where filesystem events are unreliable
    ```
 
    Login-start: fill `__REPO__`/`__VAULT__` in
@@ -78,37 +80,44 @@ convenience, not a replacement (everything it does, you can do by hand):
 
 ## Using it
 
-Everything is text in the vault:
+Your notes are text in the vault. The views over them are tezcat's —
+they were notes too until 2026-07-26, when Review/Today/Changes were
+retired (`research/surface-subtraction-plan.md`): a view that is also a
+file costs a write, a commit, and a churn guard every pass and buys
+nothing the renderer alone doesn't.
 
-- **`//azure <query>`** on its own line, press Enter → replaced in place
-  by ranked Microsoft Learn links a few seconds later. Model-free.
-  Commands live in `src/harness/commands.py`; adding one is an async
-  function plus a registry entry (`//research` is reserved).
+- **`//azure <query>`** on its own line in any note, press Enter →
+  replaced in place by ranked Microsoft Learn links a few seconds later.
+  Model-free. Commands live in `src/harness/commands.py`; adding one is
+  an async function plus a registry entry (`//research` is reserved).
 - **`Harness/Capture.md`** — brain-dump anything; tasks get extracted
   and proposed. Free text in the task inbox gets the same treatment.
-- **`Harness/Review.md`** — pending proposals with diffs; check
-  `approve`/`reject`, acted on within seconds. Mechanical fixes that
-  pass their fidelity verifier auto-apply (opt-out per processor).
-- **`Harness/Changes.md`** — the audit log: every snapshot commit plus
-  a worker health line.
-- **`Harness/Today.md`** — the attention surface: overdue/due-soon
-  tasks, waiting-on items, today's meetings, in-flight kanban cards,
-  pending-decision count. Deterministic, read-only, one screen. The 6am
-  heartbeat (`config/launchd/com.tezcat.heartbeat.plist`) covers the
-  date rollover on a quiet vault.
+  This is the one surface left, and it is not a view: the canvas commits
+  your dump here *before* extraction runs, so it survives extraction
+  failing.
+- **Headless**, when no UI is running:
+
+  ```sh
+  uv run harness today                      # the attention view
+  uv run harness changes                    # the audit log
+  uv run harness decide p-8f3c21a09b4e approve
+  ```
+
+  The 6am heartbeat (`config/launchd/com.tezcat.heartbeat.plist`) covers
+  the date rollover on a quiet vault.
 - **`Harness/Spec.md`** — the vault's own config, read fresh every
   pass: `folders` (type map), `capture_inbox`/`waiting_inbox`,
   `exclude` (e.g. `Private/` — never enters model context),
   `auto_apply`, `fidelity` (strict|close), `worker` (models.yaml
   profile name for the drafting workers), `n_max`,
   `disabled_processors` (incl. `inline_command`), and `daily_dir`.
-  Renderer choices are repo config, not Spec keys: `link_scheme`
-  (obsidian|vscode — which editor deep-links open) lives in
-  `config/vault.yaml`; diffs are always unified ```diff, callouts
-  always `NOTE` (render styled in Obsidian, VSCode, and GitHub).
+  Renderer choices are repo config, not Spec keys: diffs are always
+  unified ```diff and callouts always `NOTE`. (There is no
+  `link_scheme` any more — see "Editor notes" below.)
 - **The dashboard** — `uv run harness-ui` (127.0.0.1:8399): the live
-  attention/decision surface. Rich side-by-side diffs, approve/reject/
-  revert buttons (same gated paths as the checkboxes), j/k·a/r
+  attention/decision surface, and since 2026-07-26 the primary one.
+  Pending proposals with rich side-by-side diffs, approve/reject/revert
+  buttons (the same gated paths every other channel uses), j/k·a/r
   keyboard review, ⌘K palette, SSE-live off the engine's passes.
   Frontend builds once with `cd web && npm install && npm run build`.
 - **The canvas** — the dashboard's `#canvas` view: dump anything, ⌘↩.
@@ -121,16 +130,31 @@ Everything is text in the vault:
   loop as `harness -i`, with tool calls visible as expandable rows and
   write-gated calls as Allow/Deny chips (every verdict recorded to the
   training corpus). Transcripts are scratch; the vault is the archive.
+- **The file explorer** (⌘B) — a collapsible rail for the times you
+  know where a note lives: the vault's folder shape, filterable, notes
+  opening in the editor above. Collapsed by default; ⌘K reaches any
+  note by name without it.
 
-Editor notes: Obsidian works out of the box. For Foam/VSCode set
-`link_scheme: vscode` in `config/vault.yaml` and turn on
-`files.autoSave: afterDelay` (the disk file is what the harness sees).
+Editor notes: tezcat's own surfaces are the front end, and note
+references anywhere in the UI (rows, citations, "filed → Inbox") open
+tezcat's editor — no app-scheme deep links are emitted, and the
+`link_scheme` knob that used to pick between `obsidian://` and
+`vscode://` was deleted 2026-07-26. The vault is still an ordinary
+folder of markdown, so opening it in Obsidian, Foam/VSCode, or vim
+works exactly as well as it always did — that's the format being
+portable, which is a byproduct we keep, not a compatibility target we
+design toward. If you do keep an editor open alongside, turn on its
+autosave (`files.autoSave: afterDelay` in VSCode): the disk file is
+what the harness sees.
 
 ## CLI
 
 ```sh
 uv run harness "add a task to renew the domain by friday"   # chat escape hatch
 uv run harness -i                                           # REPL
+uv run harness today             # the attention view (was Harness/Today.md)
+uv run harness changes           # the audit log   (was Harness/Changes.md)
+uv run harness decide <pid> approve|reject    # consent without a UI process
 uv run harness-revert            # list snapshots; harness-revert <sha> undoes one
 uv run harness-ui                # the dashboard server (127.0.0.1:8399)
 uv run harness-backends          # list/start/stop local model servers
@@ -163,6 +187,6 @@ Read-only filesystem search: `FILES_ROOTS="~" uv run files-mcp`.
 ## Tests
 
 ```sh
-uv run pytest          # ~225 tests, no model, no network
+uv run pytest          # ~330 tests, no model, no network
 cd daemon && cargo test
 ```

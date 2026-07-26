@@ -86,11 +86,11 @@ printf 'OBSIDIAN_VAULT_PATH=%s\n' "$VAULT" >> "$REPO/.env.tmp"
 mv "$REPO/.env.tmp" "$REPO/.env"
 ok ".env"
 
-# ---- 5. first engine pass: seeds Spec.md, inits vault git, renders surfaces ----
+# ---- 5. first engine pass: seeds Spec.md, inits vault git, scans ----
 say "Running the first engine pass"
 (cd "$REPO" && uv run harness-watch --vault "$VAULT") || die "first pass failed"
 [ -f "$VAULT/Harness/Spec.md" ] && ok "Harness/Spec.md seeded"
-[ -f "$VAULT/Harness/Today.md" ] && ok "surfaces rendered (Today, Review, Changes, Capture)"
+[ -f "$VAULT/Harness/Capture.md" ] && ok "capture surface ready"
 
 # ---- 6. foam / vscode niceties ----
 if [ "$FOAM" = 1 ]; then
@@ -152,9 +152,10 @@ say "Deployed"
 cat <<EOF
 
   Vault:     $VAULT   (git-snapshotted; revert via: uv run harness-revert)
-  Dashboard: $VAULT/Harness/Today.md
+  Dashboard: uv run harness-ui        (127.0.0.1:8399 — the surface)
+  Headless:  uv run harness today | harness changes | harness decide <id> approve
   Config:    $VAULT/Harness/Spec.md   (worker model, auto_apply, knobs — live per pass)
-  Daemon:    data/logs/tezcatd.log    ($([ "$LAUNCHD" = 1 ] && echo installed || echo "skipped — run: daemon/target/release/tezcatd --vault $VAULT --repo $REPO --fast-file $VAULT/Harness/Review.md"))
+  Daemon:    data/logs/tezcatd.log    ($([ "$LAUNCHD" = 1 ] && echo installed || echo "skipped — run: daemon/target/release/tezcatd --vault $VAULT --repo $REPO"))
 
   Try it: open any note, type '//azure obsidian sync' on its own line, press Enter.
   Worker model: set 'worker: <profile>' in Spec.md (profiles/keys in config/models.yaml + .env).

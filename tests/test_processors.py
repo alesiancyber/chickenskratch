@@ -41,7 +41,7 @@ def test_disable_is_per_processor_and_unknown_names_fail_loud(vault, make_watche
 
 def test_fourth_processor_runs_end_to_end_without_engine_changes(vault, make_watcher):
     """A processor the engine has never heard of: scanned, drafted,
-    rendered into Review.md, checkbox-approved, applied, hook fired."""
+    queued, approved, applied, hook fired."""
     applied_hook = []
 
     def scan(w):
@@ -72,13 +72,9 @@ def test_fourth_processor_runs_end_to_end_without_engine_changes(vault, make_wat
     run(w)
     (p,) = proposals.pending(w.proposals_dir)
     assert p["kind"] == "stamp_footer"
-    review = vault / "Harness/Review.md"
-    assert p["title"] in review.read_text()
-    assert "```diff" in review.read_text()  # render_diff defaults on
+    assert p["title"] == "Stamp footer on Daily/2026-07-16.md"
 
-    review.write_text(review.read_text().replace(
-        f"- [ ] approve {p['id']}", f"- [x] approve {p['id']}"))
-    summary = run(w)
+    summary = asyncio.run(w.run_once(decisions=[(p["id"], "approve")]))
     assert summary["approved"] == 1
     assert "reviewed ✓" in (vault / "Daily/2026-07-16.md").read_text()
     assert applied_hook == ["stamp_footer"]

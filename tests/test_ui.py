@@ -66,14 +66,45 @@ def test_changes_filters_machine_renders_and_carries_shas(client, vault):
 
 def test_health_reports_worker_and_pending(client, vault):
     data = client.get("/api/health").json()
-    assert {"worker", "pending", "head", "link_scheme"} <= set(data)
+    assert {"worker", "pending", "head"} <= set(data)
     assert isinstance(data["worker"]["reachable"], bool)
+    # no editor-scheme knob rides the health payload any more: nothing in
+    # the UI links out to another app for it to configure
+    assert "link_scheme" not in data
 
 
 def test_views_reject_post(client):
     """Reads stay reads: POST on a view route is rejected."""
-    for path in ("/api/today", "/api/review", "/api/changes", "/api/health"):
+    for path in ("/api/today", "/api/review", "/api/changes", "/api/health",
+                 "/api/tree"):
         assert client.post(path).status_code == 405
+
+
+def test_tree_renders_the_vault_and_stays_blind_to_the_excluded(client, vault):
+    """The file explorer's view-model. It walks the vault through
+    iter_notes, so the exclusions are the same ones every other read
+    path obeys (I4) — the rail cannot become the one surface that leaks
+    Private/."""
+    data = client.get("/api/tree").json()
+    notes = data["notes"]
+    assert "Home.md" in notes and "Tasks/Inbox.md" in notes
+    assert not any(n.startswith("Private/") for n in notes)
+    assert not any(n.startswith(".") for n in notes)   # .git is not a folder
+    assert all(n.endswith(".md") for n in notes)
+    # machine surfaces ride along so the rail can ghost them by name
+    assert "Harness" in data["surface_dirs"]
+    assert data["truncated"] is False
+    # a note that appears is a note the next refetch shows: no cached shape
+    (vault / "Tasks/brand new.md").write_text("# new\n")
+    assert "Tasks/brand new.md" in client.get("/api/tree").json()["notes"]
+
+
+def test_tree_is_bounded(client, monkeypatch):
+    """I6: a pathological vault costs one big response, not an unbounded
+    one — and says so instead of silently showing a partial vault."""
+    monkeypatch.setattr(ui, "MAX_TREE_NOTES", 3)
+    data = client.get("/api/tree").json()
+    assert len(data["notes"]) == 3 and data["truncated"] is True
 
 
 def test_decide_button_applies_and_offers_undo(client, vault):

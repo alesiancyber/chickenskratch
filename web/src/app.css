@@ -31,6 +31,15 @@ a { color: inherit; text-decoration: none; }
   overflow: hidden;
 }
 
+/* Rail + split. The rail is a flex sibling of the split rather than a
+   third grid column, so opening it re-proportions nothing the user
+   dragged — the split keeps its own fraction of whatever is left. */
+.body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
 .split {
   flex: 1;
   display: grid;               /* columns come from React: `${f}fr 6px ${1-f}fr` */
@@ -93,10 +102,127 @@ body.resizing * { pointer-events: none; }
 
 @media (max-width: 900px) {
   /* one column: the divider is meaningless below this width */
+  .body { display: block; overflow-y: auto; }
   .split { display: block; overflow-y: auto; }
   .splitter { display: none; }
   .col { overflow: visible; }
+  /* and so is a browsing rail — ⌘K is the whole navigation story here */
+  .explorer { display: none; }
 }
+
+/* ---- the file explorer rail ---- */
+
+.explorer {
+  flex: none;
+  width: 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  overflow: hidden;
+}
+/* collapsed: a hairline and one affordance, not a stub of a panel */
+.explorer.collapsed {
+  width: 26px;
+  align-items: center;
+  padding-top: var(--s2);
+}
+
+.tree-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: var(--s2) var(--s2) var(--s2) var(--s3);
+}
+
+.tree-filter {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-small);
+  color: var(--ink);
+  padding: var(--s1) 0;
+}
+.tree-filter::placeholder { color: var(--ink-3); }
+.tree-filter:focus { outline: none; }
+
+.rail-toggle {
+  flex: none;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-small);
+  color: var(--ink-3);
+  padding: var(--s1) var(--s2);
+  border-radius: var(--radius);
+  transition: color var(--fade), background var(--fade);
+}
+.rail-toggle:hover { color: var(--ink); background: var(--hover); }
+
+.tree {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  padding-bottom: 120px;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  width: 100%;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-small);
+  color: var(--ink-2);
+  text-align: left;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  padding-right: var(--s2);
+  border-radius: var(--radius);
+  /* a long note name truncates rather than widening the rail */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background var(--fade), color var(--fade);
+}
+.tree-row:hover { background: var(--hover); color: var(--ink); }
+.tree-dir { color: var(--ink); }
+/* machine-rendered surfaces are readable but visibly not your writing */
+.tree-file.machine { color: var(--ink-3); }
+/* the note the editor is showing — the one place the rail earns the accent */
+.tree-file.current {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* .grow is only a flex child inside .row; the tree needs its own */
+.tree-row .grow {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* same glyph and rotation as the proposal caret — one disclosure idiom */
+.tree-caret {
+  flex: none;
+  display: inline-block;
+  width: 12px;
+  color: var(--ink-3);
+  font-size: var(--text-small);
+  transition: transform var(--fade);
+}
+.tree-caret.open { transform: rotate(90deg); }
+
+.tree-note { padding: var(--s2) var(--s3); }
 
 /* ---- right-column tabs: canvas or an open note ---- */
 
@@ -149,10 +275,6 @@ body.resizing * { pointer-events: none; }
   outline: none; background: var(--hover);
   box-shadow: inset 2px 0 0 var(--accent);
 }
-/* the ↗ escape to Obsidian, quiet until the row is pointed at */
-.openlink { color: var(--ink-3); }
-.openlink:hover { color: var(--accent); }
-
 /* ---- activity: the small model, working ---- */
 
 .activity { display: inline-flex; align-items: center; gap: var(--s2); }

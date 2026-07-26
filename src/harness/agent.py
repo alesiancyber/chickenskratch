@@ -19,7 +19,6 @@ import datetime as dt
 import json
 import re
 import urllib.parse
-from pathlib import Path
 
 from openai import AsyncOpenAI
 
@@ -103,11 +102,11 @@ class Agent:
         note_link=None,
     ):
         self.profile = profile
-        # How a cited vault note becomes a link. Default resolves the
-        # vault's configured editor scheme (the CLI wants a real
-        # obsidian:// or vscode:// URL); the owned pane passes one that
-        # emits vault: instead, so a citation opens in OUR editor rather
-        # than launching a different app.
+        # How a cited vault note becomes a link, or None for a plain
+        # path. The owned pane passes app_note_link (a `vault:` link that
+        # opens OUR editor on the cited line); the CLI leaves it None and
+        # prints the path, because a terminal has no editor to open and
+        # launching someone else's is not our job.
         self.note_link = note_link
         self.log = log
         self.log_result = log_result
@@ -336,10 +335,15 @@ class Agent:
         return self._with_vault_citations(content)
 
     def _with_vault_citations(self, content: str) -> str:
-        """Same guarantee, turned inward: an answer built on vault reads carries
-        the notes it came from, as clickable links (config/vault.yaml
-        `link_scheme` picks obsidian:// or vscode://file for Foam users).
-        Notes the model already named inline are skipped, so citing never
+        """Same guarantee, turned inward: an answer built on vault reads
+        carries the notes it came from. Where that citation LEADS is the
+        consumer's call: the pane passes `note_link=app_note_link` and gets
+        a clickable `vault:` link into its own editor; the CLI has no editor
+        to open, so it gets the vault-relative path and line, plainly.
+
+        It used to emit obsidian:// (or vscode://) here. That made another
+        app the place you read your own notes — abandoned 2026-07-26. Notes
+        the model already named inline are skipped, so citing never
         duplicates."""
         if not self.vault or not self._cited:
             return content
@@ -350,17 +354,9 @@ class Agent:
             nums = sorted(self._cited[note])
             where = f" (line {nums[0]})" if len(nums) == 1 else (
                 f" (lines {', '.join(str(n) for n in nums[:5])})" if nums else "")
-            link = self.note_link or self._editor_link
-            lines.append(f"- [{note}{where}]({link(note, nums)})")
+            lines.append(f"- [{note}{where}]({self.note_link(note, nums)})"
+                         if self.note_link else f"- {note}{where}")
         return content + "\n\nFrom your vault:\n" + "\n".join(lines) if lines else content
-
-    def _editor_link(self, note: str, lines: list[int]) -> str:
-        """Default: a deep link into the user's configured editor."""
-        from obsidian_mcp.vaultconfig import get_config
-
-        quoted = urllib.parse.quote(str(Path(self.vault) / note))
-        return (f"vscode://file/{quoted}" if get_config(self.vault).link_scheme == "vscode"
-                else f"obsidian://open?path={quoted}")
 
     def _collect_citations(self, name: str, args: dict, text: str) -> None:
         """Record which notes a read/search tool surfaced, so the answer can

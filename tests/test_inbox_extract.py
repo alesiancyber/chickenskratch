@@ -74,10 +74,7 @@ def test_inbox_free_text_round_trip(vault, watcher):
     assert p["kind"] == "inbox_extract"
     assert p["issues"][-1] == "waiting on Alex: Follow up about the Northwind requests"
 
-    review = vault / "Harness/Review.md"
-    review.write_text(review.read_text().replace(
-        f"- [ ] approve {p['id']}", f"- [x] approve {p['id']}"))
-    summary = run(watcher)
+    summary = asyncio.run(watcher.run_once(decisions=[(p['id'], "approve")]))
     assert summary["approved"] == 1
 
     after = inbox.read_text()
@@ -100,10 +97,7 @@ def test_rejected_inbox_text_not_redrafted_until_edited(vault, watcher):
     inbox.write_text(inbox.read_text().rstrip("\n") + "\nponder the void\n")
     run(watcher)
     (p,) = inbox_rows(watcher)
-    review = vault / "Harness/Review.md"
-    review.write_text(review.read_text().replace(
-        f"- [ ] reject {p['id']}", f"- [x] reject {p['id']}"))
-    run(watcher)
+    asyncio.run(watcher.run_once(decisions=[(p['id'], "reject")]))
     run(watcher)
     assert inbox_rows(watcher) == []  # memo: same text never re-drafted
     inbox.write_text(inbox.read_text().rstrip("\n") + "\nand stare back\n")

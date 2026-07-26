@@ -1,6 +1,6 @@
-"""Verified-safe extraction applies without a checkbox (Spec.md
+"""Verified-safe extraction applies without asking (Spec.md
 `auto_apply` + the deterministic fidelity verifier); anything the
-verifier can't vouch for keeps its checkbox in Review.md."""
+verifier can't vouch for waits in the queue for a human verdict."""
 
 import asyncio
 import datetime as _dt
@@ -45,7 +45,6 @@ def test_faithful_inbox_extraction_applies_without_checkbox(vault, make_watcher)
     assert proposals.pending(w.proposals_dir) == []
     (row,) = [r for r in proposals.load_all(w.proposals_dir) if r["kind"] == "inbox_extract"]
     assert row["status"] == "auto"
-    assert "0 pending" in (vault / "Harness/Review.md").read_text()
 
 
 def test_invented_words_fall_back_to_the_queue(vault, make_watcher):

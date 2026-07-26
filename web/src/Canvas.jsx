@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { noteHref, postJSON } from "./api.js";
+import { postJSON } from "./api.js";
 import { linkifyBlock } from "./text.jsx";
 
 /* The canvas: dump anything in. One beautifully typographed input
@@ -79,7 +79,7 @@ function QueuedProposal({ p, verdict, error, onDecide }) {
   );
 }
 
-function DumpBlock({ entry, acted, errors, onDecide, health }) {
+function DumpBlock({ entry, acted, errors, onDecide, onOpenNote }) {
   const auto = entry.summary?.auto || 0;
   const quiet = !entry.error && !entry.deferred && auto === 0
     && entry.queued.length === 0 && entry.commands.length === 0;
@@ -87,8 +87,12 @@ function DumpBlock({ entry, acted, errors, onDecide, health }) {
     <div className="dump">
       <div className="dump-meta small ghost">
         {entry.when}
-        {auto > 0 && <span className="applied"> · ✓ filed → <a
-          href={noteHref(health, "Tasks/Inbox.md")} className="doc-link">Inbox</a></span>}
+        {/* "filed → Inbox" opens the Inbox in our editor. It used to
+            launch Obsidian, which is the one thing a receipt for work
+            WE just did should never do. */}
+        {auto > 0 && <span className="applied"> · ✓ filed → <button
+          className="linklike doc-link"
+          onClick={() => onOpenNote("Tasks/Inbox.md")}>Inbox</button></span>}
       </div>
       <div className="dump-text">{entry.text}</div>
       {entry.commands.map((c, i) => <Callout key={i} {...c} />)}
@@ -110,7 +114,7 @@ function DumpBlock({ entry, acted, errors, onDecide, health }) {
   );
 }
 
-export default function Canvas({ health, seed, onSeedConsumed }) {
+export default function Canvas({ seed, onSeedConsumed, onOpenNote }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState([]);
@@ -196,7 +200,7 @@ export default function Canvas({ health, seed, onSeedConsumed }) {
       <div className="dump-history">
         {history.map((entry) => (
           <DumpBlock key={entry.id} entry={entry} acted={acted} errors={errors}
-                     onDecide={decide} health={health} />
+                     onDecide={decide} onOpenNote={onOpenNote} />
         ))}
       </div>
     </div>

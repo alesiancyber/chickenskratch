@@ -73,11 +73,8 @@ def collect(v: Vault, cfg, pending_decisions: int, today: dt.date | None = None)
     return {
         "date": today.isoformat(),
         "pending_decisions": pending_decisions,
-        "surfaces": {
-            "review": cfg.surfaces.get("review", ""),
-            "capture": cfg.surfaces.get("capture", ""),
-            "changes": cfg.surfaces.get("changes", ""),
-        },
+        # Capture is the only surface left to point at (2026-07-26).
+        "surfaces": {"capture": cfg.surfaces.get("capture", "")},
         "due": _due_model(dated, today),
         "waiting": _waiting_rows(v, cfg.waiting_inbox, today),
         "stranded": _stranded_meeting_actions(v, cfg.meetings_dir, today),
@@ -249,22 +246,22 @@ def _in_flight_row_md(r: dict) -> str:
 
 
 def to_markdown(model: dict) -> str:
-    """Pure function of the view-model — the degraded-mode renderer."""
+    """Pure function of the view-model. This stopped being written into
+    the vault on 2026-07-26 — it is now what `harness today` prints, the
+    headless view for when the dashboard isn't running."""
     today = dt.date.fromisoformat(model["date"])
-    review = model["surfaces"]["review"]
     capture = model["surfaces"]["capture"]
-    changes = model["surfaces"]["changes"]
 
     lines = [
         f"# Today — {today.strftime('%A %Y-%m-%d')}",
         "",
-        "_Machine-rendered view; edits here are overwritten._"
-        + (f" _Decide in {_link(review)}," if review else "")
-        + (f" dump into {_link(capture)}._" if capture else ""),
+        "_A view, printed on demand — nothing here is a file to edit._"
+        + (f" _Dump into {_link(capture)}._" if capture else ""),
     ]
 
-    if model["pending_decisions"] and review:
-        lines += ["", f"⚠ **{model['pending_decisions']} pending decision(s) → {_link(review)}**"]
+    if model["pending_decisions"]:
+        lines += ["", f"⚠ **{model['pending_decisions']} pending decision(s) — "
+                      f"the dashboard, or `harness decide <id> approve`**"]
 
     lines += ["", "## Due", *_due_section_md(model["due"])]
 
@@ -285,8 +282,9 @@ def to_markdown(model: dict) -> str:
     if in_flight:
         lines += ["", "## In flight", *_cap(in_flight)]
 
-    if model["activity"] and changes:
-        lines += ["", f"_{model['activity']} vault change(s) since midnight → {_link(changes)}_"]
+    if model["activity"]:
+        lines += ["", f"_{model['activity']} vault change(s) since midnight "
+                      f"— `harness changes`_"]
 
     return "\n".join(lines) + "\n"
 

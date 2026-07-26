@@ -1,7 +1,12 @@
-"""The review-dashboard pipeline end to end:
-scan → draft → render Review.md → checkbox approve/reject → apply through
-the gated tools, with staleness and the git memo. A scripted fake drafter
-stands in for the worker LLM, same philosophy as FakeOpenAI."""
+"""The proposal pipeline end to end:
+scan → draft → queue → decide → apply through the gated tools, with
+staleness and the git memo. A scripted fake drafter stands in for the
+worker LLM, same philosophy as FakeOpenAI.
+
+Decisions arrive as `decisions=[(pid, verdict)]` — the one channel left
+after the Review.md checkbox was retired (2026-07-26). It is exactly what
+service.decide hands the engine for a dashboard button or `harness
+decide`, so these tests exercise the production path."""
 
 import asyncio
 import json
@@ -43,7 +48,12 @@ def run(watcher):
     return asyncio.run(watcher.run_once())
 
 
-def test_first_pass_scans_drafts_and_renders(vault, watcher):
+def decide(watcher, pid, verdict="approve", **kw):
+    """One decision through the engine — the button's path."""
+    return asyncio.run(watcher.run_once(decisions=[(pid, verdict)], **kw))
+
+
+def test_first_pass_scans_and_drafts_into_the_queue(vault, watcher):
     summary = run(watcher)
     assert summary["scanned"] and summary["drafted"] == 3  # capped at n_max
 
@@ -52,26 +62,20 @@ def test_first_pass_scans_drafts_and_renders(vault, watcher):
     assert all(p["kind"] == "schema_fix" and p["status"] == "pending" for p in rows)
     assert not any(p["drafted_against"]["note"].startswith("Private/") for p in rows)
 
-    review = (vault / "Harness/Review.md").read_text()
-    for p in rows:
-        assert p["title"] in review
-        assert f"- [ ] approve {p['id']}" in review
-        assert f"- [ ] reject {p['id']}" in review
-    assert "```diff" in review and "+id:" in review  # simulated frontmatter diff
-
-    # the render is itself a snapshotted commit
-    assert any("Harness/Review.md" in c["files"] for c in Vault(vault).history())
+    # The queue in data/ is the whole record now: a pass drafts proposals
+    # and writes NOTHING into the vault (2026-07-26 — Review.md retired).
+    assert not (vault / "Harness/Review.md").exists()
+    retired = {"Harness/Review.md", "Harness/Today.md", "Harness/Changes.md"}
+    assert not any(f in retired for c in Vault(vault).history() for f in c["files"])
 
 
 def test_unchanged_vault_second_pass_is_free(vault, watcher):
     run(watcher)
-    before = (vault / "Harness/Review.md").read_text()
     second = run(watcher)
     assert not second["scanned"] and second["drafted"] == 0
-    assert (vault / "Harness/Review.md").read_text() == before
 
 
-def test_checkbox_approve_applies_and_records(vault, watcher, monkeypatch):
+def test_approve_applies_and_records(vault, watcher, monkeypatch):
     recorded = []
     monkeypatch.setattr("harness.watcher.record_dashboard", lambda p, d, **k: recorded.append((p["id"], d)))
     run(watcher)
@@ -79,32 +83,26 @@ def test_checkbox_approve_applies_and_records(vault, watcher, monkeypatch):
     note = target["drafted_against"]["note"]
     stamped_id = target["apply"][0]["args"]["value"]
 
-    review = vault / "Harness/Review.md"
-    review.write_text(review.read_text().replace(
-        f"- [ ] approve {target['id']}", f"- [x] approve {target['id']}"))
-    summary = run(watcher)
+    summary = decide(watcher, target["id"])
 
     assert summary["approved"] == 1
     assert f"id: {stamped_id}" in (vault / note).read_text()   # the fix landed
     stored = json.loads((watcher.proposals_dir / f"{target['id']}.json").read_text())
     assert stored["status"] == "approved" and stored["resolved"]["decision"] == "approved"
     assert (target["id"], "approved") in recorded
-    assert f"approve {target['id']}" not in review.read_text()  # re-rendered without it
+    assert target["id"] not in {p["id"] for p in proposals.pending(watcher.proposals_dir)}
     # applying is a normal gated mutation: its commit is in history
     assert any("frontmatter" in c["subject"] for c in Vault(vault).history())
 
 
-def test_checkbox_reject_records_without_touching_vault(vault, watcher, monkeypatch):
+def test_reject_records_without_touching_vault(vault, watcher, monkeypatch):
     recorded = []
     monkeypatch.setattr("harness.watcher.record_dashboard", lambda p, d, **k: recorded.append(d))
     run(watcher)
     target = proposals.pending(watcher.proposals_dir)[0]
     before = (vault / target["drafted_against"]["note"]).read_text()
 
-    review = vault / "Harness/Review.md"
-    review.write_text(review.read_text().replace(
-        f"- [ ] reject {target['id']}", f"- [x] reject {target['id']}"))
-    summary = run(watcher)
+    summary = decide(watcher, target["id"], "reject")
 
     assert summary["rejected"] == 1 and recorded == ["rejected"]
     assert (vault / target["drafted_against"]["note"]).read_text() == before
@@ -118,10 +116,7 @@ def test_hand_edit_between_draft_and_approve_goes_stale(vault, watcher):
     before_apply = note.read_text() + "\nA hand edit after drafting.\n"
     note.write_text(before_apply)
 
-    review = vault / "Harness/Review.md"
-    review.write_text(review.read_text().replace(
-        f"- [ ] approve {target['id']}", f"- [x] approve {target['id']}"))
-    summary = run(watcher)
+    summary = decide(watcher, target["id"])
 
     assert summary["approved"] == 0 and summary["stale"] >= 1
     assert note.read_text() == before_apply                     # never blind-applied
@@ -132,110 +127,55 @@ def test_hand_edit_between_draft_and_approve_goes_stale(vault, watcher):
 def test_decisions_never_act_twice(vault, watcher):
     run(watcher)
     target = proposals.pending(watcher.proposals_dir)[0]
-    review = vault / "Harness/Review.md"
-    review.write_text(review.read_text().replace(
-        f"- [ ] approve {target['id']}", f"- [x] approve {target['id']}"))
-    first = run(watcher)
+    first = decide(watcher, target["id"])
     assert first["approved"] == 1
 
-    # simulate a stray stale rendering with the same checked box
-    review.write_text(f"- [x] approve {target['id']}\n")
-    second = run(watcher)
+    # a double-click, a retried request, a stale dashboard: same verdict again
+    second = decide(watcher, target["id"])
     assert second["approved"] == 0  # resolved proposals are not pending — no re-apply
 
+    # and the same pid twice WITHIN one call resolves exactly once
+    run(watcher)
+    other = proposals.pending(watcher.proposals_dir)[0]
+    dup = asyncio.run(watcher.run_once(
+        decisions=[(other["id"], "approve"), (other["id"], "approve")]))
+    assert dup["approved"] == 1
 
-def test_decisions_only_acts_and_renders_without_scanning(vault, watcher, make_watcher):
+
+def test_decisions_only_acts_without_scanning(vault, watcher, make_watcher):
+    """The UI button's lane: apply the verdict now, never draft — a click
+    must not wait on a worker."""
     run(watcher)
     target = proposals.pending(watcher.proposals_dir)[0]
-    review = vault / "Harness/Review.md"
-    review.write_text(review.read_text().replace(
-        f"- [ ] approve {target['id']}", f"- [x] approve {target['id']}"))
 
     async def exploding(item):
-        raise AssertionError("the fast lane must never draft")
+        raise AssertionError("the decision lane must never draft")
 
     fast = make_watcher(vault, disabled=("archive_done",), drafter=exploding, n_max=3)
-    summary = asyncio.run(fast.run_once(decisions_only=True))
+    summary = decide(fast, target["id"], decisions_only=True)
     assert summary["approved"] == 1 and summary["drafted"] == 0 and not summary["scanned"]
-    assert f"approve {target['id']}" not in review.read_text()  # feedback rendered
     # the memo was left untouched, so the next full pass still scans
     assert run(watcher)["scanned"]
 
 
-def test_render_never_clobbers_unacted_checked_boxes(vault, watcher):
-    run(watcher)
-    target = proposals.pending(watcher.proposals_dir)[0]
-    review = vault / "Harness/Review.md"
-    checked = review.read_text().replace(
-        f"- [ ] approve {target['id']}", f"- [x] approve {target['id']}")
-    review.write_text(checked)
-    assert watcher._render() is False     # unacted decision on the surface: hands off
-    assert review.read_text() == checked  # the user's check survived
-    assert run(watcher)["approved"] == 1  # and the next pass honors it
+def test_post_scan_applies_are_rescanned_next_pass(vault, make_watcher):
+    """An apply that lands AFTER this pass's scan must not be folded into
+    the git memo — the next full pass has to rescan the notes it changed.
+    Auto-apply is the only thing that lands post-scan now that the
+    mid-pass checkbox sweep is gone, so it is what guards the rule."""
+    async def faithful(text, today):
+        return [{"text": "buy a car", "due": None, "priority": None, "owed_by": None}]
 
-
-def test_mid_pass_decision_is_acted_before_the_pass_ends(vault, watcher, make_watcher):
-    """The live deadlock of 2026-07-23: a box checked while a slow pass
-    drafts must be honored by THAT pass — its trigger was consumed by the
-    pass lock and re-baselining hides it from the loops."""
-    run(watcher)  # leaves pending proposals
-    target = proposals.pending(watcher.proposals_dir)[0]
-    review = vault / "Harness/Review.md"
-
-    async def checking_drafter(item):
-        # the user's decision arrives mid-draft
-        review.write_text(review.read_text().replace(
-            f"- [ ] approve {target['id']}", f"- [x] approve {target['id']}"))
-        return await fake_drafter(item)
-
-    (vault / "Home.md").write_text((vault / "Home.md").read_text() + "\nnudge\n")
-    summary = run(make_watcher(vault, disabled=("archive_done",), drafter=checking_drafter, n_max=3))
-    assert summary["approved"] == 1  # the late decision was swept in-pass
-    assert f"approve {target['id']}" not in review.read_text()  # and re-rendered
-
-
-def test_post_scan_applies_are_rescanned_next_pass(vault, watcher, make_watcher):
-    """An apply that lands after this pass's scan (a decision swept
-    mid-draft, an auto-apply) must not be folded into the git memo — the
-    next full pass has to rescan the notes it changed."""
-    run(watcher)  # leaves pending proposals
-    target = proposals.pending(watcher.proposals_dir)[0]
-    review = vault / "Harness/Review.md"
-
-    async def checking_drafter(item):
-        # the user's decision arrives mid-draft, after the scan already ran
-        review.write_text(review.read_text().replace(
-            f"- [ ] approve {target['id']}", f"- [x] approve {target['id']}"))
-        return await fake_drafter(item)
-
-    (vault / "Home.md").write_text((vault / "Home.md").read_text() + "\nnudge\n")
-    summary = run(make_watcher(vault, disabled=("archive_done",), drafter=checking_drafter, n_max=3))
-    assert summary["approved"] == 1  # applied in-pass, after the scan
-    assert run(watcher)["scanned"]   # so the memo was dropped: next pass scans
-
-
-def test_decision_is_serviced_between_drafting_calls(vault, watcher, make_watcher):
-    """A slow drafting phase holds the pass lock for minutes; a checked
-    box must land after at most ONE draft call, not at pass end."""
-    run(watcher)  # leaves pending proposals
-    target = proposals.pending(watcher.proposals_dir)[0]
-    review = vault / "Harness/Review.md"
-    calls, acted_before_second_draft = [], []
-
-    async def slow_phase_drafter(item):
-        calls.append(item["note"])
-        if len(calls) == 1:  # the user decides during the first draft
-            review.write_text(review.read_text().replace(
-                f"- [ ] approve {target['id']}", f"- [x] approve {target['id']}"))
-        if len(calls) == 2:  # before the second draft, it must already be applied
-            acted_before_second_draft.append(
-                f"approve {target['id']}" not in review.read_text())
-        return await fake_drafter(item)
-
-    (vault / "Home.md").write_text((vault / "Home.md").read_text() + "\nnudge\n")
-    summary = run(make_watcher(vault, disabled=("archive_done",), drafter=slow_phase_drafter, n_max=3))
-    assert summary["approved"] == 1
-    assert acted_before_second_draft == [True]
+    # this suite's vault revokes auto-apply trust; this test needs it back
+    (vault / "Harness/Spec.md").write_text(
+        "---\nauto_apply: [inbox_extract]\n---\n\n# Vault Spec\n")
+    w = make_watcher(vault, capture_extractor=faithful,
+                     disabled=("schema_fix", "grouping", "spec_drift", "archive_done"),
+                     n_max=20)
+    inbox = vault / "Tasks/Inbox.md"
+    inbox.write_text(inbox.read_text().rstrip("\n") + "\nbuy a car\n")
+    assert run(w)["auto"] == 1        # applied after the scan had already run
+    assert run(w)["scanned"]          # so the memo was dropped: next pass scans
 
 
 def test_invalid_drafter_output_never_enters_queue(vault, tmp_path, monkeypatch):
@@ -302,20 +242,16 @@ def test_poison_apply_fails_the_proposal_never_the_pass(vault, watcher):
         apply=[{"tool": "replace_section",
                 "args": {"path": "Nope/Missing.md", "heading": "X", "content": "y"}}])
     proposals.save(poison, watcher.proposals_dir)
-    review = vault / "Harness/Review.md"
-    run(watcher)  # render the poison proposal's checkbox
-    text = review.read_text()
-    text = text.replace(f"- [ ] approve {poison['id']}", f"- [x] approve {poison['id']}")
-    text = text.replace(f"- [ ] approve {good['id']}", f"- [x] approve {good['id']}")
-    review.write_text(text)
 
-    summary = run(watcher)
+    summary = asyncio.run(watcher.run_once(
+        decisions=[(poison["id"], "approve"), (good["id"], "approve")]))
     assert summary["failed"] == 1
     assert summary["approved"] == 1  # the good approval still landed
     statuses = {q["id"]: q["status"] for q in proposals.load_all(watcher.proposals_dir)}
     assert statuses[poison["id"]] == "failed"
     assert statuses[good["id"]] == "approved"
-    assert f"approve {poison['id']}" not in review.read_text()  # box cleared
+    # resolved, not left pending: a poison plan must never be retryable
+    assert poison["id"] not in {q["id"] for q in proposals.pending(watcher.proposals_dir)}
 
     # and the next pass is healthy — no retry loop
     assert run(watcher)["failed"] == 0

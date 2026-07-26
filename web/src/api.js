@@ -35,7 +35,7 @@ const IDLE = { running: false, label: "", stopping: false };
    liveness signal: what the small model is chewing on right now. */
 export function useDashboard() {
   const [state, setState] = useState({
-    today: null, review: null, changes: null, health: null, error: null,
+    today: null, review: null, changes: null, health: null, tree: null, error: null,
   });
   const [live, setLive] = useState(false);
   const [lastPassAt, setLastPassAt] = useState(null); // Date of last pass
@@ -50,15 +50,17 @@ export function useDashboard() {
   /* `what` narrows the refetch. A checked task changes the task lists and
      nothing else — re-pulling git log and worker health for it is the
      difference between instant and a beat behind. */
-  const refetch = useCallback(async (what = ["today", "review", "changes", "health"]) => {
+  const refetch = useCallback(
+    async (what = ["today", "review", "changes", "health", "tree"]) => {
     const mine = ++seq.current;
     try {
       const want = new Set(what);
-      const [today, review, changes, health] = await Promise.all([
+      const [today, review, changes, health, tree] = await Promise.all([
         want.has("today") ? getJSON("/api/today") : null,
         want.has("review") ? getJSON("/api/review") : null,
         want.has("changes") ? getJSON("/api/changes") : null,
         want.has("health") ? getJSON("/api/health") : null,
+        want.has("tree") ? getJSON("/api/tree") : null,
       ]);
       if (!alive.current || mine !== seq.current) return;
       setState((s) => ({
@@ -67,6 +69,7 @@ export function useDashboard() {
         review: review ?? s.review,
         changes: changes ?? s.changes,
         health: health ?? s.health,
+        tree: tree ?? s.tree,
         error: null,
       }));
       if (health?.last_pass)
@@ -107,11 +110,15 @@ export function useDashboard() {
       refetch();                       // a pass can touch everything
     });
     es.addEventListener("vault_changed", (e) => {
-      // one edit: the lists move, the git log and worker health don't
+      // one edit: the lists move, the git log and worker health don't.
+      // The tree moves whenever a note can appear or vanish — which is
+      // everything except a checked task, the one change that provably
+      // only rewrites a line inside a note that already existed.
       const reason = (() => { try { return JSON.parse(e.data).reason; } catch { return ""; } })();
-      refetch(reason === "revert"
-        ? ["today", "review", "changes"]
-        : ["today", "review"]);
+      if (reason === "task_done") refetch(["today", "review"]);
+      else refetch(reason === "revert"
+        ? ["today", "review", "changes", "tree"]
+        : ["today", "review", "tree"]);
     });
     return () => { alive.current = false; es.close(); };
   }, [refetch]);
@@ -119,15 +126,11 @@ export function useDashboard() {
   return { ...state, live, lastPassAt, activity, refetch };
 }
 
-/* Deep links out to the editor — the UI never edits notes (the editor
-   already does it better). Scheme comes from Spec.md via /api/health. */
-export function noteHref(health, note) {
-  if (!health) return "#";
-  const abs = `${health.vault}/${note}`;
-  return health.link_scheme === "vscode"
-    ? `vscode://file/${encodeURIComponent(abs)}`
-    : `obsidian://open?path=${encodeURIComponent(abs)}`;
-}
+/* Note references open OUR editor. There is no deep-link-out helper any
+   more (removed 2026-07-26): tezcat is the surface, not a launcher for
+   one. The vault stays plain markdown any editor can open — that's
+   portability, which is a property of the format, not a handoff we owe
+   another app from inside our own UI. */
 
 export const noteName = (note) => note.replace(/\.md$/, "").split("/").pop();
 

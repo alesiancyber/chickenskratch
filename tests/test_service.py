@@ -58,17 +58,16 @@ def test_decide_validates_its_inputs(vault, wkw):
         asyncio.run(service.decide(str(vault), "p-" + "a" * 12, "maybe", **wkw))
 
 
-def test_decide_and_checkbox_never_double_apply(vault, wkw):
-    """The same pid checked in Review.md AND clicked in the UI resolves
-    once — _act's resolved-set is the convergence guarantee."""
+def test_the_same_verdict_twice_never_double_applies(vault, wkw):
+    """Two clicks, a retried request, the dashboard and `harness decide`
+    racing — the proposal resolves once. _act's resolved-set is the
+    convergence guarantee, and it is now the ONLY thing standing between
+    a double-submit and a doubled edit (2026-07-26: the checkbox channel
+    that used to share it is gone, but the guarantee is unchanged)."""
     p = plant_proposal(vault, wkw)
-    w = Watcher(str(vault), **wkw)
-    asyncio.run(w.run_once())  # renders Review.md with the checkbox
-    review = vault / "Harness/Review.md"
-    review.write_text(review.read_text().replace(
-        f"- [ ] approve {p['id']}", f"- [x] approve {p['id']}"))
-    summary = asyncio.run(service.decide(str(vault), p["id"], "approve", **wkw))
-    assert summary["approved"] == 1
+    first = asyncio.run(service.decide(str(vault), p["id"], "approve", **wkw))
+    second = asyncio.run(service.decide(str(vault), p["id"], "approve", **wkw))
+    assert first["approved"] == 1 and second["approved"] == 0
     assert (vault / "Tasks/Inbox.md").read_text().count("planted task") == 1
 
 

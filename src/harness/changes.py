@@ -1,11 +1,13 @@
-"""Harness/Changes.md — the audit surface.
+"""The audit view — "what changed while I wasn't looking".
 
-Verified auto-apply means the harness edits the vault without a
-checkbox; this surface answers "what changed while I wasn't looking"
-without leaving Obsidian. It is a rendered view of the vault's own git
-log — every row is one snapshot commit, so revert (the dashboard's ↺,
-or `harness-revert`) always applies. Deliberately no revert checkbox
-(explicitly-cut list): destructive actions don't ride text files.
+Verified auto-apply means the harness edits the vault without asking, so
+this exists to answer for it. A rendered view of the vault's own git log:
+every row is one snapshot commit, so revert (the dashboard's ↺, or
+`harness-revert`) always applies.
+
+It was a note in the vault until 2026-07-26; now it is what `harness
+changes` prints and what /api/changes serves. Deliberately never a
+revert checkbox: destructive actions don't ride text files.
 """
 
 from __future__ import annotations
@@ -22,10 +24,19 @@ chat turn carry its chat id._
 """
 
 
+# Surfaces the engine rendered until 2026-07-26. They are gone, but their
+# commits are still in the vault's history — and a "update Harness/Today.md"
+# row is exactly as much not-news now as it was then. Keeping them here is
+# what stops the retirement from flooding the Changes list with the
+# harness redrawing surfaces that no longer exist.
+LEGACY_RENDERS = ("Harness/Review.md", "Harness/Today.md", "Harness/Changes.md")
+
+
 def machine_rels(cfg, *extra: str) -> set[str]:
     """Surface paths whose commits are renders, not news — the input to
     is_machine_render, derived from the vault spec in one place."""
-    return {r for r in cfg.surfaces.values() if r} | {e for e in extra if e}
+    return ({r for r in cfg.surfaces.values() if r}
+            | set(LEGACY_RENDERS) | {e for e in extra if e})
 
 
 def is_machine_render(commit: dict, machine: set[str]) -> bool:
@@ -52,21 +63,16 @@ def recent_news(v: Vault, machine: set[str], limit: int = 20) -> list[dict]:
     return rows
 
 
-def render(v: Vault, changes_rel: str, limit: int = 20, status: str = "",
-           surface_rels: frozenset[str] | set[str] = frozenset()) -> str:
-    """Deterministic markdown for the surface: absolute times (relative
-    ones would churn the note every pass), and machine-render commits —
-    any commit touching only harness surfaces — filtered out, so no
-    surface's render can ever feed this one (Today.md renders after this
-    surface does; listing it would churn a rewrite every pass). `status`
-    is an optional health line (worker model + reachability) — stable
-    across passes unless something actually changed."""
+def render(v: Vault, cfg, limit: int = 20) -> str:
+    """Deterministic markdown: absolute times (relative ones would make
+    two renders a minute apart disagree), and machine-render commits —
+    any commit touching only harness surfaces, present or retired —
+    filtered out, so the harness redrawing itself is never news."""
     lines = []
-    for c in recent_news(v, set(surface_rels) | {changes_rel}, limit):
+    for c in recent_news(v, machine_rels(cfg), limit):
         when = c["date"][:16].replace("T", " ")
         files = ", ".join(f"`{f}`" for f in c["files"][:3])
         more = f" +{len(c['files']) - 3} more" if len(c["files"]) > 3 else ""
         chat = f" · chat `{c['chat_id'][:12]}`" if c["chat_id"] else ""
         lines.append(f"- **{when}** {c['subject']} — {files}{more}{chat}")
-    head = HEADER + (f"\n{status}\n" if status else "")
-    return head + "\n" + "\n".join(lines) + "\n"
+    return HEADER + "\n" + "\n".join(lines) + "\n"

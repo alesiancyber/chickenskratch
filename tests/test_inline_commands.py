@@ -1,7 +1,7 @@
 """//commands: the vault is the command line, and commands are their own
 class of change (2026-07-23 redesign) — user ORDERS, not harness
 suggestions. Trust is intrinsic (typing is the approval), nothing ever
-queues in Review.md, no proposal artifacts exist, staleness is the
+queues for review, no proposal artifacts exist, staleness is the
 replace_line anchor itself, and the n_max drafting budget is never
 spent. The write substrate (gated tools, snapshot per mutation,
 revertibility) is fully shared with proposals."""
@@ -57,10 +57,9 @@ def test_typed_command_replaced_in_place_no_queue_no_artifacts(vault, make_watch
     assert text.index("above") < text.index("learn.microsoft.com") < text.index("below")
     assert not re.search(r"^//azure", text, re.M)  # no re-trigger anchor left
 
-    # a command leaves NO proposal artifact and NO checkbox — its audit
-    # trail is the git snapshot
+    # a command leaves NO proposal artifact — its audit trail is the git
+    # snapshot and nothing else (I3)
     assert proposals.load_all(w.proposals_dir) == []
-    assert "approve p-" not in (vault / "Harness/Review.md").read_text()
     assert any("replace line" in c["subject"] for c in Vault(vault).history())
 
 

@@ -129,10 +129,7 @@ def test_new_folder_drafts_a_spec_proposal_and_approval_updates_the_note(vault, 
     assert "Detections" in p["title"]
     assert p["apply"][0]["tool"] == "update_frontmatter"
 
-    review = vault / "Harness/Review.md"
-    review.write_text(review.read_text().replace(
-        f"- [ ] approve {p['id']}", f"- [x] approve {p['id']}"))
-    summary = run(w)
+    summary = asyncio.run(w.run_once(decisions=[(p['id'], "approve")]))
     assert summary["approved"] == 1
     fm, _ = md.split_frontmatter(spec_path(vault).read_text())
     assert fm["folders"]["Detections"] == "other"

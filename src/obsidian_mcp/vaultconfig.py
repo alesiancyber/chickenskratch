@@ -58,12 +58,6 @@ class VaultConfig:
     disabled_processors: tuple[str, ...] = ()
     # Proposals drafted per engine pass; a big backlog drains over days.
     n_max: int = 5
-    # Which editor deep-links open (dashboard rows, chat citations):
-    # "obsidian" -> obsidian://open?path=..., "vscode" -> vscode://file/...
-    # Renderer config, so it lives repo-side in config/vault.yaml — not a
-    # Spec.md key (the owned-surfaces 0-B move: the vault describes its
-    # content, the repo describes its renderers).
-    link_scheme: str = "obsidian"
     # Folder for daily notes (align with Foam's dailyNotes.directory or
     # Obsidian's daily-note folder — the harness follows, either way).
     daily_dir: str = "Daily"
@@ -93,7 +87,7 @@ def load_config(path: str | Path | None = None) -> VaultConfig:
         )
     raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     known = {"folders", "exclude", "surfaces", "schemas_dir",
-             "capture_inbox", "waiting_inbox", "done_archive", "link_scheme"}
+             "capture_inbox", "waiting_inbox", "done_archive"}
     ignored = sorted(set(raw) - known)
     if ignored:
         # Keys like auto_apply/fidelity/n_max are Spec.md-only; silence
@@ -109,8 +103,6 @@ def load_config(path: str | Path | None = None) -> VaultConfig:
         capture_inbox=str(raw.get("capture_inbox") or "Tasks/Inbox.md"),
         waiting_inbox=str(raw.get("waiting_inbox") or "Tasks/Waiting.md"),
         done_archive=str(raw.get("done_archive", "Tasks/Archive.md") or ""),
-        link_scheme=(raw.get("link_scheme")
-                     if raw.get("link_scheme") in ("obsidian", "vscode") else "obsidian"),
     )
 
 

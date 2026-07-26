@@ -45,9 +45,16 @@ export function linkify(text, onOpenNote) {
         <button key={key++} className="linklike doc-link"
                 onClick={() => onOpenNote(path, line || "")}>{label}</button>,
       );
-    } else {
+    } else if (/^https?:\/\//i.test(href)) {
       out.push(<a key={key++} href={href} target="_blank" rel="noreferrer"
                   className="doc-link">{label}</a>);
+    } else {
+      /* Anything else — an app scheme like obsidian:// or vscode://, a
+         file: path — renders as text, never as a launcher. This is the
+         choke point where model-written links become clickable, so the
+         "we don't hand notes to another app" rule is enforced HERE and
+         can't be re-introduced by a producer we forgot about. */
+      out.push(<span key={key++}>{label}</span>);
     }
   }
   if (last < text.length) out.push(text.slice(last));

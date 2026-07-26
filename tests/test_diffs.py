@@ -1,6 +1,10 @@
-"""The structured diff view-model (the promoted computation) and the
-Review.md integration — which, post diff_style, is always the unified
-```diff fence: renders everywhere, zero knobs, no HTML."""
+"""The structured diff view-model — the promoted computation the
+dashboard renders as rows, and `applier.preview` renders as a unified
+```diff for anything text-shaped (the CLI, a proposal's own record).
+
+The Review.md integration these tests used to cover went away with the
+surface on 2026-07-26; what remains is the same computation with one
+fewer consumer."""
 
 import asyncio
 
@@ -46,7 +50,12 @@ def vault(gitvault):
     return gitvault
 
 
-def test_review_renders_unified_diff_only(vault, make_watcher):
+def test_a_queued_proposal_previews_as_a_unified_diff(vault, make_watcher):
+    """One drafted proposal, two renderings of the same simulate: the
+    dashboard's rows and the plain unified fence. Neither is HTML — the
+    inline-styled emitter was cut in Phase 0 and must not come back."""
+    from harness import applier
+
     async def rewording_drafter(item):
         return {"title": f"Rework {item['note']}", "summary": "reword",
                 "apply": [{"tool": "update_frontmatter",
@@ -55,11 +64,17 @@ def test_review_renders_unified_diff_only(vault, make_watcher):
     w = make_watcher(vault, drafter=rewording_drafter, n_max=1,
                      disabled=("capture", "inbox_extract", "spec_drift", "grouping", "archive_done"))
     asyncio.run(w.run_once())
-    assert len(proposals.pending(w.proposals_dir)) >= 1
-    review = (vault / "Harness/Review.md").read_text()
-    assert "```diff" in review          # the everywhere-renderer
-    assert "<table" not in review       # the HTML emitter is gone
-    assert "- [ ] approve p-" in review
+    (p, *_) = proposals.pending(w.proposals_dir)
+
+    note_text = (vault / p["drafted_against"]["note"]).read_text()
+    fence = applier.preview(note_text, p)
+    assert "+status: rewritten" in fence
+    assert "<table" not in fence         # the HTML emitter stays gone
+
+    after, _skipped = applier.simulate_for_note(note_text, p)
+    rows = diffs.diff_rows(note_text, after)
+    assert {r["kind"] for r in rows} <= {"context", "change", "skip"}
+    assert any(r["kind"] == "change" for r in rows)
 
 
 def test_a_plan_that_cannot_be_simulated_is_described_not_raised():
