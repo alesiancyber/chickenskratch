@@ -125,14 +125,32 @@ def test_loop_guard_allows_different_args_and_resets_per_turn():
     assert len(agent.client.calls) == 3
 
 
-def test_loop_guard_ignores_reads():
+def test_read_guard_blocks_identical_read_in_same_turn():
+    """The 2026-07-25 pane flail: identical reads re-issued against an
+    unchanged world get the cached answer, not a re-execution."""
     agent = make_agent([
         response(tool_calls=[FakeToolCall("read_thing")]),
         response(tool_calls=[FakeToolCall("read_thing", call_id="c2")]),
         response(content="done"),
     ])
     run(agent)
-    assert len(agent.client.calls) == 2  # reads are never deduplicated
+    assert len(agent.client.calls) == 1  # executed exactly once
+    dup = [m for m in agent.messages if m["role"] == "tool"][1]["content"]
+    assert "REPEAT CALL" in dup
+
+
+def test_read_guard_resets_after_a_write():
+    """read -> write -> same read must re-execute: verifying your own
+    change is legitimate; the write invalidated the cache."""
+    agent = make_agent([
+        response(tool_calls=[FakeToolCall("read_thing")]),
+        response(tool_calls=[FakeToolCall("write_thing", '{"a": 1}', call_id="c2")]),
+        response(tool_calls=[FakeToolCall("read_thing", call_id="c3")]),
+        response(content="done"),
+    ])
+    run(agent)
+    reads = [c for c in agent.client.calls if c[0] == "read_thing"]
+    assert len(reads) == 2  # both executed
 
 
 # --------------- write gate ---------------
@@ -423,3 +441,42 @@ def test_vault_citations_use_vscode_scheme_when_configured(monkeypatch):
     out = run(agent)
     assert "vscode://file//vault/Projects/Website%20Redesign.md" in out
     assert "obsidian://" not in out
+
+
+# --------------- vault citations: where a source opens ---------------
+
+def test_citations_default_to_the_configured_editor(tmp_path, monkeypatch):
+    """The CLI has no editor of its own, so a cited note stays a deep link
+    into Obsidian/VSCode — unchanged behaviour."""
+    from harness.agent import Agent
+    from harness.profiles import Profile
+
+    agent = Agent(Profile(name="f", model="f"), servers=[], vault=str(tmp_path))
+    agent._cited = {"Meetings/Q3.md": {14}}
+    out = agent._with_vault_citations("the answer")
+    assert "obsidian://open?path=" in out
+    assert "Meetings/Q3.md (line 14)" in out
+
+
+def test_pane_citations_are_vault_links_carrying_the_line():
+    """The pane owns an editor, so a source must open THERE — and on the
+    line the answer actually drew from, not at the top of the note."""
+    from harness.agent import Agent, app_note_link
+    from harness.profiles import Profile
+
+    agent = Agent(Profile(name="f", model="f"), servers=[], vault="/v",
+                  note_link=app_note_link)
+    agent._cited = {"Meetings/Q3 Planning.md": {14, 22}}
+    out = agent._with_vault_citations("the answer")
+    assert "(vault:Meetings/Q3%20Planning.md#14)" in out
+    assert "obsidian://" not in out and "vscode://" not in out
+
+
+def test_citations_still_skip_notes_the_model_already_named():
+    from harness.agent import Agent, app_note_link
+    from harness.profiles import Profile
+
+    agent = Agent(Profile(name="f", model="f"), servers=[], vault="/v",
+                  note_link=app_note_link)
+    agent._cited = {"Home.md": set()}
+    assert agent._with_vault_citations("I read Home.md for this") == "I read Home.md for this"

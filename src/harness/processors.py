@@ -12,6 +12,8 @@ starved out of n_max by a maintenance backlog.
 from __future__ import annotations
 
 import datetime as dt
+import difflib
+import pathlib
 import re
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
@@ -20,28 +22,26 @@ from typing import TYPE_CHECKING
 import yaml
 
 from obsidian_mcp import ids
+from obsidian_mcp import markdown as md
 from obsidian_mcp import tasks as tk
 from obsidian_mcp.vault import VaultError, read_lossy
 from obsidian_mcp.vaultconfig import SPEC_REL, get_config
 
 from . import applier, grouping, proposals
+
+# Re-exported: the capture text contract is shared with applier (see
+# capture.py), but it reads as part of this processor's surface.
+from .capture import CAPTURE_SKELETON, capture_text
 from .commands import is_command_line
 from .proposals import content_hash
+
+__all__ = ["CAPTURE_SKELETON", "capture_text", "registry", "REGISTRY"]
 
 if TYPE_CHECKING:
     from .watcher import Watcher
 
 # entity type -> id prefix for the note-level watermark the drafter stamps
 ID_PREFIX = {"meeting": "m", "research": "r", "kanban": "b"}
-
-CAPTURE_SKELETON = """\
-# Capture
-
-_Type or paste anything here — brain dumps, meeting scraps, forwarded
-messages. On its next pass the harness extracts tasks and proposes them
-in Review.md; nothing is added to the vault without your approval there._
-"""
-
 
 @dataclass(frozen=True)
 class ProcessorSpec:
@@ -53,11 +53,6 @@ class ProcessorSpec:
     render_diff: bool = True  # False: the issues list IS the payload; no diff block
     ensure: Callable[[Watcher], None] | None = None  # pass-start hook (create surfaces)
     on_applied: Callable[[Watcher, dict], None] | None = None  # post-apply hook
-    # Fired when a pending proposal of this kind flips stale. Extractors
-    # re-arm their seen-hash here: stale + seen-suppression otherwise
-    # silently drops the extraction forever (the 2026-07-24 capture bug —
-    # fixed there by text-hashing, generalized here for every extractor).
-    on_stale: Callable[[Watcher, dict], None] | None = None
     # Deterministic safety check enabling auto-apply (Spec.md `auto_apply`):
     # (w, item, proposal) -> failure strings. Empty = safe to apply without
     # a checkbox; any failure (or no verifier) = the Review.md queue.
@@ -73,18 +68,6 @@ def ensure_capture(w: Watcher) -> None:
         return
     w.write_surface(w.capture_rel, CAPTURE_SKELETON,
                     f"create {w.capture_rel}", action="create_capture_surface")
-
-
-def capture_text(raw: str) -> str:
-    """What the user typed: the note minus the skeleton's own lines.
-    Known //command lines are never capture text — a command typed here
-    by habit must not be extracted into a junk task (commands execute in
-    knowledge notes; surfaces are excluded from the command scan)."""
-    skeleton = {ln for ln in CAPTURE_SKELETON.splitlines() if ln.strip()}
-    return "\n".join(
-        ln for ln in raw.splitlines()
-        if ln.strip() and ln not in skeleton and not is_command_line(ln)
-    ).strip()
 
 
 def reset_capture(w: Watcher) -> None:
@@ -103,7 +86,7 @@ def scan_capture(w: Watcher) -> list[dict]:
     except VaultError:
         return []
     text = capture_text(raw)
-    if not text or content_hash(text) == w._capture_seen:
+    if not text or content_hash(text) == w.seen.get("capture"):
         return []
     return [{
         "kind": "capture",
@@ -118,16 +101,12 @@ async def draft_capture(w: Watcher, item: dict) -> dict | None:
     tasks = await w.capture_extractor(item["text"], dt.date.today().isoformat())
     # Processed regardless of outcome: the same text is never
     # re-extracted; editing the surface changes the hash and re-arms.
-    w._capture_seen = content_hash(item["text"])
+    w.seen["capture"] = content_hash(item["text"])
     if not tasks:
         return None
-    # Own actions land in the capture inbox; commitments other people
-    # made ("Nadia will send X") are follow-ups, not the user's tasks —
-    # they route to the waiting list.
-    n_own = sum(1 for t in tasks if not t.get("owed_by"))
-    n_owed = len(tasks) - n_own
-    parts = ([f"{n_own} captured task(s) to {w.capture_inbox}"] if n_own else []) + (
-        [f"{n_owed} waiting-on item(s) to {w.waiting_inbox}"] if n_owed else []
+    own, owed = _split_owed(tasks)
+    parts = ([f"{len(own)} captured task(s) to {w.capture_inbox}"] if own else []) + (
+        [f"{len(owed)} waiting-on item(s) to {w.waiting_inbox}"] if owed else []
     )
     p = proposals.new_proposal(
         kind="capture",
@@ -142,20 +121,9 @@ async def draft_capture(w: Watcher, item: dict) -> dict | None:
         note_content=item["text"],
         title="Add " + " + ".join(parts),
         summary=f"Extracted from {item['note']}; approving adds them and clears the surface.",
-        issues=[
-            (f"waiting on {t['owed_by']}: " if t.get("owed_by") else "")
-            + t["text"]
-            + (f" — due {t['due']}" if t.get("due") else "")
-            + (f", {t['priority']}" if t.get("priority") else "")
-            for t in tasks
-        ] + _dropped_date_issues(tasks),
+        issues=_extraction_issues(tasks),
         apply=[
-            {"tool": "add_task", "args": {
-                "path": w.waiting_inbox if t.get("owed_by") else w.capture_inbox,
-                "text": f"{t['owed_by']}: {t['text']}" if t.get("owed_by") else t["text"],
-                **({"due": t["due"]} if t.get("due") else {}),
-                **({"priority": t["priority"]} if t.get("priority") else {}),
-            }}
+            _add_task_step(w.waiting_inbox if t.get("owed_by") else w.capture_inbox, t)
             for t in tasks
         ],
     )
@@ -167,12 +135,46 @@ def _capture_applied(w: Watcher, p: dict) -> None:
         reset_capture(w)
 
 
-def _capture_stale(w: Watcher, p: dict) -> None:
-    w._capture_seen = ""  # stale voided the draft; the re-draft must be guaranteed
+# ---- shared extraction shaping (capture and inbox_extract) ----
+#
+# Both extractors run the same worker over user text and turn its tasks
+# into the same three things: a reviewable issues list, add_task steps,
+# and an own/owed split. Only WHERE the text comes from and what else
+# the plan does differ, so the shaping lives here once.
 
 
-def _inbox_stale(w: Watcher, p: dict) -> None:
-    w._inbox_seen = ""
+def _split_owed(tasks: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(own actions, things other people owe). Commitments someone else
+    made ("Nadia will send X") are follow-ups, not the user's tasks —
+    they route to the waiting list."""
+    own = [t for t in tasks if not t.get("owed_by")]
+    return own, [t for t in tasks if t.get("owed_by")]
+
+
+def _task_issue(t: dict) -> str:
+    """One extracted task as a Review.md line — what the user is being
+    asked to approve, dates and priorities included."""
+    return (
+        (f"waiting on {t['owed_by']}: " if t.get("owed_by") else "")
+        + t["text"]
+        + (f" — due {t['due']}" if t.get("due") else "")
+        + (f", {t['priority']}" if t.get("priority") else "")
+    )
+
+
+def _extraction_issues(tasks: list[dict]) -> list[str]:
+    return [_task_issue(t) for t in tasks] + _dropped_date_issues(tasks)
+
+
+def _add_task_step(path: str, t: dict) -> dict:
+    """One add_task apply step. A task someone else owes carries their
+    name in the text, so the waiting list reads "who: what"."""
+    return {"tool": "add_task", "args": {
+        "path": path,
+        "text": f"{t['owed_by']}: {t['text']}" if t.get("owed_by") else t["text"],
+        **({"due": t["due"]} if t.get("due") else {}),
+        **({"priority": t["priority"]} if t.get("priority") else {}),
+    }}
 
 
 def _dropped_date_issues(tasks: list[dict]) -> list[str]:
@@ -241,11 +243,15 @@ def scan_inbox(w: Watcher) -> list[dict]:
         raw = w.vault.read(w.capture_inbox)
     except VaultError:
         return []
-    found = _inbox_prose(raw.split("---", 2)[-1] if raw.startswith("---") else raw)
+    # The real frontmatter parser, not a hand-rolled split on "---": a note
+    # that OPENS with a horizontal rule (no frontmatter at all) made that
+    # split eat its first line, and the section indices below are derived
+    # from whatever body it returned.
+    found = _inbox_prose(md.split_frontmatter(raw)[1])
     if found is None:
         return []
     heading, sec_lines, idx, prose = found
-    if content_hash("\n".join(prose)) == w._inbox_seen:
+    if content_hash("\n".join(prose)) == w.seen.get("inbox_extract"):
         return []  # rejected text is never re-drafted; editing re-arms
     return [{
         "kind": "inbox_extract",
@@ -262,11 +268,10 @@ def scan_inbox(w: Watcher) -> list[dict]:
 async def draft_inbox(w: Watcher, item: dict) -> dict | None:
     text = "\n".join(ln.lstrip("- ").strip() for ln in item["prose"])
     tasks = await w.capture_extractor(text, dt.date.today().isoformat())
-    w._inbox_seen = content_hash("\n".join(item["prose"]))
+    w.seen["inbox_extract"] = content_hash("\n".join(item["prose"]))
     if not tasks:
         return None
-    own = [t for t in tasks if not t.get("owed_by")]
-    owed = [t for t in tasks if t.get("owed_by")]
+    own, owed = _split_owed(tasks)
     skip = set(item["prose_idx"])
     kept = [ln for i, ln in enumerate(item["sec_lines"]) if i not in skip]
     while kept and not kept[-1].strip():
@@ -288,23 +293,10 @@ async def draft_inbox(w: Watcher, item: dict) -> dict | None:
         + " + ".join(parts),
         summary="Loose lines become stamped tasks in place; existing tasks stay "
         "byte-identical. Reject and edit by hand if the reading is wrong.",
-        issues=[
-            (f"waiting on {t['owed_by']}: " if t.get("owed_by") else "")
-            + t["text"]
-            + (f" — due {t['due']}" if t.get("due") else "")
-            + (f", {t['priority']}" if t.get("priority") else "")
-            for t in tasks
-        ] + _dropped_date_issues(tasks),
+        issues=_extraction_issues(tasks),
         apply=[{"tool": "replace_section", "args": {
             "path": item["note"], "heading": item["section"], "content": content,
-        }}] + [
-            {"tool": "add_task", "args": {
-                "path": w.waiting_inbox, "text": f"{t['owed_by']}: {t['text']}",
-                **({"due": t["due"]} if t.get("due") else {}),
-                **({"priority": t["priority"]} if t.get("priority") else {}),
-            }}
-            for t in owed
-        ],
+        }}] + [_add_task_step(w.waiting_inbox, t) for t in owed],
     )
     return _flag_dropped_dates(p, tasks)
 
@@ -354,8 +346,6 @@ def _close_check(produced: str, source_lines: list[str], source_words: set[str])
     """`close` fidelity: grammar and punctuation may improve, meaning may
     not. Layered: flippers never; additions must be filler or morphology;
     the produced text must sequence-match its best source line."""
-    import difflib
-
     added = _words(produced) - source_words
     flip = added & _MEANING_FLIPPERS
     if flip:
@@ -456,7 +446,6 @@ def verify_schema_fix(w: Watcher, item: dict, proposal: dict) -> list[str]:
     every step must target the drafted note — the worker authors full
     tool args, and "nothing touched but the target" is only provable
     when the target is pinned in code, not in the prompt."""
-    from obsidian_mcp import markdown as md
     from obsidian_mcp import server
 
     for step in proposal["apply"]:
@@ -492,8 +481,6 @@ def scan_spec_drift(w: Watcher) -> list[dict]:
     """Top-level folders holding notes that the vault spec doesn't know.
     One work item covers them all — the spec note is one note, and the
     queue allows one pending proposal per note."""
-    import pathlib
-
     cfg = get_config(w.vault_path)
     known = set(cfg.folder_types) | set(cfg.exclude) | set(cfg.surface_dirs)
     new = []
@@ -553,13 +540,27 @@ def scan_schema(w: Watcher) -> list[dict]:
 
     items = []
     for row in server.validate_schema(limit=10_000)["nonconforming"]:
+        try:
+            content = w.vault.read(row["note"])
+        except VaultError:
+            # Per NOTE, not per processor. validate_schema walks with
+            # read_lossy, so it happily reports a mis-encoded note that
+            # this strict read then rejects — and the engine catches scan
+            # failures at the PROCESSOR level, so one latin-1 note (a
+            # paste out of Outlook is enough) silently disabled schema
+            # fixing entirely, every pass, forever. Skipping the note
+            # costs that note its fix; raising cost every note theirs.
+            # Strict is still right here: this content is the base for a
+            # read-modify-write, and replacement chars must never be
+            # written back.
+            continue
         items.append({
             "kind": "schema_fix",
             "note": row["note"],
             "entity": row["entity"],
             "issues": row.get("issues", [])
             + [f"line {t['line']}: {i}" for t in row.get("tasks", []) for i in t["issues"]],
-            "content": w.vault.read(row["note"]),
+            "content": content,
             "vault_sha": w._pass_sha,
             "new_id": ids.stamp_id(ID_PREFIX.get(row["entity"], "n")),
             "extra_ids": [ids.stamp_id("t") for _ in range(len(row.get("tasks", [])))],
@@ -598,12 +599,8 @@ def scan_grouping(w: Watcher) -> list[dict]:
     work item per note. Surfaces are machine-rendered, not knowledge —
     never candidates; Private/ is invisible to iter_notes already."""
     surface_dirs = get_config(w.vault_path).surface_dirs
-    v = w.vault
     items = []
-    for p in v.iter_notes():
-        rel = v.rel(p)
-        if rel.split("/")[0] in surface_dirs:
-            continue
+    for p, rel in w.vault.iter_knowledge_notes(surface_dirs):
         text = read_lossy(p)
         cand = grouping.note_candidate(text)
         if cand is None:
@@ -708,10 +705,10 @@ def verify_archive(w: Watcher, item: dict, proposal: dict) -> list[str]:
 CAPTURE = ProcessorSpec(
     "capture", scan_capture, draft_capture,
     render_diff=False, ensure=ensure_capture, on_applied=_capture_applied,
-    verify=verify_extraction, on_stale=_capture_stale,
+    verify=verify_extraction,
 )
 INBOX_EXTRACT = ProcessorSpec("inbox_extract", scan_inbox, draft_inbox,
-                              verify=verify_extraction, on_stale=_inbox_stale)
+                              verify=verify_extraction)
 SPEC_DRIFT = ProcessorSpec("spec_drift", scan_spec_drift, draft_spec_drift)
 SCHEMA_FIX = ProcessorSpec("schema_fix", scan_schema, draft_schema,
                            verify=verify_schema_fix)

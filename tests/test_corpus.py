@@ -44,15 +44,6 @@ def test_confirm_denied_and_timeout(tmp_path):
     assert timed["label"]["timed_out"] is True
 
 
-def test_bug_report_row(tmp_path):
-    corpus.record_bug_report("c", "m", MSGS, "the counts were wrong",
-                             "data/bug_reports/x.md", corpus_dir=tmp_path)
-    (row,) = read_rows(tmp_path)
-    assert row["label"]["source"] == "bug_report" and row["label"]["polarity"] == "negative"
-    assert row["label"]["description"] == "the counts were wrong"
-    assert row["label"]["report_path"] == "data/bug_reports/x.md"
-
-
 def test_revert_row(tmp_path):
     corpus.record_revert("c", "m", MSGS, "a1b2c3d",
                          "harness: append to Tasks/Inbox.md\n\nChat-Id: c",
@@ -72,15 +63,42 @@ def test_dashboard_row_needs_no_trajectory(tmp_path):
     assert rejected["label"]["polarity"] == "negative"
 
 
-def test_empty_messages_no_op(tmp_path):
+def test_empty_messages_no_op_unless_self_contained(tmp_path):
+    """No trajectory + no payload = nothing to train on. A revert row IS
+    its payload (sha + message identify the disavowed action), so it
+    lands even with the scratch transcript gone."""
     assert corpus.record_confirm("c", "m", [], "t", {}, approved=True, corpus_dir=tmp_path) is None
-    assert corpus.record_bug_report("c", "m", [], "d", "p", corpus_dir=tmp_path) is None
-    assert read_rows(tmp_path) == []
+    assert corpus.record_revert("", "", [], "a1b2c3d", "harness: add task", corpus_dir=tmp_path)
+    (row,) = read_rows(tmp_path)
+    assert row["label"]["source"] == "revert" and row["label"]["sha"] == "a1b2c3d"
 
 
 def test_month_file_accumulates_and_nested_dir_created(tmp_path):
     nested = tmp_path / "deep" / "corpus"
     corpus.record_confirm("c", "m", MSGS, "t", {}, approved=True, corpus_dir=nested)
-    corpus.record_bug_report("c", "m", MSGS, "d", "p", corpus_dir=nested)
+    corpus.record_revert("c", "m", MSGS, "a1b2c3d", "msg", corpus_dir=nested)
     rows = read_rows(nested)
     assert len(rows) == 2 and all(r["schema_version"] == 1 for r in rows)
+
+
+def test_capture_failure_never_reaches_the_caller(tmp_path, monkeypatch, capsys):
+    """The swallow lives in _append now, once, instead of at each call
+    site — and it covers serialization failures too, which the old
+    per-caller `except OSError` did not."""
+    from harness import corpus
+
+    # unserializable payload: used to raise TypeError straight through
+    class Exotic:
+        def __repr__(self):
+            return "<exotic>"
+
+    p = corpus.record_dashboard({"id": "p-1", "x": Exotic()}, "approved",
+                                corpus_dir=tmp_path / "c")
+    assert p is not None and "<exotic>" in p.read_text()
+
+    # and a genuinely unwritable directory is reported, not raised
+    monkeypatch.setattr(corpus.Path, "mkdir",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("read-only fs")))
+    assert corpus.record_dashboard({"id": "p-2"}, "approved",
+                                   corpus_dir=tmp_path / "nope") is None
+    assert "corpus row dropped" in capsys.readouterr().err

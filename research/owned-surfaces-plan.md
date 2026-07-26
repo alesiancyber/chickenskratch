@@ -30,7 +30,7 @@ commands = inline execute; proposals = rich diff + approve/reject.
 
 ## Phase 0 — subtraction ledger
 
-### 0-A. Dead now (remove before any UI code exists)
+### 0-A. Dead now (remove before any UI code exists) — EXECUTED 2026-07-25
 
 1. **`config/mcp.yaml` `presets:` block** — served the deleted ⚡
    Servers panel; nothing in src/ or tests/ reads it. Delete.
@@ -55,9 +55,21 @@ commands = inline execute; proposals = rich diff + approve/reject.
 5. **`diff_style` knob** (vaultconfig + Spec seeding + `_diff_block`
    split branch): the split-HTML-inside-markdown path exists only
    because Obsidian was the diff renderer. Degraded Review.md
-   standardizes on unified ```diff (renders everywhere, zero knobs);
-   **`diffhtml.py` is promoted, not deleted** — it becomes the
-   dashboard's diff component. Lands with Phase 2.
+   standardizes on unified ```diff (renders everywhere, zero knobs).
+   **Amended 2026-07-25 — promote the computation, not the HTML.**
+   diffhtml's diff logic (opcodes, word-level marks, context
+   collapsing) is promoted as a JSON diff view-model the server ships
+   and the dashboard renders under its own design tokens. The
+   inline-styled HTML emitter is NOT promoted: it is Obsidian-shaped
+   (styled via Obsidian CSS variables, contorted to survive the
+   markdown HTML-block parser), and injecting server-generated inline
+   styles into the React UI would fight the design language (tokens
+   can't restyle inline styles; hover affordances can't reach inside
+   static HTML). It dies with the split path it served. General rule,
+   applied build-wide: **recycle contracts, state, and logic — never
+   renderings**; renderings were shaped by the editor constraint this
+   plan removes. Lands with Phase 2 (the view-model itself lands in
+   Phase 1, which needs rich diffs).
 6. **`callout_type` knob**: hardcode `NOTE` (per its own comment it
    renders styled in Obsidian AND VSCode/GitHub). Commands keep their
    callout rendering — they live in notes, which stay editor-rendered.
@@ -68,7 +80,7 @@ commands = inline execute; proposals = rich diff + approve/reject.
 8. Spec.md seeding, `_spec_overrides`, and tests (`test_spec_note`,
    `test_diffhtml` relocation) shrink in the same commits as 5–7.
 
-### 0-C. Refactor before adding (the anti-bolt-on core)
+### 0-C. Refactor before adding (the anti-bolt-on core) — EXECUTED 2026-07-25
 
 9. **Split view-model from markdown everywhere.** `today.py` becomes
    `collect() -> typed sections/rows` + a thin markdown renderer;
@@ -92,7 +104,8 @@ commands = inline execute; proposals = rich diff + approve/reject.
   tezcatd; a dead UI process degrades to the editor path, never blocks
   the engine (per-stage failure isolation applies to the UI too).
 - **Reads**: JSON view-models — today.collect(), pending proposals with
-  diffhtml payloads, recent_commits, worker/backend health.
+  structured diff payloads (the promoted diff computation, not HTML),
+  recent_commits, worker/backend health.
 - **Writes** (all human-initiated, all through existing gated paths):
   `decide(pid, verdict)`, `ingest(text)`, `revert(sha)`, `run_pass()`.
 - **Events**: one SSE stream; the daemon/pass emits `pass_complete`
@@ -107,14 +120,49 @@ commands = inline execute; proposals = rich diff + approve/reject.
    + health over SSE. Zero new write surface (I5: views need no trust
    machinery). This phase is where the design budget goes — it decides
    whether "alive" is real before any risk exists.
+   **BUILT 2026-07-25** (`harness-ui` + `web/`): Starlette JSON
+   view-models + SSE over the pass's event log (data/events-*.jsonl,
+   engine-authored, UI-tailed); React+Radix+cmdk frontend built to
+   static assets; POST rejected everywhere, enforced by test. The
+   design-budget verdict — does "alive" land — is now a matter of
+   using it.
 2. **Decisions.** Approve/reject/revert buttons → `decide`/`revert`.
    Retires dependence on the checkbox without deleting it. 0-B items
    5+7 land here; Changes.md wording re-points here (closing item 4).
+   **BUILT 2026-07-25** (items 5, 6, and 7 all landed): POST
+   decide/revert/pass through service.py, consent-hardened
+   (JSON-only + local-origin on the localhost bind); optimistic +
+   undoable UI (undo IS revert(sha), including multi-step applies —
+   the decide response carries the snapshot shas); j/k·a/r·e·u
+   keyboard review; revert affordance on Changes rows. diffhtml died
+   as amended: `diffs.diff_rows` is the promoted computation, Review.md
+   is always unified ```diff, callouts always NOTE, `link_scheme` is
+   repo config. Every UI revert lands a corpus row (record_revert
+   returned to production, as the 0-A reprieve predicted).
 3. **Canvas.** Ingest box with inline extraction preview (proposal
    renders beside what you typed; approve without leaving), instant
    command execution. "Only two surfaces" becomes literally true.
-4. **The escape-hatch pane** (decided 2026-07-25). A collapsible side
-   pane hosting chat + visible MCP interactions. This is NOT a third
+   **BUILT 2026-07-25**: `#canvas` view — auto-growing input (no
+   editor engine, per the stack decision), ⌘↩ submits. The server
+   splits the dump with the command grammar (`commands.parse` — one
+   grammar, two entry points): //command lines execute instantly via
+   `service.run_command` (I3 trust, same Spec kill switch, result
+   returns to the canvas, vault untouched), the rest rides
+   `service.ingest` → the capture pipeline. Dumps settle into history
+   blocks with results attached: command callouts (mirroring the vault
+   rendering), queued proposals with inline approve/reject, or the
+   quiet "filed automatically" line when the verifier auto-applied.
+   History is scratch; the dump itself is snapshot-committed on
+   Capture.md, so the vault stays the archive.
+4. **The escape-hatch pane** (decided 2026-07-25). **BUILT 2026-07-25**
+   (`pane.py` + the ⌘J pane; the Agent loop verbatim with `log`/
+   `log_result`/`confirm` hooks pointed at an SSE event queue; every
+   Allow/Deny lands in the corpus via record_confirm WITH the full
+   trajectory; sessions set HARNESS_CHAT_ID so in-pane vault commits
+   carry the Chat-Id trailer; timeout = deny, marked timed_out. The
+   prototype-parity amendments shipped in the same build: task
+   check-off rows, partial approval, ticker/toast/palette polish.)
+   A collapsible side pane hosting chat + visible MCP interactions. This is NOT a third
    surface and NOT chat growing features — it is the existing frozen
    escape hatch (the `harness` CLI's Agent loop, verbatim: same
    profiles, same server allowlists, same write gate) re-homed where
@@ -132,6 +180,33 @@ commands = inline execute; proposals = rich diff + approve/reject.
      history surface, no pinned conversations, no chat-first features.
      A prompt issued twice is still a processor/command candidate —
      principle 7 keeps its teeth.
+
+### Amendments, 2026-07-25 (prototype parity — user-approved)
+
+Measured against the surfaces prototype artifact (the design brief the
+user signed off on), three classes of gap, all approved to build:
+
+- **Polish ledger** (design-budget items, no new trust surface):
+  "pass Ns ago" ticker + pulse dot off SSE pass_complete; the floating
+  "Approved — snapshot kept · Undo" toast (ONE toast, auto-dismissing,
+  replacing the inline action bar — the no-toast-spam rule bans spam,
+  not the single undo affordance the prototype demonstrated); palette
+  entries "//azure …" (canvas prefill) and "Revert last snapshot";
+  timestamps + applied-status line on canvas dump history.
+- **Task check-off from the dashboard** (new write verb — a deliberate
+  widening of the closed write list): `complete_task(note, text)`
+  through the same gated `set_task_status` tool the MCP server exposes,
+  same consent channel (human click, JSON-only local-origin POST),
+  snapshot per mutation. Due/Waiting rows get the prototype's
+  checkboxes. Degraded mode unchanged: checking the box in the editor
+  was always possible — this only gives the dashboard the same hand.
+- **Partial approval of capture extractions** (dashboard/canvas-only
+  affordance): approve a SUBSET of a capture proposal's apply steps
+  (per-task ✓/✗ + "approve selected"). Implemented as a queue-file
+  trim + normal decide under the same pass: the trimmed proposal is
+  what applies and what the corpus records. Review.md keeps
+  all-or-nothing — the checkbox grammar stays two lines, and degraded
+  mode loses nothing it ever had.
 
 **Degraded-mode contract (hard requirement):** after every phase, a
 machine with no UI process still has a fully working vault in

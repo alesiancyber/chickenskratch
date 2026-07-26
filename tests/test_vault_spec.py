@@ -141,7 +141,8 @@ def test_snapshot_after_embeds_chat_id_trailer(vault, monkeypatch):
     server.add_task("Tasks/Inbox", "attributed task")
     v = vault_mod.get_vault()
     top = v.history()[0]
-    assert "Chat-Id" not in top["message"]           # subject stays clean
+    assert "Chat-Id" not in top["subject"]           # subject stays clean
+    assert top["chat_id"] == "20260722-test-chat"    # parsed from the trailer
     assert "Chat-Id: 20260722-test-chat" in v.commit_message(top["sha"])
 
 
@@ -152,7 +153,7 @@ def test_snapshot_before_never_carries_chat_id(vault, monkeypatch):
     (vault / "Manual.md").write_text("a manual edit\n")
     server.add_task("Tasks/Inbox", "second")
     v = vault_mod.get_vault()
-    manual = next(c for c in v.history() if c["message"].startswith("manual edits"))
+    manual = next(c for c in v.history() if c["subject"].startswith("manual edits"))
     assert "Chat-Id" not in v.commit_message(manual["sha"])
 
 
@@ -162,16 +163,80 @@ def test_no_chat_id_env_no_trailer(vault):
     assert "Chat-Id" not in v.commit_message(v.history()[0]["sha"])
 
 
-def test_editor_knobs_override_and_validate():
+def test_renderer_knobs_left_spec_with_the_owned_ui():
+    """The 0-B move: the vault describes its content, the repo describes
+    its renderers. link_scheme is repo config (vault.yaml) — a Spec.md
+    key for it (or the deleted diff_style/callout_type) is inert."""
     from pathlib import Path
 
     base = vaultconfig.VaultConfig(
         folder_types={}, exclude=(), surfaces={}, schemas_dir=Path("."))
     out = vaultconfig._spec_overrides(
-        base, {"callout_type": "TIP", "link_scheme": "vscode", "daily_dir": "journal/"})
-    assert out.callout_type == "TIP"
-    assert out.link_scheme == "vscode"
-    assert out.daily_dir == "journal"          # trailing slash normalized
-    bad = vaultconfig._spec_overrides(base, {"link_scheme": "emacs", "callout_type": "  "})
-    assert bad.link_scheme == "obsidian"       # unknown scheme ignored
-    assert bad.callout_type == "NOTE"          # blank ignored, default holds
+        base, {"callout_type": "TIP", "link_scheme": "vscode",
+               "diff_style": "unified", "daily_dir": "journal/"})
+    assert out.link_scheme == "obsidian"       # Spec.md no longer decides
+    assert not hasattr(out, "callout_type") and not hasattr(out, "diff_style")
+    assert out.daily_dir == "journal"          # content knobs still live here
+
+
+def test_link_scheme_is_repo_config(tmp_path):
+    cfg = tmp_path / "vault.yaml"
+    cfg.write_text("link_scheme: vscode\n")
+    assert vaultconfig.load_config(cfg).link_scheme == "vscode"
+    cfg.write_text("link_scheme: emacs\n")
+    assert vaultconfig.load_config(cfg).link_scheme == "obsidian"  # unknown -> default
+
+
+def test_the_vault_lock_is_bounded_not_forever(tmp_path, monkeypatch):
+    """A wedged holder must cost ONE operation a clean error. Unbounded,
+    it deadlocked the engine: a pass holds the PASS lock while waiting for
+    this one, so every later trigger then no-opped forever."""
+    import fcntl
+    import hashlib
+    import tempfile
+    import time
+    from pathlib import Path
+
+    import pytest
+
+    from obsidian_mcp.vault import Vault, VaultError
+
+    root = tmp_path / "v"
+    root.mkdir()
+    v = Vault(root)
+    digest = hashlib.sha1(str(v.root).encode()).hexdigest()[:12]
+    lock_path = Path(tempfile.gettempdir()) / f"obsidian-harness-{digest}.lock"
+    with open(lock_path, "w") as wedged:
+        fcntl.flock(wedged, fcntl.LOCK_EX)
+        start = time.monotonic()
+        with pytest.raises(VaultError, match="held by another process"):
+            with v.locked(timeout=0.3):
+                pass
+        assert time.monotonic() - start < 5  # bounded, not blocked
+
+
+def test_meetings_dir_is_a_spec_key_like_daily_dir(vault, monkeypatch):
+    """Both "where does this note type live" keys are config, not
+    literals — renaming the folder must not silently empty the dashboard's
+    meeting sections."""
+    import datetime as dt
+
+    import obsidian_mcp.vault as vault_mod
+    from harness import today as today_mod
+    from obsidian_mcp import server, vaultconfig
+
+    spec = vault / "Harness" / "Spec.md"
+    spec.parent.mkdir(parents=True, exist_ok=True)
+    spec.write_text("---\nmeetings_dir: Standups\n---\n")
+    vaultconfig._merged_cache.clear()
+    monkeypatch.setattr(vault_mod, "_vault", None)
+
+    cfg = vaultconfig.get_config(str(vault))
+    assert cfg.meetings_dir == "Standups"
+    # the create tool follows it
+    rel = server.create_meeting_note("Weekly", date="2026-07-20")["created"]
+    assert rel.startswith("Standups/")
+    # ...and so does the attention surface, through the same key
+    model = today_mod.collect(vault_mod.get_vault(), cfg, 0, dt.date(2026, 7, 20))
+    assert model["meetings"] == ["Standups/2026-07-20 Weekly.md"]
+    vaultconfig._merged_cache.clear()

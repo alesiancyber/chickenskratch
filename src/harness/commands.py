@@ -40,6 +40,16 @@ def is_command_line(line: str) -> bool:
     return bool(m and m.group(1) in INLINE_COMMANDS)
 
 
+def parse(line: str) -> tuple[str, str] | None:
+    """(name, args) when the line is a complete known command, else None.
+    The canvas submit path splits its dumps with this the way scan
+    matches note lines — one grammar, two entry points."""
+    m = _CMD_RE.match(line)
+    if m and m.group(1) in INLINE_COMMANDS:
+        return m.group(1), m.group(2).strip()
+    return None
+
+
 async def _azure_docs(args: str, vault_path: str) -> str | None:
     """//azure: one ms-learn MCP search, digested to a ranked link list
     (mcp_client's docs digest — links, never summaries), model-free.
@@ -83,10 +93,7 @@ def scan(vault: Vault, surface_dirs: frozenset[str]) -> list[dict]:
     """Typed commands awaiting execution: one per note per pass (a note
     with several resolves over successive passes)."""
     items = []
-    for p in vault.iter_notes():
-        rel = vault.rel(p)
-        if rel.split("/")[0] in surface_dirs:
-            continue
+    for p, rel in vault.iter_knowledge_notes(surface_dirs):
         text = read_lossy(p)
         lines = text.splitlines()
         # Enter is the submit key: a final line with no newline after it
@@ -102,11 +109,11 @@ def scan(vault: Vault, surface_dirs: frozenset[str]) -> list[dict]:
     return items
 
 
-def render_callout(item: dict, result: str, callout_type: str = "NOTE") -> str:
-    """The result as a callout: a visually distinct titled block in both
-    Obsidian and VSCode/GitHub previews (Spec.md `callout_type` picks the
-    flavor), plain text on disk. The title echoes the command
+def render_callout(item: dict, result: str) -> str:
+    """The result as a NOTE callout: a visually distinct titled block in
+    both Obsidian and VSCode/GitHub previews (GitHub alerts require the
+    uppercase form), plain text on disk. The title echoes the command
     (provenance) and, being blockquoted, can never re-match the command
     scan or read as inbox task intent."""
     quoted = "\n".join("> " + ln for ln in result.splitlines())
-    return f"> [!{callout_type}] //{item['command']} {item['args']}\n{quoted}"
+    return f"> [!NOTE] //{item['command']} {item['args']}\n{quoted}"

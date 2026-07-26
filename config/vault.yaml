@@ -39,6 +39,11 @@ surfaces:
 capture_inbox: Tasks/Inbox.md
 waiting_inbox: Tasks/Waiting.md   # follow-ups: things others committed to get you
 
+# Which editor deep-links open (dashboard rows, chat citations):
+# obsidian | vscode. Renderer config, so it lives here (repo-side) —
+# not a Spec.md key.
+link_scheme: obsidian
+
 # Top-level folders that never enter model context. Enforced at the
 # vault layer (resolve/iter_notes), not by prompt convention: reads,
 # searches, task listings, and writes are all structurally blind to

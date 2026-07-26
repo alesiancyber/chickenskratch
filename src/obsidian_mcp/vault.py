@@ -26,9 +26,25 @@ from .vaultconfig import get_config
 # repo roots ensure_repo() has already initialized this process (see there)
 _ensured_repos: set[str] = set()
 
+# Ceiling on how long a writer waits for the vault lock. A real holder
+# owns it for milliseconds (a write plus two git commits), so anything
+# past this is a wedged process, not contention — and an unbounded wait
+# there deadlocked the whole engine: a pass holds the PASS lock while it
+# waits for this one, so every later trigger then no-opped forever.
+# Failing loud costs one operation; waiting forever cost the pipeline.
+LOCK_TIMEOUT_S = 60.0
+
 
 class VaultError(Exception):
     """Raised for user-facing vault problems (bad path, missing note)."""
+
+
+class VaultLocked(VaultError):
+    """The vault lock was held past LOCK_TIMEOUT_S — a wedged writer, not
+    a bad request. A VaultError subclass so every existing handler still
+    catches it, but distinguishable where the difference is visible to a
+    user: "another process is stuck" is a 503 to retry, not the 404 that
+    "no such note" earns."""
 
 
 def read_lossy(p: Path) -> str:
@@ -37,6 +53,33 @@ def read_lossy(p: Path) -> str:
     engine pass. Never use on a read-modify-write path — Vault.read stays
     strict there so replacement chars can never be written back."""
     return p.read_text(encoding="utf-8", errors="replace")
+
+
+def atomic_write_text(path: Path, text: str) -> Path:
+    """Write a file so a reader never sees it half-written.
+
+    The one durable-write idiom, shared by everything that persists state
+    another process reads concurrently: the proposal queue, the watcher
+    memo, the events log, the embedding cache, backend pids, usage
+    totals. Five of those grew a plain `write_text` instead, and the
+    queue's was load-bearing — the UI reads that directory from a
+    threadpool thread while a pass writes it, so a torn file was skipped
+    by load_all() and the proposal silently vanished.
+
+    Same temp-file + rename as Vault.write, hoisted out of the class
+    because the callers are not vault notes.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+    return path
 
 
 class Vault:
@@ -103,6 +146,19 @@ class Vault:
                     continue
             yield p
 
+    def iter_knowledge_notes(self, surface_dirs, folder: str = ""):
+        """(path, rel) for every note that is the user's knowledge rather
+        than harness machinery — iter_notes minus the machine-rendered
+        surfaces. Every scan that asks "is this a real note?" goes through
+        here: the surfaces-aren't-knowledge rule is derived once in
+        VaultConfig.surface_dirs and applied once here, so a new surface
+        never has to be remembered in four separate walks."""
+        for p in self.iter_notes(folder):
+            rel = self.rel(p)
+            if rel.split("/")[0] in surface_dirs:
+                continue
+            yield p, rel
+
     def read(self, rel_path: str) -> str:
         p = self.resolve(rel_path, must_exist=True)
         try:
@@ -116,37 +172,44 @@ class Vault:
             raise VaultError(f"{rel_path} is not valid UTF-8: {e}") from None
 
     def write(self, rel_path: str, content: str) -> Path:
-        p = self.resolve(rel_path)
-        p.parent.mkdir(parents=True, exist_ok=True)
         # Temp file + rename: an interrupted write (crash, disk full, kill)
         # must never leave a note half-written — the git snapshots only
         # protect content that made it to a commit intact.
-        fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=p.name + ".", suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(content)
-            os.replace(tmp, p)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp)
-            raise
-        return p
+        return atomic_write_text(self.resolve(rel_path), content)
 
     # ---- cross-process lock ----
 
     @contextlib.contextmanager
-    def locked(self):
+    def locked(self, timeout: float = LOCK_TIMEOUT_S):
         """Mutex for a whole snapshot→mutate→snapshot sequence.
 
         Several processes mutate one vault (MCP tools, capture, the watcher,
         revert); without this, one writer's `git add -A` snapshot can sweep
         another writer's half-finished edit into the wrong commit. The lock
         lives outside the vault so snapshots never pick it up, and flock is
-        released automatically if the holder dies."""
+        released automatically if the holder dies.
+
+        Bounded (LOCK_TIMEOUT_S), and polled rather than blocking: a
+        wedged holder must cost ONE operation a clean VaultError, not
+        deadlock every writer behind it. Note this is not re-entrant —
+        each acquire opens its own descriptor, so a nested locked() in
+        one process would wait on itself; the timeout at least turns that
+        from a hang into a diagnosable error."""
         digest = hashlib.sha1(str(self.root).encode()).hexdigest()[:12]
         lock_path = Path(tempfile.gettempdir()) / f"obsidian-harness-{digest}.lock"
         with open(lock_path, "w") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
+            deadline = time.monotonic() + timeout
+            while True:
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise VaultLocked(
+                            f"vault lock held by another process for over {timeout:.0f}s "
+                            f"({lock_path}) — nothing was changed"
+                        ) from None
+                    time.sleep(0.05)
             try:
                 yield
             finally:
@@ -227,12 +290,22 @@ class Vault:
             # retry the write. The change will ride in the next snapshot.
             raise VaultError(f"The change was applied, but its git snapshot failed: {e}") from None
 
+    # \x1e separates commits, \x1f fields — bytes no commit subject or path
+    # contains, so the parse needs no escaping. Ends with the file list from
+    # --name-only.
+    _LOG_FORMAT = "%x1e%H%x1f%s%x1f%cI%x1f%(trailers:key=Chat-Id,valueonly=true)"
+
     def history(self, limit: int = 15) -> list[dict]:
-        """Recent commits, newest first: sha, message, ISO date, files touched."""
+        """Recent commits, newest first: sha, subject, ISO date, the Chat-Id
+        trailer, and the files touched — one git subprocess for all of it.
+
+        The ONE git-log parser. The Changes surface had grown a second
+        copy of this record-splitting for the sake of the trailer; two
+        parsers of the same bespoke format is one too many, so the trailer
+        lives here and both callers read the same shape. `subject` because
+        that is what %s is — the full body is commit_message()."""
         self.ensure_repo()
-        r = self._git(
-            "log", f"-{limit}", "--pretty=format:%x1e%H%x1f%s%x1f%cI", "--name-only"
-        )
+        r = self._git("log", f"-{limit}", f"--pretty=format:{self._LOG_FORMAT}", "--name-only")
         if r.returncode != 0:
             return []
         commits = []
@@ -240,8 +313,9 @@ class Vault:
             lines = [ln for ln in record.splitlines() if ln.strip()]
             if not lines or "\x1f" not in lines[0]:
                 continue
-            sha, message, date = lines[0].split("\x1f")
-            commits.append({"sha": sha, "message": message, "date": date, "files": lines[1:]})
+            sha, subject, date, chat_id = lines[0].split("\x1f")
+            commits.append({"sha": sha, "subject": subject, "date": date,
+                            "chat_id": chat_id.strip(), "files": lines[1:]})
         return commits
 
     def commit_message(self, sha: str) -> str:

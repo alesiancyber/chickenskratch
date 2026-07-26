@@ -44,26 +44,3 @@ servers:
     transport: http
     url: https://mcp.atlassian.com/v1/mcp/authv2
     enabled: false           # needs OAuth 2.1 — Phase 2 M5
-
-# Named tool working-sets, offered as one-click presets in the ⚡ Servers
-# panel. Fewer exposed tools = smaller prompt + better small-model tool
-# selection. A preset is just a list of tool names; names not currently
-# available (server off) are ignored. Edit freely — no code involved.
-presets:
-  Checklist:            # the everyday task/kanban loop
-    - list_tasks
-    - add_task
-    - set_task_status
-    - read_note
-    - append_to_note
-    - read_board
-    - add_card
-    - move_card
-  Notes:                # reading and writing prose
-    - list_notes
-    - read_note
-    - search_vault
-    - create_note
-    - append_to_note
-    - replace_section
-    - update_frontmatter

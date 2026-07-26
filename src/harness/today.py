@@ -10,6 +10,11 @@ deterministic core.
 Design rule: ONE SCREEN, OR IT'S NOT A DASHBOARD — every section caps
 its rows and folds the rest behind a count.
 
+Split rule (owned-surfaces 0-C): `collect()` builds the typed view-model
+and is the only code that reads vault state; `to_markdown()` and the UI
+server are two renderers of that model. Neither renderer ever parses
+the other's output.
+
 Churn discipline: the date is the only clock input, so within a day the
 render is a pure function of vault state — written only on change, and
 the activity count excludes Harness/-only commits so a render can never
@@ -29,6 +34,7 @@ from obsidian_mcp.vault import Vault, VaultError, read_lossy
 
 SOON_DAYS = 3   # "due soon" horizon
 MAX_ROWS = 8    # per section; the rest folds behind a "+N more"
+WAITING_AGE_MIN = 3  # days before a waiting item starts showing its age
 
 # kanban columns that count as work in flight
 _ACTIVE_COLUMNS = {"doing", "in progress", "active", "in-progress"}
@@ -54,53 +60,62 @@ def _safe_date(value: str) -> dt.date | None:
         return None
 
 
-def _due_row(task: tk.Task, rel: str, today: dt.date) -> str:
-    due = dt.date.fromisoformat(task.due)
-    if due < today:
-        when = f"⚠ **{(today - due).days}d overdue**"
-    elif due == today:
-        when = "**due today**"
-    else:
-        when = f"due in {(due - today).days}d"
-    return f"- {task.text} — {when} · {_link(rel)}"
+# ---- the view-model ----
 
 
-def _due_section(dated: list[tuple[tk.Task, str]], today: dt.date) -> list[str]:
-    """Bucketed so old debt can never crowd out the present: due-today
-    always shows in full; overdue is capped, freshest debt first (ancient
-    overdue is the least actionable); due-soon is capped."""
+def collect(v: Vault, cfg, pending_decisions: int, today: dt.date | None = None) -> dict:
+    """The attention view-model: every section as typed rows, JSON-ready.
+    Row caps and phrasing are the renderers' business; the model carries
+    the full sets."""
+    today = today or dt.date.today()
+    surface_dirs = cfg.surface_dirs
+    dated, boards = _walk(v, surface_dirs)
+    return {
+        "date": today.isoformat(),
+        "pending_decisions": pending_decisions,
+        "surfaces": {
+            "review": cfg.surfaces.get("review", ""),
+            "capture": cfg.surfaces.get("capture", ""),
+            "changes": cfg.surfaces.get("changes", ""),
+        },
+        "due": _due_model(dated, today),
+        "waiting": _waiting_rows(v, cfg.waiting_inbox, today),
+        "stranded": _stranded_meeting_actions(v, cfg.meetings_dir, today),
+        "meetings": _meetings_today(v, cfg.meetings_dir, today),
+        "in_flight": _in_flight(boards),
+        "activity": _activity_since_midnight(v, today, surface_dirs),
+    }
+
+
+def _due_model(dated: list[tuple[tk.Task, str]], today: dt.date) -> dict:
+    """Bucketed so old debt can never crowd out the present. Overdue is
+    ordered freshest-first (ancient overdue is the least actionable);
+    soon is ordered soonest-first."""
     horizon = today + dt.timedelta(days=SOON_DAYS)
-    overdue, due_today, soon, broken = [], [], [], []
+    out: dict = {"horizon": horizon.isoformat(),
+                 "broken": [], "overdue": [], "due_today": [], "soon": []}
     for task, rel in dated:
         d = _safe_date(task.due)
+        row = {"text": task.text, "due": task.due, "note": rel}
         if d is None:
-            broken.append(f"- ⚠ {task.text} — due date `{task.due}` is not a real date · {_link(rel)}")
+            out["broken"].append(row)
         elif d < today:
-            overdue.append((d, task, rel))
+            out["overdue"].append({**row, "days": (today - d).days})
         elif d == today:
-            due_today.append((d, task, rel))
+            out["due_today"].append({**row, "days": 0})
         elif d <= horizon:
-            soon.append((d, task, rel))
-    rows = broken
-    rows += _cap([_due_row(t, r, today) for _d, t, r in
-                  sorted(overdue, key=lambda x: x[0], reverse=True)], 5, "overdue")
-    rows += [_due_row(t, r, today) for _d, t, r in due_today]
-    rows += _cap([_due_row(t, r, today) for _d, t, r in sorted(soon, key=lambda x: x[0])],
-                 5, "coming up")
-    if not rows:
-        rows = [f"- nothing due through {horizon.strftime('%A %Y-%m-%d')}"]
-    return rows
+            out["soon"].append({**row, "days": (d - today).days})
+    out["overdue"].sort(key=lambda r: r["days"])
+    out["soon"].sort(key=lambda r: r["days"])
+    return out
 
 
-def _collect(v: Vault, surface_dirs: frozenset[str]):
+def _walk(v: Vault, surface_dirs: frozenset[str]):
     """One walk: (dated open tasks, boards). Kanban cards carry no dates
     and are reported via their boards, not the task list."""
     dated: list[tuple[tk.Task, str]] = []
     boards: list[tuple[str, kb.Board]] = []
-    for p in v.iter_notes():
-        rel = v.rel(p)
-        if rel.split("/")[0] in surface_dirs:
-            continue
+    for p, rel in v.iter_knowledge_notes(surface_dirs):
         text = read_lossy(p)
         fm, _body = md.split_frontmatter(text)
         if "kanban-plugin" in fm:
@@ -115,7 +130,7 @@ def _collect(v: Vault, surface_dirs: frozenset[str]):
     return dated, boards
 
 
-def _waiting_rows(v: Vault, waiting_inbox: str, today: dt.date) -> list[str]:
+def _waiting_rows(v: Vault, waiting_inbox: str, today: dt.date) -> list[dict]:
     try:
         text = v.read(waiting_inbox)
     except VaultError:
@@ -124,22 +139,23 @@ def _waiting_rows(v: Vault, waiting_inbox: str, today: dt.date) -> list[str]:
     for task in tk.iter_tasks(text):
         if task.done:
             continue
-        due = f" — due {task.due}" if task.due else ""
-        age = ""
         born = _safe_date(task.created) if task.created else None
-        if born:  # ➕ birth dates stamp at format_task; aging accrues
-            days = (today - born).days
-            if days >= 3:
-                age = f" ({days}d waiting)"
-        rows.append(f"- {task.text}{due}{age} · {_link(waiting_inbox)}")
+        rows.append({
+            "text": task.text,
+            "due": task.due or "",
+            # ➕ birth dates stamp at format_task; aging accrues
+            "waiting_days": (today - born).days if born else None,
+            "note": waiting_inbox,
+        })
     return rows
 
 
-def _stranded_meeting_actions(v: Vault, today: dt.date, max_age_days: int = 7) -> list[str]:
+def _stranded_meeting_actions(v: Vault, meetings_dir: str, today: dt.date,
+                              max_age_days: int = 7) -> list[dict]:
     """Open, UNDATED action items in old meeting notes — invisible to the
     Due section, rotting quietly. Dated ones already surface in Due."""
     try:
-        notes = list(v.iter_notes("Meetings", recursive=False))
+        notes = list(v.iter_notes(meetings_dir, recursive=False))
     except VaultError:
         return []
     rows = []
@@ -152,20 +168,20 @@ def _stranded_meeting_actions(v: Vault, today: dt.date, max_age_days: int = 7) -
             continue
         for t in tk.iter_tasks(read_lossy(p)):
             if not t.done and not t.due:
-                rows.append(f"- {t.text} — {(today - met).days}d old · {_link(v.rel(p))}")
+                rows.append({"text": t.text, "age_days": (today - met).days, "note": v.rel(p)})
     return rows
 
 
-def _meetings_today(v: Vault, today: dt.date) -> list[str]:
+def _meetings_today(v: Vault, meetings_dir: str, today: dt.date) -> list[str]:
     try:
-        notes = list(v.iter_notes("Meetings", recursive=False))
+        notes = list(v.iter_notes(meetings_dir, recursive=False))
     except VaultError:
         return []
     prefix = today.isoformat()
-    return [f"- {_link(v.rel(p))}" for p in notes if p.stem.startswith(prefix)]
+    return [v.rel(p) for p in notes if p.stem.startswith(prefix)]
 
 
-def _in_flight(boards: list[tuple[str, kb.Board]]) -> list[str]:
+def _in_flight(boards: list[tuple[str, kb.Board]]) -> list[dict]:
     rows = []
     for rel, board in boards:
         for col in board.columns:
@@ -173,8 +189,7 @@ def _in_flight(boards: list[tuple[str, kb.Board]]) -> list[str]:
                 continue
             cards = [c["text"] for c in col.cards if not c["done"]]
             if cards:
-                shown = ", ".join(cards[:5]) + (f", +{len(cards) - 5}" if len(cards) > 5 else "")
-                rows.append(f"- {_link(rel)} · {col.name}: {shown}")
+                rows.append({"note": rel, "column": col.name, "cards": cards})
     return rows
 
 
@@ -195,14 +210,50 @@ def _activity_since_midnight(v: Vault, today: dt.date, surface_dirs: frozenset[s
     return count
 
 
-def render(v: Vault, cfg, pending_decisions: int, today: dt.date | None = None) -> str:
-    today = today or dt.date.today()
-    surface_dirs = cfg.surface_dirs
-    dated, boards = _collect(v, surface_dirs)
+# ---- the markdown renderer ----
 
-    review = cfg.surfaces.get("review", "")
-    capture = cfg.surfaces.get("capture", "")
-    changes = cfg.surfaces.get("changes", "")
+
+def _due_row_md(row: dict, bucket: str) -> str:
+    if bucket == "overdue":
+        when = f"⚠ **{row['days']}d overdue**"
+    elif bucket == "due_today":
+        when = "**due today**"
+    else:
+        when = f"due in {row['days']}d"
+    return f"- {row['text']} — {when} · {_link(row['note'])}"
+
+
+def _due_section_md(due: dict) -> list[str]:
+    rows = [f"- ⚠ {r['text']} — due date `{r['due']}` is not a real date · {_link(r['note'])}"
+            for r in due["broken"]]
+    rows += _cap([_due_row_md(r, "overdue") for r in due["overdue"]], 5, "overdue")
+    rows += [_due_row_md(r, "due_today") for r in due["due_today"]]
+    rows += _cap([_due_row_md(r, "soon") for r in due["soon"]], 5, "coming up")
+    if not rows:
+        horizon = dt.date.fromisoformat(due["horizon"])
+        rows = [f"- nothing due through {horizon.strftime('%A %Y-%m-%d')}"]
+    return rows
+
+
+def _waiting_row_md(r: dict) -> str:
+    due = f" — due {r['due']}" if r["due"] else ""
+    days = r["waiting_days"]
+    age = f" ({days}d waiting)" if days is not None and days >= WAITING_AGE_MIN else ""
+    return f"- {r['text']}{due}{age} · {_link(r['note'])}"
+
+
+def _in_flight_row_md(r: dict) -> str:
+    cards = r["cards"]
+    shown = ", ".join(cards[:5]) + (f", +{len(cards) - 5}" if len(cards) > 5 else "")
+    return f"- {_link(r['note'])} · {r['column']}: {shown}"
+
+
+def to_markdown(model: dict) -> str:
+    """Pure function of the view-model — the degraded-mode renderer."""
+    today = dt.date.fromisoformat(model["date"])
+    review = model["surfaces"]["review"]
+    capture = model["surfaces"]["capture"]
+    changes = model["surfaces"]["changes"]
 
     lines = [
         f"# Today — {today.strftime('%A %Y-%m-%d')}",
@@ -212,29 +263,33 @@ def render(v: Vault, cfg, pending_decisions: int, today: dt.date | None = None) 
         + (f" dump into {_link(capture)}._" if capture else ""),
     ]
 
-    if pending_decisions and review:
-        lines += ["", f"⚠ **{pending_decisions} pending decision(s) → {_link(review)}**"]
+    if model["pending_decisions"] and review:
+        lines += ["", f"⚠ **{model['pending_decisions']} pending decision(s) → {_link(review)}**"]
 
-    lines += ["", "## Due", *_due_section(dated, today)]
+    lines += ["", "## Due", *_due_section_md(model["due"])]
 
-    waiting = _waiting_rows(v, cfg.waiting_inbox, today)
+    waiting = [_waiting_row_md(r) for r in model["waiting"]]
     if waiting:
         lines += ["", "## Waiting on", *_cap(waiting)]
 
-    stranded = _stranded_meeting_actions(v, today)
+    stranded = [f"- {r['text']} — {r['age_days']}d old · {_link(r['note'])}"
+                for r in model["stranded"]]
     if stranded:
         lines += ["", "## Stranded in meetings", *_cap(stranded, 5)]
 
-    meetings = _meetings_today(v, today)
+    meetings = [f"- {_link(rel)}" for rel in model["meetings"]]
     if meetings:
         lines += ["", "## Today's meetings", *_cap(meetings)]
 
-    in_flight = _in_flight(boards)
+    in_flight = [_in_flight_row_md(r) for r in model["in_flight"]]
     if in_flight:
         lines += ["", "## In flight", *_cap(in_flight)]
 
-    activity = _activity_since_midnight(v, today, surface_dirs)
-    if activity and changes:
-        lines += ["", f"_{activity} vault change(s) since midnight → {_link(changes)}_"]
+    if model["activity"] and changes:
+        lines += ["", f"_{model['activity']} vault change(s) since midnight → {_link(changes)}_"]
 
     return "\n".join(lines) + "\n"
+
+
+def render(v: Vault, cfg, pending_decisions: int, today: dt.date | None = None) -> str:
+    return to_markdown(collect(v, cfg, pending_decisions, today))

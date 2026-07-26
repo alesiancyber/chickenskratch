@@ -47,9 +47,6 @@ class VaultConfig:
     # must sequence-match its source line. Verification failure keeps
     # the checkbox either way.
     fidelity: str = "close"
-    # Review.md diff rendering: "split" = GitHub-style side-by-side HTML
-    # (Obsidian reading view renders it); "unified" = classic ```diff.
-    diff_style: str = "split"
     # models.yaml profile the drafting workers run on ("" = the repo
     # default: models.yaml `worker:`, then WORKER_* env). A profile NAME,
     # never an endpoint — URLs and keys stay repo-side, the vault only
@@ -61,17 +58,21 @@ class VaultConfig:
     disabled_processors: tuple[str, ...] = ()
     # Proposals drafted per engine pass; a big backlog drains over days.
     n_max: int = 5
-    # ---- cross-editor rendering knobs (Obsidian vs Foam/VSCode) ----
-    # Callout type for //command results. "NOTE" renders as a styled
-    # block in BOTH Obsidian and VSCode/GitHub previews (GitHub alerts
-    # require uppercase); any Obsidian callout type also works here.
-    callout_type: str = "NOTE"
-    # URI scheme for the vault citations appended to chat answers:
+    # Which editor deep-links open (dashboard rows, chat citations):
     # "obsidian" -> obsidian://open?path=..., "vscode" -> vscode://file/...
+    # Renderer config, so it lives repo-side in config/vault.yaml — not a
+    # Spec.md key (the owned-surfaces 0-B move: the vault describes its
+    # content, the repo describes its renderers).
     link_scheme: str = "obsidian"
     # Folder for daily notes (align with Foam's dailyNotes.directory or
     # Obsidian's daily-note folder — the harness follows, either way).
     daily_dir: str = "Daily"
+    # Folder for meeting notes. A Spec.md key like daily_dir, because it
+    # is the same KIND of thing — where a note type lives — and it was
+    # sitting as a bare "Meetings" literal in three places (the create
+    # tool and both of Today's meeting walks), so a user who renamed the
+    # folder lost the dashboard sections without being told why.
+    meetings_dir: str = "Meetings"
 
     @property
     def surface_dirs(self) -> frozenset[str]:
@@ -92,7 +93,7 @@ def load_config(path: str | Path | None = None) -> VaultConfig:
         )
     raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     known = {"folders", "exclude", "surfaces", "schemas_dir",
-             "capture_inbox", "waiting_inbox", "done_archive"}
+             "capture_inbox", "waiting_inbox", "done_archive", "link_scheme"}
     ignored = sorted(set(raw) - known)
     if ignored:
         # Keys like auto_apply/fidelity/n_max are Spec.md-only; silence
@@ -108,6 +109,8 @@ def load_config(path: str | Path | None = None) -> VaultConfig:
         capture_inbox=str(raw.get("capture_inbox") or "Tasks/Inbox.md"),
         waiting_inbox=str(raw.get("waiting_inbox") or "Tasks/Waiting.md"),
         done_archive=str(raw.get("done_archive", "Tasks/Archive.md") or ""),
+        link_scheme=(raw.get("link_scheme")
+                     if raw.get("link_scheme") in ("obsidian", "vscode") else "obsidian"),
     )
 
 
@@ -129,25 +132,25 @@ def _spec_overrides(base: VaultConfig, fm: dict) -> VaultConfig:
         out = replace(out, auto_apply=tuple(str(n) for n in fm["auto_apply"]))
     if fm.get("fidelity") in ("strict", "close"):
         out = replace(out, fidelity=str(fm["fidelity"]))
-    if fm.get("diff_style") in ("split", "unified"):
-        out = replace(out, diff_style=str(fm["diff_style"]))
     if isinstance(fm.get("worker"), str):
         out = replace(out, worker=fm["worker"].strip())
     if isinstance(fm.get("disabled_processors"), list):
         out = replace(out, disabled_processors=tuple(str(n) for n in fm["disabled_processors"]))
     if isinstance(fm.get("n_max"), int) and not isinstance(fm.get("n_max"), bool) and fm["n_max"] >= 1:
         out = replace(out, n_max=int(fm["n_max"]))
-    if isinstance(fm.get("callout_type"), str) and fm["callout_type"].strip():
-        out = replace(out, callout_type=fm["callout_type"].strip())
-    if fm.get("link_scheme") in ("obsidian", "vscode"):
-        out = replace(out, link_scheme=str(fm["link_scheme"]))
     if isinstance(fm.get("daily_dir"), str) and fm["daily_dir"].strip():
         out = replace(out, daily_dir=fm["daily_dir"].strip().strip("/"))
+    if isinstance(fm.get("meetings_dir"), str) and fm["meetings_dir"].strip():
+        out = replace(out, meetings_dir=fm["meetings_dir"].strip().strip("/"))
     return out
 
 
 _base_cache: dict[str, VaultConfig] = {}
-_merged_cache: tuple[tuple[str, float | None], VaultConfig] | None = None
+# vault root -> (spec-note mtime, effective config). Keyed by root, not a
+# single slot: one checkout legitimately serves several vaults (the engine
+# and the UI server both key their state by vault_digest), and a one-entry
+# cache thrashed into a re-read on every alternating call.
+_merged_cache: dict[str, tuple[float | None, VaultConfig]] = {}
 
 
 def get_config(vault_path: str | None = None) -> VaultConfig:
@@ -155,7 +158,6 @@ def get_config(vault_path: str | None = None) -> VaultConfig:
     `Harness/Spec.md` frontmatter applied over them. Cached per
     (vault, spec-note mtime) — editing the note in Obsidian takes effect
     on the next engine pass, no restart."""
-    global _merged_cache
     base_key = str(os.environ.get("VAULT_CONFIG_PATH") or _DEFAULT_PATH)
     if base_key not in _base_cache:
         _base_cache[base_key] = load_config()
@@ -169,9 +171,10 @@ def get_config(vault_path: str | None = None) -> VaultConfig:
         mtime: float | None = spec.stat().st_mtime
     except OSError:
         mtime = None
-    key = (str(Path(root)), mtime)
-    if _merged_cache and _merged_cache[0] == key:
-        return _merged_cache[1]
+    key = str(Path(root))
+    hit = _merged_cache.get(key)
+    if hit is not None and hit[0] == mtime:
+        return hit[1]
     cfg = base
     if mtime is not None:
         from . import markdown as md  # local import: markdown is dependency-free
@@ -182,5 +185,5 @@ def get_config(vault_path: str | None = None) -> VaultConfig:
                 cfg = _spec_overrides(base, fm)
         except (OSError, yaml.YAMLError):
             pass  # unreadable/corrupt spec note: defaults, never a crash
-    _merged_cache = (key, cfg)
+    _merged_cache[key] = (mtime, cfg)
     return cfg

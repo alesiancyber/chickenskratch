@@ -24,6 +24,7 @@ Config via env, mirroring OBSIDIAN_VAULT_PATH:
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import sys
@@ -34,20 +35,30 @@ from openai import AsyncOpenAI
 from . import jsonval
 from .vault import VaultError
 
+# The mlx-worker backend from models.yaml. Every reader of the worker's
+# endpoint and model goes through the two accessors below — health lines
+# and dashboards were each re-deriving these defaults from the env.
+DEFAULT_BASE_URL = "http://127.0.0.1:8081/v1"
+DEFAULT_MODEL = "mlx-community/Qwen3.5-4B-MLX-4bit"
+
 _client: AsyncOpenAI | None = None
+
+
+def worker_base_url() -> str:
+    return os.environ.get("WORKER_BASE_URL", DEFAULT_BASE_URL)
+
+
+def worker_model() -> str:
+    return os.environ.get("WORKER_MODEL", DEFAULT_MODEL)
 
 
 def _worker_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        base_url = os.environ.get("WORKER_BASE_URL", "http://127.0.0.1:8081/v1")
         # Cloud worker endpoints need real auth; local servers ignore the key.
-        _client = AsyncOpenAI(base_url=base_url, api_key=os.environ.get("WORKER_API_KEY") or "ollama")
+        _client = AsyncOpenAI(base_url=worker_base_url(),
+                              api_key=os.environ.get("WORKER_API_KEY") or "ollama")
     return _client
-
-
-def _worker_model() -> str:
-    return os.environ.get("WORKER_MODEL", "mlx-community/Qwen3.5-4B-MLX-4bit")
 
 
 def _env_number(cast, name: str, default):
@@ -89,7 +100,7 @@ async def run_worker(spec: WorkerSpec, **inputs) -> dict:
     for _attempt in range(2):
         try:
             response = await client.chat.completions.create(
-                model=_worker_model(),
+                model=worker_model(),
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
                 temperature=spec.temperature,
@@ -97,7 +108,7 @@ async def run_worker(spec: WorkerSpec, **inputs) -> dict:
                 timeout=timeout,
             )
         except Exception as e:  # connection refused, model not pulled, etc.
-            raise VaultError(f"{spec.name} worker ({_worker_model()}) unavailable: {e}") from None
+            raise VaultError(f"{spec.name} worker ({worker_model()}) unavailable: {e}") from None
 
         # A reasoning model that spends the whole token budget thinking
         # returns choices=[] — that must be the clean error below, not an
@@ -107,7 +118,7 @@ async def run_worker(spec: WorkerSpec, **inputs) -> dict:
             # A thinking-mode model puts everything in `reasoning` and leaves
             # content empty — a config problem no retry fixes. Fail loud.
             raise VaultError(
-                f"worker ({_worker_model()}) returned empty content — thinking-mode "
+                f"worker ({worker_model()}) returned empty content — thinking-mode "
                 "model? Disable thinking (e.g. mlx_lm.server --chat-template-args "
                 "'{\"enable_thinking\": false}') or use a non-thinking variant."
             )
@@ -121,7 +132,7 @@ async def run_worker(spec: WorkerSpec, **inputs) -> dict:
             last_error = f"schema-invalid reply: {'; '.join(issues[:3])}"
             continue
         return data
-    raise VaultError(f"{spec.name} worker ({_worker_model()}) returned {last_error}")
+    raise VaultError(f"{spec.name} worker ({worker_model()}) returned {last_error}")
 
 
 _EXTRACT_TASKS_PROMPT = """\
@@ -289,8 +300,6 @@ def _real_date_or_none(value) -> str | None:
     impossible one is dropped here rather than poisoning a draft."""
     if not value:
         return None
-    import datetime as dt
-
     try:
         dt.date.fromisoformat(str(value))
     except ValueError:

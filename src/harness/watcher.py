@@ -19,20 +19,19 @@ from __future__ import annotations
 import argparse
 import asyncio
 import fcntl
-import hashlib
 import json
-import os
 import re
+import time
 from pathlib import Path
 
 from obsidian_mcp import markdown as md
 from obsidian_mcp import vaultconfig as vc
 from obsidian_mcp import workers as wk
-from obsidian_mcp.vault import Vault, VaultError
+from obsidian_mcp.vault import Vault, VaultError, atomic_write_text
 from obsidian_mcp.vaultconfig import get_config
 
-from . import applier, changes, commands, diffhtml, processors, proposals, today
-from .bootstrap import ROOT, apply_worker_profile
+from . import applier, changes, commands, diffs, events, processors, proposals, today
+from .bootstrap import ROOT, apply_worker_profile, vault_digest
 from .corpus import record_dashboard
 from .processors import ProcessorSpec
 
@@ -40,7 +39,21 @@ STATE_PATH = ROOT / "data" / "watcher_state.json"
 # n_max (proposals drafted per pass) now lives in VaultConfig — one home,
 # user-editable per vault in Spec.md.
 
+# How long a HUMAN-initiated pass waits for the pass lock before giving
+# up. Timer-driven passes never wait (their next tick covers the skip);
+# a click has no next tick, so it queues instead. Generous, because the
+# holder may be mid-draft: a decision is worth waiting a minute for, and
+# LockBusy is a clean 409 rather than a silently dropped verdict.
+DECISION_LOCK_WAIT_S = 90.0
+
 DECISION_RE = re.compile(r"^- \[[xX]\] (approve|reject) (p-[0-9a-f]{12})\s*$", re.M)
+
+
+class LockBusy(RuntimeError):
+    """Another pass held the pass lock for the whole wait. Raised only for
+    callers that asked to wait (the UI's verbs); the timer lanes get
+    summary["locked"] instead, because skipping is correct for them."""
+
 
 SPEC_BODY = """\
 # Vault Spec
@@ -104,15 +117,21 @@ class Watcher:
         registry: tuple[ProcessorSpec, ...] | None = None,
         grouping_drafter=None,
         capture_extractor=None,
+        should_cancel=None,
     ):
         self.vault_path = str(vault_path)
+        # Cooperative stop (cancel.token), polled between draft calls and
+        # between processors — points where the vault is already
+        # consistent. Never mid-plan: a half-applied proposal would leave
+        # the queue disagreeing with the vault.
+        self.should_cancel = should_cancel or (lambda: False)
         # Per-vault state, queue, and (via with_suffix(".lock")) pass lock:
         # two vaults run from one checkout must not share a fingerprint,
         # serialize each other's passes, or — the 2026-07-23 deploy-script
         # find — auto-stale each other's pending proposals.
-        digest = hashlib.sha1(self.vault_path.encode()).hexdigest()[:12]
+        digest = vault_digest(self.vault_path)
         self.proposals_dir = (Path(proposals_dir) if proposals_dir is not None
-                              else ROOT / "data" / f"proposals-{digest}")
+                              else proposals.dir_for(self.vault_path))
         self.state_path = (Path(state_path) if state_path
                            else STATE_PATH.with_name(f"watcher_state-{digest}.json"))
         # Worker injection points (tests script these; prod uses the
@@ -126,10 +145,11 @@ class Watcher:
         self._disabled_override = disabled
         self._registry_override = registry
         self._configure(get_config(self.vault_path))  # raises on a bad explicit arg
-        # hashes of text last handed to the extractors: rejecting a
-        # proposal must not re-draft the same text every pass
-        self._capture_seen = ""
-        self._inbox_seen = ""
+        # processor name -> hash of the text last handed to its extractor:
+        # rejecting a proposal must not re-draft the same text every pass.
+        # Keyed by name so a new extractor needs no engine-side field —
+        # scan/draft own their entry, and _notify_stale re-arms it.
+        self.seen: dict[str, str] = {}
         # HEAD sha at scan time, stamped into drafted proposals; set once
         # per pass so processors never re-run git themselves
         self._pass_sha = ""
@@ -140,24 +160,31 @@ class Watcher:
         """Resolve the per-pass knobs: explicit constructor args win,
         otherwise Spec.md (n_max, disabled_processors, surfaces, inboxes).
         Called at construction and again each full pass, so a Spec.md
-        edit takes effect without a restart."""
+        edit takes effect without a restart.
+
+        Everything that can reject a value is resolved BEFORE anything is
+        assigned. The caller's contract is that a bad Spec.md degrades to
+        the current configuration — assigning as we went made that a lie:
+        an unknown processor name raised only after the new vault handle,
+        n_max, and surfaces had already landed, leaving the pass running
+        half of each config."""
+        disabled = tuple(self._disabled_override if self._disabled_override is not None
+                         else cfg.disabled_processors)
+        # "inline_command" in the disabled list is the commands kill switch —
+        # commands are a pass phase, not a processor, so the name is peeled
+        # off before the registry (which would reject it as unknown).
+        commands_enabled = "inline_command" not in disabled
+        registry = (self._registry_override if self._registry_override is not None
+                    else processors.registry(  # raises on an unknown name
+                        tuple(n for n in disabled if n != "inline_command")))
         # The engine's own vault handle carries the exclusions (I4): every
         # watcher-side scan — grouping, commands, the Today surface — must
         # be as blind to Private/ as the MCP server's singleton is. Rebuilt
         # per pass so a Spec.md exclude edit takes effect without restart.
         self.vault = Vault(self.vault_path, exclude=cfg.exclude)
         self.n_max = self._n_max_override if self._n_max_override is not None else cfg.n_max
-        disabled = tuple(self._disabled_override if self._disabled_override is not None
-                         else cfg.disabled_processors)
-        # "inline_command" in the disabled list is the commands kill switch —
-        # commands are a pass phase, not a processor, so the name is peeled
-        # off before the registry (which would reject it as unknown).
-        self.commands_enabled = "inline_command" not in disabled
-        disabled = tuple(n for n in disabled if n != "inline_command")
-        if self._registry_override is not None:
-            self.processors = self._registry_override
-        else:
-            self.processors = processors.registry(disabled)
+        self.commands_enabled = commands_enabled
+        self.processors = registry
         self._by_kind = {p.name: p for p in self.processors}
         self.review_rel = cfg.surfaces.get("review", "Harness/Review.md")
         self.capture_rel = cfg.surfaces.get("capture", "")
@@ -192,13 +219,11 @@ class Watcher:
             "exclude": list(base.exclude),
             "auto_apply": list(base.auto_apply),
             "fidelity": base.fidelity,
-            "diff_style": base.diff_style,
             "worker": base.worker,
             "disabled_processors": list(base.disabled_processors),
             "n_max": base.n_max,
-            "callout_type": base.callout_type,
-            "link_scheme": base.link_scheme,
             "daily_dir": base.daily_dir,
+            "meetings_dir": base.meetings_dir,
         }
         self.write_surface(vc.SPEC_REL, md.join_frontmatter(fm, SPEC_BODY),
                            f"seed {vc.SPEC_REL}", action="seed_vault_spec")
@@ -216,14 +241,23 @@ class Watcher:
             return {}
         return saved if "fingerprint" in saved else {}
 
+    @staticmethod
+    def _seen_from_state(state: dict) -> dict[str, str]:
+        """The seen-hash map, tolerating state files written before it was
+        one dict: a missed migration would re-draft every extractor's last
+        text once on upgrade."""
+        seen = {k: str(v) for k, v in (state.get("seen") or {}).items() if v}
+        for legacy, name in (("capture_seen", "capture"), ("inbox_seen", "inbox_extract")):
+            if state.get(legacy) and name not in seen:
+                seen[name] = str(state[legacy])
+        return seen
+
     def _save_state(self, fingerprint: dict | None = None) -> None:
-        self.state_path.parent.mkdir(parents=True, exist_ok=True)
         state = {
             "fingerprint": fingerprint if fingerprint is not None else self._vault_fingerprint(),
-            "capture_seen": self._capture_seen,
-            "inbox_seen": self._inbox_seen,
+            "seen": self.seen,
         }
-        self.state_path.write_text(json.dumps(state), encoding="utf-8")
+        atomic_write_text(self.state_path, json.dumps(state))
 
     # ---- stage 2: execute typed //commands ----
 
@@ -247,7 +281,7 @@ class Watcher:
                 continue  # transient failure: the line stays armed, retried next scan
             try:
                 server.replace_line(item["note"], item["line"],
-                                    commands.render_callout(item, result, cfg.callout_type))
+                                    commands.render_callout(item, result))
             except VaultError:
                 continue  # the line was edited away mid-flight: the user's edit wins
             summary["commands"] += 1
@@ -265,7 +299,7 @@ class Watcher:
             # n_max bounds draft CALLS (the LLM cost), so a failed
             # processor's skipped items must not consume budget that a
             # healthy processor behind it could use.
-            if attempts >= self.n_max:
+            if attempts >= self.n_max or self.should_cancel():
                 break
             if proc.name in failed:
                 continue  # its worker already failed once: don't hammer it
@@ -274,6 +308,11 @@ class Watcher:
             # serviced between calls — latency bounded by ONE draft.
             self._sweep_late_decisions(summary)
             attempts += 1
+            # The activity signal: which processor is thinking, about what.
+            # Emission is telemetry (events.emit swallows OSError) — the
+            # indicator is a courtesy, never a stage a pass can fail on.
+            events.emit(self.vault_path, "draft_started",
+                        {"processor": proc.name, "note": item["note"]})
             try:
                 p = await proc.draft(self, item)
             except VaultError:
@@ -296,7 +335,16 @@ class Watcher:
             # simply keeps its checkbox — verification degrades to review,
             # never blocks.
             if proc.name in auto_trusted and proc.verify and not p.get("needs_review"):
-                if proc.verify(self, item, p) or applier.is_stale(p, self.vault_path):
+                try:
+                    failures = proc.verify(self, item, p)
+                except Exception as e:
+                    # A verifier that RAISES is a verifier that didn't
+                    # vouch, so it means what a verifier that returns
+                    # failures means: keep the checkbox. It must never
+                    # take the pass down with it — the whole point of
+                    # this gate is that verification degrades to review.
+                    failures = [f"verifier raised {type(e).__name__}: {e}"]
+                if failures or applier.is_stale(p, self.vault_path):
                     continue
                 try:
                     applier.apply(p, self.vault_path)
@@ -309,8 +357,7 @@ class Watcher:
                 # No corpus row: auto-applies are not human labels.
                 proposals.resolve(p, "auto", self.proposals_dir)
                 auto += 1
-                if proc.on_applied:
-                    proc.on_applied(self, p)
+                self._post_apply(proc, p)
         return drafted, auto
 
     # ---- decisions from the vault surface ----
@@ -359,17 +406,27 @@ class Watcher:
             proposals.resolve(p, "approved", self.proposals_dir)
             self._record(p, "approved")
             acted["approved"] += 1
-            spec = self._by_kind.get(p["kind"])
-            if spec and spec.on_applied:
-                spec.on_applied(self, p)
+            self._post_apply(self._by_kind.get(p["kind"]), p)
         return acted, [p for p in pending if p["id"] not in resolved]
+
+    def _post_apply(self, spec, p: dict) -> None:
+        """Run a processor's on_applied hook. Guarded, because by the time
+        it runs the change is ALREADY written, committed, and resolved in
+        the queue: letting the hook raise would abandon a correct apply
+        with an exception, and the caller would tell the user it failed.
+        (reset_capture writes a surface, so a wedged vault lock reaches
+        here — VaultLocked is exactly the case this must survive.)"""
+        if spec is None or spec.on_applied is None:
+            return
+        try:
+            spec.on_applied(self, p)
+        except Exception as e:
+            print(f"post-apply hook for {spec.name} failed "
+                  f"(the change itself landed): {type(e).__name__}: {e}")
 
     @staticmethod
     def _record(p: dict, decision: str) -> None:
-        try:
-            record_dashboard(p, decision)
-        except OSError:
-            pass  # labels are telemetry; never fail the pass over them
+        record_dashboard(p, decision)  # swallows its own failures (corpus.py)
 
     # ---- queue hygiene ----
 
@@ -389,13 +446,12 @@ class Watcher:
         return flipped, keep
 
     def _notify_stale(self, p: dict) -> None:
-        """A stale proposal voided its draft; the owning processor may
-        need to re-arm (ProcessorSpec.on_stale) — extractors' seen-hashes
-        would otherwise suppress the re-draft and the extraction would
-        silently vanish."""
-        spec = self._by_kind.get(p["kind"])
-        if spec and spec.on_stale:
-            spec.on_stale(self, p)
+        """A stale proposal voided its draft, so its processor must re-arm:
+        the seen-hash would otherwise suppress the re-draft and the
+        extraction would silently vanish (the 2026-07-24 capture bug).
+        Dropping the entry by kind covers every extractor at once — a
+        processor that keeps no seen-hash simply has nothing to drop."""
+        self.seen.pop(p["kind"], None)
 
     # ---- render ----
 
@@ -450,49 +506,78 @@ class Watcher:
         return True
 
     def _diff_block(self, p: dict) -> list[str]:
-        """A proposal's diff for Review.md. `diff_style: split` (Spec.md)
-        renders a GitHub-style side-by-side HTML table — Obsidian's
-        reading view renders embedded HTML, and Review.md is a machine
-        view, so HTML is fair game here. `unified` keeps the classic
-        ```diff fence."""
+        """A proposal's diff for Review.md: the classic unified ```diff
+        fence — renders everywhere (Obsidian, VSCode, GitHub), zero
+        knobs. The rich side-by-side rendering lives in the dashboard,
+        built from the same simulate via diffs.diff_rows."""
         try:
             note_text = self.vault.read(p["drafted_against"]["note"])
         except VaultError:
             return ["", "```diff", "# (target note unreadable — proposal will go stale)", "```"]
-        if len(note_text.splitlines()) > 4000:
+        if len(note_text.splitlines()) > diffs.MAX_PREVIEW_LINES:
             # SequenceMatcher is quadratic: a pathological note must cost
             # this proposal its preview, never hang the pass on CPU.
             return ["", "- (note too large to preview — judge from the summary, or open the note)"]
-        if get_config(self.vault_path).diff_style == "split":
-            after, skipped = applier.simulate_for_note(note_text, p)
-            table = diffhtml.split_diff(note_text, after)
-            out = [""]
-            if table:
-                out.append(table)
-            out += [f"- not previewed: `{s}`" for s in skipped]
-            if len(out) > 1:
-                return out
-            # nothing previewable at all: fall through to unified's notes
         return ["", "```diff", applier.preview(note_text, p), "```"]
 
-    async def run_once(self, decisions_only: bool = False) -> dict:
-        """One engine pass. `decisions_only` is the fast lane a checkbox
-        trigger uses: act on decisions, re-render, done — no scanning or
-        drafting, and the git memo is left untouched so the next full
-        pass still scans whatever the apply changed."""
-        summary = {
-            "commands": 0, "drafted": 0, "auto": 0, "approved": 0, "rejected": 0,
-            "stale": 0, "failed": 0, "scanned": False, "locked": False,
-        }
-        self._pass_status = None  # worker status probed at most once per pass
+    async def _acquire_pass_lock(self, wait: float):
+        """The pass lock, or None if another pass holds it.
+
+        `wait` is the whole difference between the two lanes. A
+        timer-driven pass passes 0: it must never queue behind a
+        long-drafting pass, because that pass covers its tick anyway. A
+        human verb passes DECISION_LOCK_WAIT_S: nothing else will ever
+        carry that click, so it waits — polled with `await` so the caller
+        (and, before the engine thread existed, the whole server) keeps
+        running while it does."""
         lock_path = self.state_path.with_suffix(".lock")
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         lock_file = open(lock_path, "w")
-        try:
-            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return lock_file
+            except OSError:
+                if time.monotonic() >= deadline:
+                    lock_file.close()
+                    return None
+                await asyncio.sleep(0.1)
+
+    async def run_once(self, decisions_only: bool = False,
+                       decisions: list[tuple[str, str]] | None = None,
+                       lock_wait: float = 0.0) -> dict:
+        """One engine pass. `decisions_only` is the fast lane a checkbox
+        trigger uses: act on decisions, re-render, done — no scanning or
+        drafting, and the git memo is left untouched so the next full
+        pass still scans whatever the apply changed.
+
+        `decisions` injects explicit (pid, verdict) pairs ahead of the
+        Review.md checkbox scan — the UI button's channel (service.decide).
+        Both converge on _act under the pass lock, so a click can never
+        race a checkbox or double-apply (_act resolves each pid once).
+
+        `lock_wait` seconds to wait for the pass lock, and it selects the
+        contention contract. The default 0 is the timer lane: skip and
+        report summary["locked"], because the running pass covers this
+        tick. Any positive wait is a human verb, and losing the lock after
+        waiting is exceptional — LockBusy, not a summary of a pass that
+        quietly did nothing. Anything carrying `decisions` MUST wait:
+        those verdicts exist nowhere else, so a `locked` return discarded
+        a human's decision, which is exactly what it used to do."""
+        summary = {
+            "commands": 0, "drafted": 0, "auto": 0, "approved": 0, "rejected": 0,
+            "stale": 0, "failed": 0, "scanned": False, "locked": False,
+            "cancelled": False,
+        }
+        self._pass_status = None  # worker status probed at most once per pass
+        lock_file = await self._acquire_pass_lock(lock_wait)
+        if lock_file is None:
+            if lock_wait > 0:
+                raise LockBusy(
+                    f"the engine has been busy with another pass for {lock_wait:.0f}s — "
+                    "nothing was applied; try again in a moment")
             # Another trigger's pass is running; its pass covers this tick.
-            lock_file.close()
             summary["locked"] = True
             return summary
         try:
@@ -501,9 +586,10 @@ class Watcher:
             # it, and no processor may depend on a sibling having set it.
             applier.use_vault(self.vault_path)
             state = self._load_state()
-            self._capture_seen = state.get("capture_seen", "")
-            self._inbox_seen = state.get("inbox_seen", "")
+            self.seen = self._seen_from_state(state)
             if not decisions_only:
+                # Opens the activity indicator; pass_complete closes it.
+                events.emit(self.vault_path, "pass_started", {})
                 self._ensure_spec()
                 # Re-read the spec each pass: Spec.md edits (worker model,
                 # n_max, disabled processors, inboxes) take effect without
@@ -518,26 +604,31 @@ class Watcher:
                     apply_worker_profile(cfg.worker)
                 for proc in self.processors:
                     if proc.ensure:
-                        proc.ensure(self)
+                        try:
+                            proc.ensure(self)
+                        except VaultError as e:
+                            # Creating a surface is setup, not the work:
+                            # a processor that can't scaffold skips this
+                            # pass rather than cancelling everyone else's.
+                            print(f"ensure failed for {proc.name}: {e}")
             # One queue read and one git-state read serve the whole pass:
             # _act works through the pending list, and everything after it
             # (auto-stale, coverage, sha stamping) reuses the same context.
             pending = proposals.pending(self.proposals_dir)
-            acted, pending = self._act(self._read_decisions(), pending)
+            acted, pending = self._act(list(decisions or []) + self._read_decisions(), pending)
             summary.update(acted)
             if decisions_only:
                 if sum(acted.values()):
-                    self._render()
-                    self._render_changes()
-                    self._render_today()
+                    self._render_surfaces()
                 self._sweep_late_decisions(summary)
-                # Persist any on_stale re-arm (seen-hashes) — losing it here
-                # would resurrect the suppression on the next full pass. The
-                # memo passes through untouched, so that pass still scans.
+                # Persist any stale-triggered re-arm (seen-hashes) — losing it
+                # here would resurrect the suppression on the next full pass.
+                # The memo passes through untouched, so that pass still scans.
                 self._save_state(state.get("fingerprint") or {})
+                self._emit_pass(summary)
                 return summary
             if sum(acted.values()):
-                self._render()  # visible feedback beats drafting latency
+                self._render_surfaces(review_only=True)  # feedback beats drafting latency
             approved_pre_scan = summary["approved"]
             vs = applier.vault_state(self.vault_path)
             fingerprint = self._vault_fingerprint(vs)
@@ -559,6 +650,8 @@ class Watcher:
                 # out of n_max by a maintenance backlog.
                 items = []
                 for proc in self.processors:
+                    if self.should_cancel():
+                        break
                     try:
                         found = proc.scan(self)
                     except Exception as e:
@@ -574,9 +667,8 @@ class Watcher:
                             items.append((proc, item))
                 summary["drafted"], summary["auto"] = await self._draft(items, summary)
                 summary["scanned"] = True
-            self._render()
-            self._render_changes()
-            self._render_today()
+            summary["cancelled"] = bool(self.should_cancel())
+            self._render_surfaces()
             # The memo must only describe a tree whose changes were all
             # scanned. Applies that landed AFTER the scan — auto-applies,
             # decisions swept between drafting calls — violate that, so the
@@ -587,9 +679,19 @@ class Watcher:
             self._sweep_late_decisions(summary)
             self._save_state(fingerprint)
             proposals.prune(self.proposals_dir)
+            self._emit_pass(summary)
             return summary
         finally:
             lock_file.close()  # releases the flock
+
+    def _emit_pass(self, summary: dict) -> None:
+        """One pass_complete event per completed pass — the UI's SSE
+        source. Emission is telemetry (events.emit swallows OSError);
+        the markdown surfaces above are the render of record."""
+        events.emit(self.vault_path, "pass_complete", {
+            "summary": summary,
+            "pending": len(proposals.pending(self.proposals_dir)),
+        })
 
     def _sweep_late_decisions(self, summary: dict) -> None:
         """Decisions checked WHILE this pass runs: act now — the fast
@@ -606,9 +708,7 @@ class Watcher:
             acted, _ = self._act(late, proposals.pending(self.proposals_dir))
             for k, v in acted.items():
                 summary[k] = summary.get(k, 0) + v
-            self._render()
-            self._render_changes()
-            self._render_today()
+            self._render_surfaces()
 
     def _worker_status(self) -> str:
         """The Changes.md health line: which worker drafts proposals and
@@ -616,17 +716,47 @@ class Watcher:
         carries a network timeout); the text only changes when the worker
         or its health does, so it never churns the surface."""
         if self._pass_status is None:
-            from obsidian_mcp.workers import _worker_model
+            from obsidian_mcp.workers import worker_base_url, worker_model
 
             from .backends import endpoint_alive_sync
 
-            base = os.environ.get("WORKER_BASE_URL", "http://127.0.0.1:8081/v1")
+            base = worker_base_url()
             up = endpoint_alive_sync(base)
             self._pass_status = (
-                f"_Worker: `{_worker_model()}` @ {base} — "
+                f"_Worker: `{worker_model()}` @ {base} — "
                 + ("reachable_" if up else "**UNREACHABLE**_")
             )
         return self._pass_status
+
+    def _render_surfaces(self, review_only: bool = False) -> None:
+        """Re-render the machine surfaces. Guarded, and guarded as a
+        GROUP: by the time these run, whatever the pass applied is already
+        written, committed, and resolved in the queue — so a surface that
+        can't be written (a wedged vault lock, a full disk) must not cost
+        the caller its summary or take down the pass. Surfaces are
+        write-on-change every pass, so the next one simply repairs the
+        render; nothing is lost but a redraw."""
+        renders = ((self._render,) if review_only
+                   else (self._render, self._render_changes, self._render_today))
+        for render in renders:
+            try:
+                render()
+            except VaultError as e:
+                print(f"surface render skipped ({render.__name__}): {e}")
+
+    def _render_surface(self, rel: str, content: str, action: str) -> bool:
+        """Write a machine-rendered surface, but only when its content
+        actually changed. The write-on-change rule is the churn discipline
+        every surface shares: an unchanged rewrite would commit a no-op
+        snapshot every pass, and Changes.md would fill with the harness
+        redrawing itself. An unreadable/absent surface is simply written."""
+        try:
+            if self.vault.read(rel) == content:
+                return False
+        except VaultError:
+            pass
+        self.write_surface(rel, content, f"update {rel}", action=action)
+        return True
 
     def _render_changes(self) -> None:
         """Phase 10: the audit surface. Rendered every pass, written only
@@ -634,16 +764,10 @@ class Watcher:
         so a render can never feed the next one."""
         if not self.changes_rel:
             return
-        content = changes.render(
+        self._render_surface(self.changes_rel, changes.render(
             self.vault, self.changes_rel, status=self._worker_status(),
-            surface_rels=set(get_config(self.vault_path).surfaces.values()))
-        try:
-            if self.vault.read(self.changes_rel) == content:
-                return
-        except VaultError:
-            pass
-        self.write_surface(self.changes_rel, content,
-                           f"update {self.changes_rel}", action="render_changes")
+            surface_rels=changes.machine_rels(get_config(self.vault_path)),
+        ), action="render_changes")
 
     def _render_today(self) -> None:
         """The attention surface (today.py): a read-only view, so no trust
@@ -651,17 +775,10 @@ class Watcher:
         heartbeat pass covers the date rollover on a quiet vault."""
         if not self.today_rel:
             return
-        content = today.render(
+        self._render_surface(self.today_rel, today.render(
             self.vault, get_config(self.vault_path),
             pending_decisions=len(proposals.pending(self.proposals_dir)),
-        )
-        try:
-            if self.vault.read(self.today_rel) == content:
-                return
-        except VaultError:
-            pass
-        self.write_surface(self.today_rel, content,
-                           f"update {self.today_rel}", action="render_today")
+        ), action="render_today")
 
 
 def main() -> None:

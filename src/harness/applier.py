@@ -25,7 +25,9 @@ import yaml
 import obsidian_mcp.vault as vault_mod
 from obsidian_mcp import markdown as md
 from obsidian_mcp.vault import Vault
+from obsidian_mcp.vaultconfig import get_config
 
+from .capture import capture_text
 from .proposals import content_hash
 
 # Mirrors the enum in config/schemas/proposal.yaml; checked again here so
@@ -39,7 +41,17 @@ ALLOWED_TOOLS = {
 
 def use_vault(vault_path: str) -> None:
     """Point obsidian_mcp's vault singleton at this vault for in-process
-    tool calls (the same env+reset idiom the test suite uses)."""
+    tool calls (the same env+reset idiom the test suite uses).
+
+    DO NOT make this idempotent. Skipping the reset when the path is
+    unchanged looks like free work — apply() calls this per plan — but
+    the reset is load-bearing: Vault captures cfg.exclude at
+    construction, so dropping the singleton is what makes a Spec.md
+    `exclude` edit take effect on the next pass without a restart (I4).
+    An early return here would silently keep the harness reading a
+    folder the user just excluded. Rebuilding is cheap — get_config is
+    mtime-cached — so pay it.
+    """
     os.environ["OBSIDIAN_VAULT_PATH"] = str(vault_path)
     vault_mod._vault = None
 
@@ -73,7 +85,11 @@ def is_stale(proposal: dict, vault_path: str, state: tuple[str, str] | None = No
     against = proposal["drafted_against"]
     if sha and sha == against["vault_sha"] and clean:
         return ""
-    v = Vault(vault_path)
+    # WITH the exclusions: staleness reads a note's content, so it is a
+    # read like any other and I4 applies. Every other content-reading
+    # construction passes these; this one didn't, which made the queue the
+    # one place an excluded folder was still legible.
+    v = Vault(vault_path, exclude=get_config(vault_path).exclude)
     try:
         current = v.read(against["note"])
     except vault_mod.VaultError:
@@ -81,8 +97,6 @@ def is_stale(proposal: dict, vault_path: str, state: tuple[str, str] | None = No
     if proposal.get("kind") == "capture":
         # Capture proposals hash the stripped text (see draft_capture):
         # whitespace-only churn from autosave must not void an approval.
-        from .processors import capture_text  # lazy: processors imports applier
-
         current = capture_text(current)
     if content_hash(current) != against["content_hash"]:
         return f"{against['note']} changed since the proposal was drafted"
@@ -114,25 +128,18 @@ def same_note(a: str, b: str) -> bool:
 
 
 def simulate(note_text: str, proposal: dict, note: str | None = None) -> str | None:
-    """Apply the whole plan to note text in memory. None if any step can't
+    """Apply the whole plan to note text in memory. None if ANY step can't
     be simulated — verifiers must then treat the plan as unvouchable.
     `note` is the path the text belongs to (default: the proposal's
     drafted_against note): a step aimed at any OTHER path is unvouchable,
     because simulating it here would vouch for an edit that apply() will
-    make somewhere else entirely."""
-    note = note or proposal.get("drafted_against", {}).get("note")
-    if not note:
-        return None
-    current = note_text
-    for step in proposal["apply"]:
-        try:
-            nxt = _simulate(current, step, note)
-        except (ValueError, KeyError):
-            return None
-        if nxt is None:
-            return None
-        current = nxt
-    return current
+    make somewhere else entirely.
+
+    The strict reading of simulate_for_note: same walk, but any skipped
+    step voids the whole answer instead of being described. Two copies of
+    that walk is how a verifier and a preview drift apart."""
+    after, skipped = simulate_for_note(note_text, proposal, note)
+    return None if skipped else after
 
 
 # ---- preview (pure text simulation for the diff in Review.md) ----
@@ -181,14 +188,28 @@ def _simulate(text: str, step: dict, note: str) -> str | None:
 def simulate_for_note(note_text: str, proposal: dict, note: str | None = None) -> tuple[str, list[str]]:
     """Best-effort simulation of the plan against one note's text: steps
     that can't be simulated (other-note writes, unknown tools) are skipped
-    and described, so nothing looks hidden. Returns (after, skipped)."""
+    and described, so nothing looks hidden. Returns (after, skipped).
+
+    The one plan walk — `simulate` is this with "any skip voids it"."""
     note = note or proposal.get("drafted_against", {}).get("note") or ""
+    if not note:
+        # No target at all: every step is aimed elsewhere by definition.
+        return note_text, [f"{s['tool']}: no note to simulate against"
+                           for s in proposal["apply"]]
     current, unpreviewable = note_text, []
     for step in proposal["apply"]:
         try:
             simulated = _simulate(current, step, note)
-        except (ValueError, KeyError) as e:
-            unpreviewable.append(f"{step['tool']}: preview failed ({e})")
+        except Exception as e:
+            # Any exception, not just ValueError/KeyError. Simulation is
+            # best-effort by definition: a step it cannot model is
+            # "not previewed", never a raise. A worker plan carrying
+            # malformed YAML in update_frontmatter threw yaml.ScannerError
+            # straight through here — into the dashboard's /api/review
+            # (a 500 that empties the whole queue view) and, once this walk
+            # became the verifier's too, into the auto-apply gate.
+            unpreviewable.append(f"{step['tool']}: preview failed "
+                                 f"({type(e).__name__}: {e})")
             continue
         if simulated is None:
             unpreviewable.append(f"{step['tool']}({json_args(step)})")

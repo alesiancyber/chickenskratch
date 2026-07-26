@@ -9,6 +9,8 @@ dependencies = [
     "mcp>=1.9",
     "openai>=1.60",
     "pyyaml>=6.0",
+    "starlette>=1.3.1",
+    "uvicorn>=0.51.0",
 ]
 
 [project.scripts]
@@ -17,6 +19,7 @@ harness-eval = "harness.evals:main"
 harness-worker-eval = "harness.worker_evals:main"
 harness-watch = "harness.watcher:main"
 harness-revert = "harness.revert:main"
+harness-ui = "harness.ui:main"
 harness-backends = "harness.backends:main"
 obsidian-mcp = "obsidian_mcp.server:main"
 files-mcp = "files_mcp.server:main"
@@ -29,7 +32,11 @@ build-backend = "hatchling.build"
 packages = ["src/obsidian_mcp", "src/harness", "src/files_mcp"]
 
 [dependency-groups]
-dev = ["pytest>=8.0", "ruff>=0.8"]
+dev = [
+    "httpx2>=2.9.1",
+    "pytest>=8.0",
+    "ruff>=0.8",
+]
 
 [tool.ruff]
 line-length = 110

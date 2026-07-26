@@ -69,10 +69,12 @@ vim, and the harness's own surfaces are interchangeable viewports.
 7. **Chat is a frozen escape hatch.** It handles what no processor or
    command covers yet, and it gains no features — a prompt you issue
    twice is a processor or command candidate. It has two homes with one
-   contract: the CLI (`harness`, `harness -i`) and, once built, the
-   collapsible pane (collapsed by default; tool calls visible; write
-   gate inline and corpus-recorded; transcripts stay scratch — the
-   vault is the archive). Chat history surfaces, pinned conversations,
+   contract: the CLI (`harness`, `harness -i`) and the collapsible
+   pane (⌘J, built 2026-07-25 — the same Agent loop with its hooks
+   pointed at the pane: collapsed by default; tool calls visible as
+   expandable rows; write gate inline as Allow/Deny chips, every
+   verdict corpus-recorded with its trajectory; transcripts stay
+   scratch — the vault is the archive). Chat history surfaces, pinned conversations,
    and chat-first features are the line the deleted 2026-07-23 UI
    crossed; they stay out.
 8. **The AI should disappear.** The best processor is one you forget
@@ -113,8 +115,10 @@ vim, and the harness's own surfaces are interchangeable viewports.
   from schema scans, grouping, capture extraction, and command scanning
   — but never from git snapshots. Dot-directories are editor machinery
   and invisible to every read path. A read-only view (Today.md, the
-  dashboard) needs no trust machinery — wrongness costs a glance, never
-  data — and a dashboard fits one screen or it isn't one.
+  dashboard's reads) needs no trust machinery — wrongness costs a
+  glance, never data. The dashboard's buttons are not views but I2
+  consent, riding the same gated paths as the checkbox. A dashboard
+  fits one screen or it isn't one.
 - **I6 — Every stage boundary is a failure boundary.** One bad unit of
   input — a mis-encoded note, a malformed queue file, a garbage env
   var, a crashing scan, a poison plan, a hung remote call — fails its
@@ -142,9 +146,30 @@ vim, and the harness's own surfaces are interchangeable viewports.
 Every trigger — daemon, `harness-watch`, cron, the UI server — invokes
 the same engine; the pass lock makes concurrent triggers safe. Spec.md
 is re-read every pass: worker model, n_max, disabled processors are
-note edits, no restart. The owned surfaces (when built) are a second
-renderer over the same state through the same gated paths — they add
-no state, no trust class, and no write that bypasses I1–I6.
+note edits, no restart. The owned surfaces are a second renderer over
+the same state through the same gated paths — they add no state, no
+trust class, and no write that bypasses I1–I6. Built so far
+(2026-07-25): the live dashboard (`harness-ui`, 127.0.0.1-only — JSON
+view-models + SSE over the pass's event log) with Phase-2 decisions:
+approve/reject/revert buttons and `run_pass`, every verb through
+`service.py`, resolving in the same engine pass as the checkbox scan —
+one `_act`, one pass lock, so the two channels can never double-apply.
+The UI's write channel is consent-hardened: JSON-only (forces CORS
+preflight) from a local origin, on the localhost-only bind. The canvas
+(#canvas) is built: a dump splits on the command grammar — //command
+lines execute instantly (I3), the rest rides `ingest()` into the
+capture pipeline, and results settle back as blocks (callouts, inline
+approve/reject — including partial approval of a capture's steps, a
+queue-file trim that keeps the trimmed proposal as the consent
+record), or the quiet auto-filed line. The escape-hatch pane (⌘J) is
+built per principle 7's contract, and the dashboard's task rows carry
+the check-off verb (`complete_task`, the one deliberate widening of
+the write list — same gated tool the editor's checkbox always was).
+Every phase of `research/owned-surfaces-plan.md` is now shipped. Renderer knobs left the vault with
+this build: Review.md diffs are always unified ```diff, command
+callouts always NOTE, and `link_scheme` is repo config
+(config/vault.yaml) — the vault describes its content, the repo
+describes its renderers.
 
 ## Explicitly out (until a design commit says otherwise)
 

@@ -10,6 +10,7 @@ import pytest
 
 from harness import proposals
 from harness.watcher import Watcher
+from obsidian_mcp import vaultconfig as vc
 from obsidian_mcp.vault import Vault
 
 
@@ -29,7 +30,7 @@ async def fake_drafter(item):
 def vault(gitvault):
     # this suite tests the checkbox path — revoke auto-apply trust
     (gitvault / "Harness").mkdir(exist_ok=True)
-    (gitvault / "Harness/Spec.md").write_text('---\nauto_apply: []\ndiff_style: unified\n---\n\n# Vault Spec\n')
+    (gitvault / "Harness/Spec.md").write_text('---\nauto_apply: []\n---\n\n# Vault Spec\n')
     return gitvault
 
 
@@ -90,7 +91,7 @@ def test_checkbox_approve_applies_and_records(vault, watcher, monkeypatch):
     assert (target["id"], "approved") in recorded
     assert f"approve {target['id']}" not in review.read_text()  # re-rendered without it
     # applying is a normal gated mutation: its commit is in history
-    assert any("frontmatter" in c["message"] for c in Vault(vault).history())
+    assert any("frontmatter" in c["subject"] for c in Vault(vault).history())
 
 
 def test_checkbox_reject_records_without_touching_vault(vault, watcher, monkeypatch):
@@ -318,3 +319,87 @@ def test_poison_apply_fails_the_proposal_never_the_pass(vault, watcher):
 
     # and the next pass is healthy — no retry loop
     assert run(watcher)["failed"] == 0
+
+
+def test_seen_state_is_one_keyed_map(watcher, vault):
+    """The extractors' seen-hashes persist as one name-keyed map, so a new
+    extractor needs no engine-side field. Legacy state files (one flat key
+    per extractor) still load — a missed migration would re-draft every
+    extractor's last text once on upgrade."""
+    assert watcher._seen_from_state({"seen": {"capture": "abc"}}) == {"capture": "abc"}
+    assert watcher._seen_from_state(
+        {"capture_seen": "abc", "inbox_seen": "def"}
+    ) == {"capture": "abc", "inbox_extract": "def"}
+    # the new key wins over a stale legacy one, and empties never persist
+    assert watcher._seen_from_state(
+        {"seen": {"capture": "new"}, "capture_seen": "old", "inbox_seen": ""}
+    ) == {"capture": "new"}
+
+    watcher.seen = {"capture": "hash-1"}
+    watcher._save_state({"head": "x", "dirty": "y"})
+    assert json.loads(watcher.state_path.read_text())["seen"] == {"capture": "hash-1"}
+
+
+def test_stale_rearms_its_processor_generically(watcher):
+    """A stale proposal drops its kind's seen-hash — the re-draft must be
+    guaranteed (the 2026-07-24 silent-drop bug). Kinds that keep no
+    seen-hash simply have nothing to drop."""
+    watcher.seen = {"capture": "hash-1", "inbox_extract": "hash-2"}
+    watcher._notify_stale({"kind": "capture"})
+    assert watcher.seen == {"inbox_extract": "hash-2"}
+    watcher._notify_stale({"kind": "schema_fix"})  # no seen-hash: no-op
+    assert watcher.seen == {"inbox_extract": "hash-2"}
+
+
+def _spec_with(**kw):
+    """A one-off processor whose scan/draft always produce one proposal."""
+    from harness import proposals as pr
+    from harness.processors import ProcessorSpec
+
+    def scan(w):
+        # the REAL note text, or the proposal is stale before it is decided
+        return [{"kind": "boom", "note": "Home.md",
+                 "content": w.vault.read("Home.md"), "vault_sha": w._pass_sha}]
+
+    async def draft(w, item):
+        return pr.new_proposal(
+            kind="boom", note="Home.md", vault_sha="", note_content=item["content"],
+            title="t", summary="s", issues=[],
+            apply=[{"tool": "add_task",
+                    "args": {"path": "Tasks/Inbox.md", "text": "hooked"}}])
+
+    return ProcessorSpec("boom", scan, draft, **kw)
+
+
+def test_a_raising_verifier_queues_instead_of_killing_the_pass(vault, make_watcher):
+    """Verification degrades to review — that is the whole contract of the
+    auto-apply gate. A verifier that RAISES didn't vouch either, so it
+    must mean the same thing as one that returns failures."""
+    def boom(w, item, p):
+        raise RuntimeError("verifier blew up")
+
+    (vault / "Harness").mkdir(exist_ok=True)
+    (vault / "Harness" / "Spec.md").write_text("---\nauto_apply: [boom]\n---\n")
+    vc._merged_cache.clear()
+    w = make_watcher(vault, registry=(_spec_with(verify=boom),))
+    summary = asyncio.run(w.run_once())
+    vc._merged_cache.clear()
+    assert summary["drafted"] == 1 and summary["auto"] == 0   # kept its checkbox
+    assert len(proposals.pending(w.proposals_dir)) == 1
+
+
+def test_a_raising_post_apply_hook_does_not_lose_the_apply(vault, make_watcher):
+    """By the time on_applied runs the change is written, committed, and
+    resolved. Letting the hook raise would abandon a correct apply with an
+    exception and tell the user it failed."""
+    def boom(w, p):
+        raise RuntimeError("post-hook blew up")
+
+    w = make_watcher(vault, registry=(_spec_with(on_applied=boom),))
+    asyncio.run(w.run_once())
+    pid = proposals.pending(w.proposals_dir)[0]["id"]
+    summary = asyncio.run(w.run_once(decisions_only=True,
+                                     decisions=[(pid, "approve")], lock_wait=5))
+    assert summary["approved"] == 1
+    assert "hooked" in (vault / "Tasks/Inbox.md").read_text()
+    assert proposals.pending(w.proposals_dir) == []

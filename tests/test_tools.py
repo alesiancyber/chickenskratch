@@ -299,13 +299,13 @@ def test_history_and_revert(vault):
     v = vault_mod.get_vault()
 
     commits = v.history()
-    assert commits[0]["message"] == "harness: add task to Tasks/Inbox.md"
+    assert commits[0]["subject"] == "harness: add task to Tasks/Inbox.md"
     assert commits[0]["files"] == ["Tasks/Inbox.md"]
 
     ok, err = v.revert(commits[0]["sha"])
     assert ok, err
     assert "revert me" not in (vault / "Tasks/Inbox.md").read_text()
-    assert v.history()[0]["message"].startswith("Revert")
+    assert v.history()[0]["subject"].startswith("Revert")
 
     # revert the revert: the task comes back
     ok, _ = v.revert(v.history()[0]["sha"])

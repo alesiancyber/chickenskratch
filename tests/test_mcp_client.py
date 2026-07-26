@@ -55,5 +55,51 @@ def test_docs_search_digest_groups_and_ranks():
     assert "covers: overview text" in digest
 
 
+def test_call_reconnects_a_rotted_session(monkeypatch):
+    """A long-lived session can expire under the pane (hours, not the
+    CLI's minutes): a raised call reconnects its one server and retries
+    once; a second failure is an error RESULT, never an exception."""
+    import asyncio
+    from contextlib import AsyncExitStack
+    from types import SimpleNamespace
+
+    from harness.mcp_client import MultiServerClient, ServerSpec, ToolInfo
+
+    spec = ServerSpec(name="docs", transport="http", url="http://x")
+    c = MultiServerClient([spec])
+
+    class DeadSession:
+        async def call_tool(self, name, args):
+            raise RuntimeError("session expired")
+
+    class LiveSession:
+        async def call_tool(self, name, args):
+            return SimpleNamespace(isError=False,
+                                   content=[SimpleNamespace(text="fresh answer")])
+
+    c._sessions["docs"] = DeadSession()
+    c._stacks["docs"] = AsyncExitStack()
+    c.tools["docs__search"] = ToolInfo(
+        qualified="docs__search", server="docs", original="search",
+        description="", schema={}, read_only=True)
+
+    async def revive(spec):
+        c._sessions["docs"] = LiveSession()
+        c._stacks["docs"] = AsyncExitStack()
+
+    monkeypatch.setattr(c, "_connect", revive)
+    text, is_error = asyncio.run(c.call("docs__search", {"q": "x"}))
+    assert text == "fresh answer" and not is_error
+
+    # and when even the reconnect fails, the turn survives with a message
+    async def still_dead(spec):
+        raise RuntimeError("network gone")
+
+    c._sessions["docs"] = DeadSession()
+    monkeypatch.setattr(c, "_connect", still_dead)
+    text, is_error = asyncio.run(c.call("docs__search", {"q": "x"}))
+    assert is_error and "unavailable" in text and "tell the user" in text
+
+
 def test_docs_search_digest_passes_through_non_json():
     assert digest_docs_search("plain text error") == "plain text error"

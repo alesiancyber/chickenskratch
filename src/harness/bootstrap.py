@@ -7,6 +7,7 @@ points is what produced the cwd-relative vault bug.
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -22,6 +23,13 @@ CONFIG_DIR = ROOT / "config"
 DEFAULT_MODELS = CONFIG_DIR / "models.yaml"
 DEFAULT_MCP = CONFIG_DIR / "mcp.yaml"
 ENV_FILE = ROOT / ".env"
+
+
+def vault_digest(vault_path: str) -> str:
+    """Stable per-vault key for repo-side state files (proposals dir,
+    watcher state, pass lock, events): two vaults run from one checkout
+    must never share them."""
+    return hashlib.sha1(str(vault_path).encode()).hexdigest()[:12]
 
 
 def load_env_file(path: Path = ENV_FILE) -> None:

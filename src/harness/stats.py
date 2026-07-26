@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import os
 from pathlib import Path
+
+from obsidian_mcp.vault import atomic_write_text
 
 from .bootstrap import ROOT
 
@@ -33,9 +34,7 @@ def record_run(model: str, run: dict, path: Path | None = None) -> None:
     m["last_used"] = dt.datetime.now().isoformat(timespec="seconds")
     # Temp + rename: concurrent recorders may still lose a fold (cosmetic),
     # but a torn write must never corrupt the file and zero every total.
-    tmp = path.parent / (path.name + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    atomic_write_text(path, json.dumps(data, indent=2))
 
 
 def totals(path: Path | None = None) -> dict:

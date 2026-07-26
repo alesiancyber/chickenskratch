@@ -1,5 +1,4 @@
-"""Revert a vault snapshot from the terminal — the web UI's ↺ Changes,
-CLI-ized (the UI retirement, 2026-07-23).
+"""Revert a vault snapshot from the terminal.
 
 Every harness mutation is one git commit, so undo is `git revert` under
 the vault lock with manual edits preserved first (vault.py owns that).
@@ -14,11 +13,11 @@ A revert is itself a commit, so a wrong revert is revertible the same way.
 from __future__ import annotations
 
 import argparse
-import re
 
 from obsidian_mcp.vault import Vault
 
 from .bootstrap import load_runtime
+from .service import revert as service_revert
 
 
 def list_snapshots(v: Vault, limit: int) -> None:
@@ -28,7 +27,7 @@ def list_snapshots(v: Vault, limit: int) -> None:
         return
     for c in commits:
         files = ", ".join(c["files"][:3]) + (f" +{len(c['files']) - 3}" if len(c["files"]) > 3 else "")
-        print(f"{c['sha'][:10]}  {c['date'][:16]}  {c['message'][:60]}  [{files}]")
+        print(f"{c['sha'][:10]}  {c['date'][:16]}  {c['subject'][:60]}  [{files}]")
 
 
 def main() -> None:
@@ -42,21 +41,16 @@ def main() -> None:
     args = parser.parse_args()
 
     _config, vault, _servers = load_runtime(vault=args.vault)
-    v = Vault(vault)
     if not args.sha:
-        list_snapshots(v, args.limit)
+        list_snapshots(Vault(vault), args.limit)
         return
-    sha = args.sha.strip().lower()
-    if not re.fullmatch(r"[0-9a-f]{7,40}", sha):
-        raise SystemExit(f"not a commit sha: {args.sha!r}")
-    subject = v.commit_message(sha).splitlines()
-    if not subject:
-        raise SystemExit(f"no such commit in {vault}: {sha}")
-    print(f"reverting: {subject[0]}")
-    ok, error = v.revert(sha)
-    if not ok:
-        raise SystemExit(f"revert failed: {error}")
-    print("reverted (as a new snapshot — revertible the same way)")
+    # service.revert is the one revert path (CLI now, UI undo in Phase 2)
+    try:
+        subject = service_revert(vault, args.sha)
+    except (ValueError, RuntimeError) as e:
+        raise SystemExit(str(e)) from e
+    print(f"reverted: {subject}")
+    print("(as a new snapshot — revertible the same way)")
 
 
 if __name__ == "__main__":

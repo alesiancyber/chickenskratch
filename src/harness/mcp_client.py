@@ -174,7 +174,9 @@ class MultiServerClient:
         self.tools: dict[str, ToolInfo] = {}
         self.status: dict[str, dict] = {}
         self._sessions: dict[str, ClientSession] = {}
-        self._stack = AsyncExitStack()
+        # One exit stack PER server, so a rotted session can be torn down
+        # and rebuilt without touching its healthy siblings.
+        self._stacks: dict[str, AsyncExitStack] = {}
 
     async def __aenter__(self) -> MultiServerClient:
         for spec in self.specs:
@@ -193,30 +195,45 @@ class MultiServerClient:
             except Exception as e:
                 self.status[spec.name] = {"state": f"error: {type(e).__name__}: {e}", "tools": 0}
         if not self._sessions:
-            await self._stack.aclose()
+            await self.__aexit__()
             raise RuntimeError(f"No MCP servers available: {self.status}")
         return self
 
     async def __aexit__(self, *exc) -> None:
-        await self._stack.aclose()
+        for stack in self._stacks.values():
+            try:
+                await stack.aclose()
+            except Exception:
+                pass  # one broken transport must not strand its siblings
+        self._stacks.clear()
+        self._sessions.clear()
 
     async def _connect(self, spec: ServerSpec) -> None:
-        if spec.transport == "stdio":
-            params = StdioServerParameters(
-                command=spec.command[0], args=spec.command[1:], env={**os.environ, **spec.env}
-            )
-            read, write = await self._stack.enter_async_context(stdio_client(params))
-        elif spec.transport == "http":
-            read, write, _ = await self._stack.enter_async_context(
-                streamablehttp_client(spec.url, headers=spec.headers or None)
-            )
-        else:
-            raise ValueError(f"Unknown transport {spec.transport!r} for server {spec.name!r}")
+        stack = AsyncExitStack()
+        try:
+            if spec.transport == "stdio":
+                params = StdioServerParameters(
+                    command=spec.command[0], args=spec.command[1:], env={**os.environ, **spec.env}
+                )
+                read, write = await stack.enter_async_context(stdio_client(params))
+            elif spec.transport == "http":
+                read, write, _ = await stack.enter_async_context(
+                    streamablehttp_client(spec.url, headers=spec.headers or None)
+                )
+            else:
+                raise ValueError(f"Unknown transport {spec.transport!r} for server {spec.name!r}")
 
-        session = await self._stack.enter_async_context(ClientSession(read, write))
-        await session.initialize()
-        listed = await session.list_tools()
+            session = await stack.enter_async_context(ClientSession(read, write))
+            await session.initialize()
+            listed = await session.list_tools()
+        except BaseException:
+            await stack.aclose()
+            raise
+        self._stacks[spec.name] = stack
         self._sessions[spec.name] = session
+        # a reconnect re-registers: drop this server's old tool entries so
+        # the collision guard below doesn't skip every one of them
+        self.tools = {q: t for q, t in self.tools.items() if t.server != spec.name}
 
         prefix = sanitize_tool_name(spec.name)
         skipped = []
@@ -272,19 +289,52 @@ class MultiServerClient:
         info = self._lookup(qualified)
         return info.docs_domain if info else ""
 
+    async def _reconnect(self, name: str) -> None:
+        """Tear down one server's transport and rebuild it. Closing a
+        rotted transport is best-effort (its cancel scopes may belong to
+        a task that's gone); the rebuild is what matters."""
+        spec = next(s for s in self.specs if s.name == name)
+        self._sessions.pop(name, None)
+        old = self._stacks.pop(name, None)
+        if old is not None:
+            try:
+                await old.aclose()
+            except Exception:
+                pass
+        with anyio.fail_after(CONNECT_TIMEOUT):
+            await self._connect(spec)
+
     async def call(self, qualified: str, args: dict) -> tuple[str, bool]:
-        """Returns (result text, is_error)."""
+        """Returns (result text, is_error) — and never raises for a
+        server-side failure: a long-lived session can rot (the pane
+        holds one for hours; streamable-HTTP servers expire idle
+        sessions), so a failed call reconnects its ONE server and
+        retries once. A second failure comes back as an error result
+        the model can read, not an exception that kills the turn (I6)."""
         info = self._lookup(qualified)
         if info is None:
             known = ", ".join(sorted(self.tools))
             return f"Unknown tool: {qualified}. Available tools: {known}", True
+        try:
+            result = await self._call_once(info, args)
+        except Exception:
+            try:
+                await self._reconnect(info.server)
+                result = await self._call_once(info, args)
+            except Exception as e:
+                self.status[info.server] = {
+                    "state": f"error: {type(e).__name__}: {e}", "tools": 0}
+                return (f"server {info.server} unavailable "
+                        f"({type(e).__name__}: {e}) — tell the user instead of retrying"), True
+        text = "\n".join(c.text for c in result.content if getattr(c, "text", None)) or "(empty result)"
+        if info.docs_domain and not result.isError:
+            text = digest_docs_search(text)
+        return text, bool(result.isError)
+
+    async def _call_once(self, info: ToolInfo, args: dict):
         # Bounded like connect (and via anyio for the same cancel-scope
         # reason): a hung remote tool otherwise hangs its caller forever —
         # in the engine's command phase that meant a wedged pass HOLDING
         # the pass lock, silently stopping the whole pipeline.
         with anyio.fail_after(CALL_TIMEOUT):
-            result = await self._sessions[info.server].call_tool(info.original, args)
-        text = "\n".join(c.text for c in result.content if getattr(c, "text", None)) or "(empty result)"
-        if info.docs_domain and not result.isError:
-            text = digest_docs_search(text)
-        return text, bool(result.isError)
+            return await self._sessions[info.server].call_tool(info.original, args)

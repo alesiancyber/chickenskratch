@@ -18,12 +18,16 @@ FIXTURE_VAULT = Path(__file__).resolve().parent / "fixture_vault"
 @pytest.fixture()
 def vault(tmp_path, monkeypatch):
     """A disposable copy of the fixture vault wired as the active vault.
-    No git baseline — engine suites use `gitvault`."""
+    No git baseline — engine suites use `gitvault`. Event emission is
+    re-anchored under tmp_path so test passes never write the repo's
+    real data/ events files."""
     root = tmp_path / "vault"
     shutil.copytree(FIXTURE_VAULT, root, ignore=shutil.ignore_patterns(".git"))
     monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(root))
     monkeypatch.delenv("HARNESS_CHAT_ID", raising=False)
     monkeypatch.setattr(vault_mod, "_vault", None)
+    monkeypatch.setattr("harness.events.ROOT", tmp_path)
+    monkeypatch.setattr("harness.corpus.CORPUS_DIR", tmp_path / "corpus")
     return root
 
 

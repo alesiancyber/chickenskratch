@@ -29,7 +29,9 @@ config/             models.yaml (profiles/backends/worker), mcp.yaml
                     (MCP servers), vault.yaml (spec defaults), schemas/
 data/               proposals, corpus (training labels), stats, logs
 evals/              agent suite + worker suite (the model-bakeoff gate)
-research/           non-operational what-ifs (model orchestration) — not canon
+web/                the owned dashboard (React; built assets served by harness-ui)
+research/           plans and what-ifs; owned-surfaces-plan.md is the
+                    operative UI spec, the rest is not canon
 testvault/          scratch vault the default config points at
 ```
 
@@ -99,12 +101,29 @@ Everything is text in the vault:
   `exclude` (e.g. `Private/` — never enters model context),
   `auto_apply`, `fidelity` (strict|close), `worker` (models.yaml
   profile name for the drafting workers), `n_max`,
-  `disabled_processors` (incl. `inline_command`), and editor rendering:
-  `diff_style` (split|unified), `callout_type`, `link_scheme`
-  (obsidian|vscode), `daily_dir`.
+  `disabled_processors` (incl. `inline_command`), and `daily_dir`.
+  Renderer choices are repo config, not Spec keys: `link_scheme`
+  (obsidian|vscode — which editor deep-links open) lives in
+  `config/vault.yaml`; diffs are always unified ```diff, callouts
+  always `NOTE` (render styled in Obsidian, VSCode, and GitHub).
+- **The dashboard** — `uv run harness-ui` (127.0.0.1:8399): the live
+  attention/decision surface. Rich side-by-side diffs, approve/reject/
+  revert buttons (same gated paths as the checkboxes), j/k·a/r
+  keyboard review, ⌘K palette, SSE-live off the engine's passes.
+  Frontend builds once with `cd web && npm install && npm run build`.
+- **The canvas** — the dashboard's `#canvas` view: dump anything, ⌘↩.
+  `//commands` in the dump execute instantly; the rest is extracted
+  and either auto-filed (verifier passed) or offered as an inline
+  approve/reject — per-task, if you only want some of it — right where
+  you typed it. Same pipeline as Capture.md — the editor path keeps
+  working identically.
+- **The pane** (⌘J) — the chat escape hatch, re-homed: the same Agent
+  loop as `harness -i`, with tool calls visible as expandable rows and
+  write-gated calls as Allow/Deny chips (every verdict recorded to the
+  training corpus). Transcripts are scratch; the vault is the archive.
 
 Editor notes: Obsidian works out of the box. For Foam/VSCode set
-`diff_style: unified` + `link_scheme: vscode` and turn on
+`link_scheme: vscode` in `config/vault.yaml` and turn on
 `files.autoSave: afterDelay` (the disk file is what the harness sees).
 
 ## CLI
@@ -113,6 +132,7 @@ Editor notes: Obsidian works out of the box. For Foam/VSCode set
 uv run harness "add a task to renew the domain by friday"   # chat escape hatch
 uv run harness -i                                           # REPL
 uv run harness-revert            # list snapshots; harness-revert <sha> undoes one
+uv run harness-ui                # the dashboard server (127.0.0.1:8399)
 uv run harness-backends          # list/start/stop local model servers
 uv run harness-eval -m <profile>         # agent suite (fixture vault, scored on files)
 uv run harness-worker-eval -m <model>    # worker suite: 69 cases × 3 repeats;

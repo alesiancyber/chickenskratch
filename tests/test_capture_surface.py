@@ -129,7 +129,7 @@ def test_approve_adds_tasks_and_clears_the_surface(vault, watcher, monkeypatch):
     assert ("capture", "approved") in recorded
     # added tasks are born stamped -> they conform, and the surface reset
     # is its own commit in history
-    assert any("clear Harness/Capture.md" in c["message"] for c in Vault(vault).history())
+    assert any("clear Harness/Capture.md" in c["subject"] for c in Vault(vault).history())
 
 
 def test_owed_items_route_to_the_waiting_list(vault, watcher):

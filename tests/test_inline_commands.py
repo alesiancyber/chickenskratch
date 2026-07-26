@@ -61,7 +61,7 @@ def test_typed_command_replaced_in_place_no_queue_no_artifacts(vault, make_watch
     # trail is the git snapshot
     assert proposals.load_all(w.proposals_dir) == []
     assert "approve p-" not in (vault / "Harness/Review.md").read_text()
-    assert any("replace line" in c["message"] for c in Vault(vault).history())
+    assert any("replace line" in c["subject"] for c in Vault(vault).history())
 
 
 def test_commands_in_private_are_invisible(vault, make_watcher, fake_azure):
@@ -223,10 +223,13 @@ def test_command_results_in_the_inbox_are_not_task_intent():
     assert prose == ["call the vendor tomorrow"]
 
 
-def test_callout_type_knob_is_a_spec_edit(vault, make_watcher, fake_azure):
+def test_callouts_are_always_note(vault, make_watcher, fake_azure):
+    """callout_type died with the owned UI (0-B item 6): NOTE renders
+    styled in Obsidian AND VSCode/GitHub, so it's hardcoded — a Spec.md
+    key is inert."""
     (vault / "Harness/Spec.md").write_text(
         "---\nauto_apply: []\ncallout_type: TIP\n---\n\n# Vault Spec\n")
     note = vault / "Tasks/detections.md"
     note.write_text("//azure alert correlation\n")
     assert run(make_watcher(vault, registry=()))["commands"] == 1
-    assert "> [!TIP] //azure alert correlation" in note.read_text()
+    assert "> [!NOTE] //azure alert correlation" in note.read_text()

@@ -239,7 +239,7 @@ def main() -> None:
     if not cases:
         raise SystemExit("no cases matched")
 
-    model = workers._worker_model()
+    model = workers.worker_model()
     print(f"worker eval: {len(cases)} cases × {args.repeat} runs against {model}")
     results = asyncio.run(run_all(cases, args.repeat))
     strict = sum(r["passed"] for r in results)

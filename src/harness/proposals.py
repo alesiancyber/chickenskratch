@@ -18,12 +18,19 @@ from pathlib import Path
 
 from obsidian_mcp import ids, jsonval
 from obsidian_mcp.schemas import load_schemas
+from obsidian_mcp.vault import atomic_write_text
 
-from .bootstrap import ROOT
+from .bootstrap import ROOT, vault_digest
 
 PROPOSALS_DIR = ROOT / "data" / "proposals"
 SCHEMA_VERSION = 1
 RETENTION_DAYS = 30  # resolved proposals prune; pending ones never do
+
+
+def dir_for(vault_path: str) -> Path:
+    """The per-vault queue directory — one derivation for the engine and
+    the UI server, keyed like every other per-vault state file."""
+    return ROOT / "data" / f"proposals-{vault_digest(vault_path)}"
 
 
 def content_hash(text: str) -> str:
@@ -67,10 +74,11 @@ def save(proposal: dict, proposals_dir: Path | None = None) -> Path:
     if issues:
         raise ValueError(f"invalid proposal: {'; '.join(issues[:3])}")
     d = Path(proposals_dir) if proposals_dir else PROPOSALS_DIR
-    d.mkdir(parents=True, exist_ok=True)
-    path = d / f"{proposal['id']}.json"
-    path.write_text(json.dumps(proposal, indent=2, ensure_ascii=False), encoding="utf-8")
-    return path
+    # Atomic: the UI reads this directory from a threadpool thread while a
+    # pass writes it, and load_all() SKIPS a file it can't parse — so a
+    # torn write didn't corrupt a proposal, it deleted one.
+    return atomic_write_text(d / f"{proposal['id']}.json",
+                             json.dumps(proposal, indent=2, ensure_ascii=False))
 
 
 def load_all(proposals_dir: Path | None = None) -> list[dict]:

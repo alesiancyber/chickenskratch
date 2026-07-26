@@ -30,9 +30,9 @@ READ_ONLY = ToolAnnotations(readOnlyHint=True)
 
 mcp = FastMCP("obsidian-vault")
 
-# Daily-note folder comes from the vault spec (`daily_dir`), so Foam's
-# dailyNotes.directory and this harness can agree by config, not code.
-MEETINGS_DIR = "Meetings"
+# Daily- and meeting-note folders come from the vault spec (`daily_dir`,
+# `meetings_dir`), so Foam's dailyNotes.directory and this harness can
+# agree by config, not code.
 
 
 def _today() -> str:
@@ -538,10 +538,7 @@ def validate_schema(folder: str = "", limit: int = 50, offset: int = 0) -> dict:
     surface_dirs = vc.get_config().surface_dirs
     rows = []
     checked = 0
-    for p in v.iter_notes(folder):
-        rel = v.rel(p)
-        if rel.split("/")[0] in surface_dirs:
-            continue  # machine-rendered surfaces are not entities
+    for p, rel in v.iter_knowledge_notes(surface_dirs, folder):
         checked += 1
         etype, note_issues, bad_tasks, unmarked = note_text_issues(
             rel, read_lossy(p))
@@ -688,7 +685,7 @@ def create_meeting_note(title: str, date: str = "", attendees: str = "") -> dict
     v = get_vault()
     day = _valid_date(date) if date else _today()
     people = [a.strip() for a in attendees.split(",") if a.strip()]
-    rel = f"{MEETINGS_DIR}/{day} {title.strip()}.md"
+    rel = f"{vc.get_config().meetings_dir}/{day} {title.strip()}.md"
     p = v.resolve(rel)
     try:
         template = md.split_frontmatter(v.read("Harness/Templates/Meeting.md"))[1]

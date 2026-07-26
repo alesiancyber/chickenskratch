@@ -27,6 +27,8 @@ from pathlib import Path
 
 import httpx
 
+from obsidian_mcp.vault import atomic_write_text
+
 from .bootstrap import ROOT
 from .profiles import BackendSpec
 
@@ -93,8 +95,9 @@ class BackendManager:
             return {}
 
     def _save_state(self) -> None:
-        self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        self.state_path.write_text(json.dumps(self._state, indent=2), encoding="utf-8")
+        # Atomic: a torn pid file orphans a running model server — the
+        # harness then refuses to stop what it started.
+        atomic_write_text(self.state_path, json.dumps(self._state, indent=2))
 
     def managed_pid(self, name: str) -> int | None:
         """The pid we own for this backend, or None. Validates liveness, and
@@ -172,8 +175,7 @@ class BackendManager:
 
 
 def main() -> None:
-    """CLI for the declared local model backends — the web UI's ⚡ Servers
-    panel, terminal-ized (the UI retirement, 2026-07-23).
+    """CLI for the declared local model backends.
 
         harness-backends              # list backends + reachability
         harness-backends start mlx-worker
