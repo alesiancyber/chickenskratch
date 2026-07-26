@@ -159,15 +159,30 @@ Anti-list: no component library that fights this (Material/Ant are
 instant disqualifiers), no settings screens, no badges/counters for
 their own sake, no modals where inline works.
 
-## Stack
+## Stack (decided 2026-07-25)
 
-FastAPI + SSE; Svelte (or React — pick once, in Phase 1) built to
-static assets the server ships; no CDN. **Styling: a small design-token
-file + handmade components** (or Tailwind pinned to those tokens) — the
-surface area is two pages, and the Notion feel comes from typographic
-discipline you can't buy off the shelf. Tauri wrap (tray, global hotkey
-to summon canvas, decision notifications) is a later cosmetic — the
-Rust toolchain is already in the repo, but don't start there.
+**React + Radix primitives + cmdk**, styled by a small design-token
+file (Tailwind pinned to it, or plain CSS) — Radix supplies unstyled
+interaction correctness (focus, ARIA, keyboard), we own every pixel;
+cmdk is the cmd+K palette. Built to static assets the FastAPI + SSE
+server ships; no CDN. Backend stays the same ~4 endpoints + SSE
+regardless of frontend choices.
+
+**Canvas V1 uses NO editor engine**: a beautifully typographed
+auto-growing input; the intelligence (extraction previews, command
+results, dump history) renders beside/below it as ordinary React
+blocks — fully Notion-styleable because nothing fights us inside a
+text buffer. The canvas is one-way input (`ingest(text)`), so markdown
+round-trip fidelity is a non-constraint. **TipTap** (ProseMirror) is
+the earned upgrade if the canvas ever wants true block editing —
+a swap-one-component job, not a rebuild. **CodeMirror 6 is shelved**:
+it only wins for in-app vault-note *editing*, a screen this plan
+deliberately never builds (the editor already does it better; UI
+deep-links out).
+
+Tauri wrap (tray, global hotkey to summon canvas, decision
+notifications) is a later cosmetic — thin shell over the same
+localhost server; don't start there.
 
 ## Risks / tripwires
 
