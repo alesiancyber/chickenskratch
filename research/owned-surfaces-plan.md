@@ -118,12 +118,56 @@ Obsidian/Foam — capture via Capture.md, decisions via checkboxes,
 attention via Today.md. The existing test suite is the proof and keeps
 running UI-less.
 
+## Design language — "feels like Notion"
+
+Clean, minimalist, incredibly functional. Decomposed into decisions,
+because "Notion-like" is a set of disciplines, not a stylesheet:
+
+- **Typography IS the interface.** Content on near-white (true dark
+  mode too); chrome invisible until needed. System font stack or
+  Inter; ~15px body, 1.6 line height; exactly three type sizes (page
+  title / section / body-meta). Separation by whitespace, not borders
+  (where a line is unavoidable: 1px at ~7% alpha).
+- **One accent color**, used only for "this needs you" (pending
+  decisions, due-today). Grays carry everything else. Semantic color
+  appears only in diffs (the GitHub hues diffhtml already uses) and
+  verdict chips. 4/8px spacing rhythm throughout.
+- **Hover-revealed affordances.** Approve/reject/revert/open appear on
+  hover, invisible at rest — density without clutter. Every block
+  reads clean as text until pointed at.
+- **Keyboard-first review.** cmd+K palette (jump to note, run a
+  command, trigger a pass); j/k walk pending decisions, a/r
+  approve/reject, e opens in editor. The daily review of ten proposals
+  should take twenty seconds and zero mouse.
+- **Optimistic + undoable, never modal.** Actions apply instantly with
+  a quiet "Approved — undo" affordance; undo IS `revert(sha)` — the
+  git-snapshot guarantee surfaced as UX. No confirmation dialogs (the
+  snapshot is the safety net), no toast spam, no spinners (SSE +
+  skeletons); motion limited to 150ms ease-out fades.
+- **Empty state is the product statement.** A dashboard with nothing
+  pending says "Nothing needs you." — the AI-should-disappear
+  principle, rendered literally.
+
+Component mapping: a proposal = a toggle block (collapsed one-liner —
+title · note · kind chip; expands to the rich diff); Today rows =
+to-do blocks with quiet metadata pills (due, age); canvas = one
+editable page where submitted dumps settle into history blocks below
+with their extraction results attached; command results = callout
+blocks (mirroring their vault rendering).
+
+Anti-list: no component library that fights this (Material/Ant are
+instant disqualifiers), no settings screens, no badges/counters for
+their own sake, no modals where inline works.
+
 ## Stack
 
 FastAPI + SSE; Svelte (or React — pick once, in Phase 1) built to
-static assets the server ships; no CDN. Tauri wrap (tray, global
-hotkey to summon canvas, decision notifications) is a later cosmetic —
-the Rust toolchain is already in the repo, but don't start there.
+static assets the server ships; no CDN. **Styling: a small design-token
+file + handmade components** (or Tailwind pinned to those tokens) — the
+surface area is two pages, and the Notion feel comes from typographic
+discipline you can't buy off the shelf. Tauri wrap (tray, global hotkey
+to summon canvas, decision notifications) is a later cosmetic — the
+Rust toolchain is already in the repo, but don't start there.
 
 ## Risks / tripwires
 
