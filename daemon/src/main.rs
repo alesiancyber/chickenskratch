@@ -7,14 +7,14 @@
 //! If this binary disappears, `tezcat-watch` by hand or cron does the
 //! same job; nothing depends on it.
 //!
-//! Trigger model (2026-07-23): events as the trigger, fingerprint as the
-//! truth. Filesystem events (FSEvents/inotify via the notify crate) replace
-//! the polling timers — zero idle cost, latency = settle time — while the
-//! recursive (path, mtime) fingerprint scan survives as the pre-fire check
-//! and post-pass baseline, so noise events never fire a pass and the
-//! daemon's own pass writes never re-trigger it. `--poll` keeps the old
-//! timer loop for filesystems where events are unreliable (network mounts),
-//! and the daemon falls back to it automatically if the watcher fails.
+//! Trigger model: events as the trigger, fingerprint as the truth.
+//! Filesystem events (FSEvents/inotify via the notify crate) are the
+//! trigger — zero idle cost, latency = settle time — while the recursive
+//! (path, mtime) fingerprint scan is the pre-fire check and post-pass
+//! baseline, so noise events never fire a pass and the daemon's own pass
+//! writes never re-trigger it. `--poll` forces the timer loop for
+//! filesystems where events are unreliable (network mounts), and the
+//! daemon falls back to it automatically if the watcher fails.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -100,9 +100,9 @@ struct Config {
     cmd: Vec<String>,
     interval: Duration,
     settle: Duration,
-    /// Poll period for the legacy timer loop.
+    /// Poll period for the fallback timer loop.
     tick: Duration,
-    /// Force the legacy timer loop instead of filesystem events.
+    /// Force the fallback timer loop instead of filesystem events.
     poll: bool,
 }
 
@@ -116,13 +116,13 @@ USAGE: tezcatd --vault <path> [--repo <path>] [--cmd \"uv run tezcat-watch\"]
   --repo              working directory for the pass command (default: cwd)
   --cmd               pass command, whitespace-split (default: uv run tezcat-watch)
   --settle-secs       quiet time required before a pass fires (default 3)
-  --poll              use the legacy timer loop instead of filesystem events
+  --poll              use the fallback timer loop instead of filesystem events
   --interval-secs     [poll mode] seconds between tree scans (default 5)
   --tick-ms           [poll mode] sleep granularity (default 300)
 
-Note: the --fast-file/--fast-cmd decision lane was removed 2026-07-26 with
-the Review.md checkbox channel. Decisions now arrive through the dashboard
-or `tezcat decide`, neither of which needs a file watcher.";
+Note: there is no --fast-file/--fast-cmd decision lane. Decisions arrive
+through the dashboard or `tezcat decide`, neither of which needs a file
+watcher.";
 
 impl Config {
     fn parse(mut args: impl Iterator<Item = String>) -> Result<Config, String> {
@@ -252,7 +252,7 @@ fn event_loop(cfg: &Config, baseline: &mut Snapshot) -> notify::Result<()> {
     }
 }
 
-/// The legacy timer loop (`--poll`, and the automatic fallback when the
+/// The fallback timer loop (`--poll`, and the automatic fallback when the
 /// event watcher can't start — e.g. network mounts without inotify).
 fn poll_loop(cfg: &Config, mut baseline: Snapshot) -> ! {
     let ticks_per_full = (cfg.interval.as_millis() / cfg.tick.as_millis()).max(1);

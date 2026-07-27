@@ -132,3 +132,63 @@ def test_impossible_dates_report_instead_of_crashing_the_pass(vault, make_watche
     assert "typo'd deadline" in text and "not a real date" in text
     assert "Marcus: firewall logs" in text  # row survives, bogus age suppressed
     assert "waiting)" not in text
+
+
+def test_week_buckets_are_calendar_weeks(vault):
+    """The this-week / next-week model: hard dues and ⏳ plans file into
+    calendar weeks (Sunday-anchored), each row labeled with the field
+    that placed it; anything dated past next week is `later`, and the
+    undated-unplanned stay the backlog's business."""
+    import datetime as _dt
+
+    from tezcat import today as today_mod
+    from tezcat_vault.vault import Vault
+    from tezcat_vault.vaultconfig import get_config
+
+    this_sunday = today_mod.week_end(TODAY)
+    next_sunday = this_sunday + _dt.timedelta(days=7)
+    (vault / "Tasks/Sprint.md").write_text(
+        "# Sprint\n\n"
+        f"- [ ] planned for this week ⏳ {this_sunday}\n"
+        f"- [ ] lined up for next week ⏳ {next_sunday}\n"
+        f"- [ ] hard due next week 📅 {next_sunday}\n"
+        f"- [ ] renew the domain 📅 {day(30)}\n"
+    )
+    cfg = get_config(str(vault))
+    model = today_mod.collect(Vault(str(vault), exclude=cfg.exclude), cfg, 0)
+    assert model["due"]["this_sunday"] == this_sunday.isoformat()
+
+    def texts(bucket):
+        return [r["text"] for r in model[bucket]]
+
+    if this_sunday != TODAY:  # on a Sunday "this week" collapses into today
+        assert "planned for this week" in texts("this_week")
+    kinds = {r["text"]: r["kind"] for r in model["next_week"]}
+    assert kinds.get("lined up for next week") == "planned"
+    assert kinds.get("hard due next week") == "due"
+    assert "renew the domain" in texts("later")
+    assert "renew the domain" not in texts("this_week") + texts("next_week")
+
+
+def test_capture_with_week_language_lands_scheduled_not_due(vault, make_watcher):
+    """Typing "this week" plans the task (⏳ Sunday anchor); it must
+    never fabricate a 📅 deadline."""
+    from tezcat import processors as procs
+    from tezcat import today as today_mod
+
+    sunday = today_mod.week_end(TODAY).isoformat()
+
+    async def extractor(text, today):
+        return [{"text": "sort out the vendor contract", "due": None,
+                 "scheduled": sunday, "priority": None, "owed_by": None}]
+
+    (vault / "Harness/Capture.md").write_text("sort out the vendor contract this week\n")
+    w = make_watcher(vault, registry=(procs.CAPTURE,), capture_extractor=extractor)
+    run(w)
+    (p,) = proposals.pending(w.proposals_dir)
+    assert f"planned for week of {sunday}" in p["issues"][0]
+    assert p["apply"][0]["args"]["scheduled"] == sunday
+    asyncio.run(w.run_once(decisions=[(p["id"], "approve")], lock_wait=5))
+    line = next(ln for ln in (vault / "Tasks/Inbox.md").read_text().splitlines()
+                if "vendor contract" in ln)
+    assert f"⏳ {sunday}" in line and "📅" not in line

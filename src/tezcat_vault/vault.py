@@ -61,10 +61,10 @@ def atomic_write_text(path: Path, text: str) -> Path:
     The one durable-write idiom, shared by everything that persists state
     another process reads concurrently: the proposal queue, the watcher
     memo, the events log, the embedding cache, backend pids, usage
-    totals. Five of those grew a plain `write_text` instead, and the
-    queue's was load-bearing — the UI reads that directory from a
-    threadpool thread while a pass writes it, so a torn file was skipped
-    by load_all() and the proposal silently vanished.
+    totals. None of them may use a plain `write_text`: the UI reads the
+    queue directory from a threadpool thread while a pass writes it, and
+    load_all() skips a torn file — so a torn write doesn't corrupt a
+    proposal, it silently deletes one.
 
     Same temp-file + rename as Vault.write, hoisted out of the class
     because the callers are not vault notes.
@@ -196,7 +196,7 @@ class Vault:
         one process would wait on itself; the timeout at least turns that
         from a hang into a diagnosable error."""
         digest = hashlib.sha1(str(self.root).encode()).hexdigest()[:12]
-        lock_path = Path(tempfile.gettempdir()) / f"obsidian-harness-{digest}.lock"
+        lock_path = Path(tempfile.gettempdir()) / f"tezcat-vault-{digest}.lock"
         with open(lock_path, "w") as f:
             deadline = time.monotonic() + timeout
             while True:

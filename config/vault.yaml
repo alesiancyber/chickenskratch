@@ -1,7 +1,7 @@
 # Vault spec DEFAULTS. The vault describes itself:
 # once a vault has a `Harness/Spec.md`, that note's frontmatter is the
-# live source for folders/inboxes/exclusions (edited in Obsidian, read
-# every engine pass). This file seeds new vaults and covers the
+# live source for folders/inboxes/exclusions (edited like any note,
+# read every engine pass). This file seeds new vaults and covers the
 # no-vault-resolved case; surface paths and schemas_dir stay here
 # (machine concerns, not note edits).
 #
@@ -10,7 +10,7 @@
 # frontmatter => kanban, then frontmatter `type:`, then this map, then
 # the bare folder name lowercased.
 #
-# Folders are broad categories, not one per type (the 2026-07-22 cleanup):
+# Folders are broad categories, not one per type:
 # research and deliverable notes live in Tasks/ typed by their own
 # frontmatter (`type: research` / `type: deliverable`); kanban boards live
 # in Projects/ typed by their kanban-plugin frontmatter; web captures land
@@ -29,14 +29,11 @@ schemas_dir: schemas
 # Machine surfaces the harness owns inside the vault. The watcher never
 # scans these and ignores its own writes to them.
 #
-# Only ONE is left (2026-07-26, research/surface-subtraction-plan.md).
-# review/today/changes were retired: they were renderings of state the
-# dashboard shows better, and Review.md was a second consent channel that
-# cost the engine a checkbox parser, a render guard, a mid-pass sweep,
-# and the daemon's whole fast lane. `tezcat today` / `tezcat changes`
-# print the retired views on demand; `tezcat decide` is consent without
-# a UI. Capture.md is NOT in that category — it is the canvas's
-# write-ahead log, written before extraction so a dump survives it.
+# Capture is the only one: views (today/changes/review) are rendered by
+# the dashboard and the `tezcat today` / `tezcat changes` verbs, never
+# written into the vault, and consent is a dashboard button or `tezcat
+# decide`. Capture.md is not a view — it is the canvas's write-ahead
+# log, written before extraction so a dump survives extraction failing.
 surfaces:
   capture: Harness/Capture.md
 
@@ -44,11 +41,6 @@ surfaces:
 # proposal is approved.
 capture_inbox: Tasks/Inbox.md
 waiting_inbox: Tasks/Waiting.md   # follow-ups: things others committed to get you
-
-# (There is no link_scheme knob any more, removed 2026-07-26: tezcat's
-# surfaces open notes in tezcat. The vault stays plain markdown, so any
-# editor can still open it — that's the format being portable, not us
-# handing our notes to another app from inside our own UI.)
 
 # Top-level folders that never enter model context. Enforced at the
 # vault layer (resolve/iter_notes), not by prompt convention: reads,

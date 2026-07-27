@@ -25,15 +25,18 @@ def run(w):
 
 
 def test_default_registry_order_is_priority_order():
-    # capture first: active user input must never be starved out of n_max
+    # capture first: active user input must never be starved out of n_max;
+    # plan_today last: a suggestion must never starve real maintenance
     # (//commands are a pass phase before drafting, not a processor)
     assert [p.name for p in processors.REGISTRY] == [
-        "capture", "inbox_extract", "archive_done", "spec_drift", "schema_fix", "grouping"]
+        "capture", "inbox_extract", "archive_done", "spec_drift", "schema_fix",
+        "overlap", "plan_today", "grouping"]
 
 
 def test_disable_is_per_processor_and_unknown_names_fail_loud(vault, make_watcher):
     w = make_watcher(
-        vault, disabled=("schema_fix", "grouping", "spec_drift", "inbox_extract", "archive_done"))
+        vault, disabled=("schema_fix", "grouping", "spec_drift", "inbox_extract",
+                         "archive_done", "overlap", "plan_today"))
     assert [p.name for p in w.processors] == ["capture"]
     with pytest.raises(ValueError, match="groupnig"):
         processors.registry(disabled=("groupnig",))
@@ -147,3 +150,98 @@ def test_inbox_scan_survives_a_note_that_opens_with_a_horizontal_rule(vault, mak
     (item,) = processors.scan_inbox(w)
     assert item["prose"] == ["call the bank about the wire"]
     assert item["section"] == "Notes"
+
+
+# --------------- plan_today: the judgment lane ---------------
+
+
+PLAN_INBOX = (
+    "## Tasks\n\n"
+    "- [ ] chase the SOW redlines ➕ 2026-07-10 ^t-aaaaaaaaaaaa\n"
+    "- [ ] read the auth RFC ^t-bbbbbbbbbbbb\n"
+    "- [ ] has a deadline 📅 2099-01-01 ^t-cccccccccccc\n"      # dated: not pool
+    "- [ ] already planned ⏳ 2099-01-01 ^t-dddddddddddd\n"     # planned: not pool
+    "- [ ] unstamped so not yet eligible\n"                     # no id: not pool
+    "  - [ ] a subtask ^t-eeeeeeeeeeee\n"                       # nested: not pool
+)
+
+
+def _plan_drafter(picks):
+    calls = []
+
+    async def drafter(item):
+        calls.append(item)
+        return {"picks": picks}
+
+    drafter.calls = calls
+    return drafter
+
+
+def test_plan_scan_pools_only_the_undated_unplanned_stamped(vault, make_watcher):
+    import datetime as dt
+
+    (vault / "Tasks/Inbox.md").write_text(PLAN_INBOX)
+    drafter = _plan_drafter([])
+    w = make_watcher(vault, registry=(processors.PLAN_TODAY,), plan_drafter=drafter)
+    run(w)
+    (item,) = drafter.calls
+    assert [t.block_id for t in item["tasks"]] == ["t-aaaaaaaaaaaa", "t-bbbbbbbbbbbb"]
+
+    # committed = open tasks due/planned today or earlier, vault-wide.
+    # Relative check (the fixture vault has its own overdue tasks): one
+    # more ⏳-today task bumps it by exactly one; the 2099 rows never do.
+    before = item["committed"]
+    today = dt.date.today().isoformat()
+    (vault / "Tasks/Inbox.md").write_text(
+        PLAN_INBOX
+        + f"- [ ] started already ⏳ {today} ^t-f0f0f0f0f0f0\n"
+        + "- [ ] fresh pool entry ^t-f1f1f1f1f1f1\n")  # re-arms the seen key
+    run(w)
+    assert drafter.calls[-1]["committed"] == before + 1
+
+
+def test_plan_empty_picks_is_an_answer_not_a_retry(vault, make_watcher):
+    """The no-determination escape valve: 'nothing worth surfacing' must
+    not re-ask the worker every pass — only tomorrow, or when the pool
+    changes."""
+    (vault / "Tasks/Inbox.md").write_text(PLAN_INBOX)
+    drafter = _plan_drafter([])
+    w = make_watcher(vault, registry=(processors.PLAN_TODAY,), plan_drafter=drafter)
+    assert run(w)["drafted"] == 0
+    (vault / "Tasks/Other.md").write_text("touch the tree\n")  # move the memo
+    run(w)
+    assert len(drafter.calls) == 1  # same pool, same day: never re-asked
+    assert proposals.pending(w.proposals_dir) == []
+
+
+def test_plan_broken_picks_never_enter_the_queue(vault, make_watcher):
+    (vault / "Tasks/Inbox.md").write_text(PLAN_INBOX)
+    drafter = _plan_drafter([{"id": "t-ffffffffffff", "reason": "invented"}])
+    w = make_watcher(vault, registry=(processors.PLAN_TODAY,), plan_drafter=drafter)
+    assert run(w)["drafted"] == 0
+    assert proposals.pending(w.proposals_dir) == []
+
+
+def test_plan_approval_stamps_the_plan_never_a_deadline(vault, make_watcher):
+    """End to end: the pick queues (judgment never auto-applies — no
+    verifier exists), approving stamps ⏳ today on exactly the picked
+    task, and no 📅 appears anywhere."""
+    import datetime as dt
+
+    (vault / "Tasks/Inbox.md").write_text(PLAN_INBOX)
+    drafter = _plan_drafter([{"id": "t-aaaaaaaaaaaa", "reason": "oldest, blocks legal"}])
+    w = make_watcher(vault, registry=(processors.PLAN_TODAY,), plan_drafter=drafter)
+    assert run(w)["drafted"] == 1 and run(w)["auto"] == 0
+
+    (p,) = proposals.pending(w.proposals_dir)
+    assert p["kind"] == "plan_today"
+    assert p["apply"][0]["tool"] == "set_task_scheduled"
+    assert "chase the SOW redlines — oldest, blocks legal" in p["issues"][0]
+
+    summary = asyncio.run(w.run_once(decisions=[(p["id"], "approve")], lock_wait=5))
+    assert summary["approved"] == 1
+    text = (vault / "Tasks/Inbox.md").read_text()
+    today = dt.date.today().isoformat()
+    assert f"- [ ] chase the SOW redlines ⏳ {today} ➕ 2026-07-10 ^t-aaaaaaaaaaaa" in text
+    assert "read the auth RFC ^t-bbbbbbbbbbbb" in text          # untouched
+    assert text.count("📅") == 1                                 # only the planted one

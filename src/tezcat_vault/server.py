@@ -1,9 +1,10 @@
-"""Obsidian vault MCP server.
+"""tezcat vault MCP server.
 
 Exposes semantic tools (tasks, kanban, meeting notes) alongside general
-note tools (search, read, section edits). Any MCP client can use this
-server; the harness in this repo is just one of them. Every mutation is
-bracketed by git snapshots so changes are always revertible.
+note tools (search, read, section edits) over a folder of markdown. Any
+MCP client can use this server; the harness in this repo is just one of
+them. Every mutation is bracketed by git snapshots so changes are
+always revertible.
 
 Run: TEZCAT_VAULT_PATH=/path/to/vault tezcat-vault-mcp
 """
@@ -28,7 +29,7 @@ from .vault import VaultError, get_vault, read_lossy
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True)
 
-mcp = FastMCP("obsidian-vault")
+mcp = FastMCP("tezcat-vault")
 
 # Daily- and meeting-note folders come from the vault spec (`daily_dir`,
 # `meetings_dir`), so Foam's dailyNotes.directory and this harness can
@@ -109,14 +110,13 @@ def search_vault(query: str, folder: str = "", limit: int = 20, offset: int = 0)
 # --------------- writing notes ---------------
 
 def _writable(path: str, spec_key: str | None = None) -> str:
-    """Machine surfaces (Review/Changes/Today) and the vault spec are not
-    tool-writable. Review.md is the consent channel: a model that can
-    write it can check its own approve boxes — manufactured consent (I2).
-    Spec.md edits could lift the Private/ exclusion or extend auto_apply
-    trust (I4); config is the human's, edited in an editor. The engine
-    renders surfaces through vault.write directly, so nothing legitimate
-    routes here. Capture.md stays writable: it only feeds the proposal
-    queue, so writing it can never bypass a checkbox.
+    """The vault spec (and any non-capture machine surface) is not
+    tool-writable. Spec.md edits could lift the Private/ exclusion or
+    extend auto_apply trust (I4) — config is the human's, edited in an
+    editor; no model may widen its own trust list (I2). The engine
+    writes its own surfaces through vault.write directly, so nothing
+    legitimate routes here. Capture.md stays writable: it only feeds
+    the proposal queue, so writing it can never bypass consent.
 
     One sanctioned exception: update_frontmatter on Spec.md's `folders`
     map — the spec_drift processor's approved proposals land there, and
@@ -131,9 +131,9 @@ def _writable(path: str, spec_key: str | None = None) -> str:
             if rel == vc.SPEC_REL and spec_key == "folders":
                 return path
             raise VaultError(
-                f"{rel} is machine-managed and not tool-writable. Decisions are "
-                "checkboxes the user ticks in their editor; config is their "
-                "Spec.md edit; surfaces re-render every engine pass.")
+                f"{rel} is machine-managed and not tool-writable. Config is "
+                "the user's own Spec.md edit; decisions happen on the "
+                "dashboard or via `tezcat decide`, never through a tool.")
     return path
 
 
@@ -251,7 +251,7 @@ def update_frontmatter(path: str, key: str, value: str) -> dict:
         # MCP callers send strings (the schema says so), but in-process
         # proposal plans arrive from JSON where value may already be typed
         # (null, number, bool) — yaml.safe_load(None) crashes, and a crash
-        # here once wedged the engine in an apply loop (2026-07-23).
+        # here wedges the engine in an apply loop.
         fm[key] = yaml.safe_load(value) if isinstance(value, str) else value
         v.write(path, md.join_frontmatter(fm, body))
         v.snapshot_after(f"set frontmatter {key} on {path}")
@@ -333,20 +333,24 @@ def list_tasks(folder: str = "", status: str = "open", task_type: str = "",
 
 
 @mcp.tool()
-def add_task(path: str, text: str, due: str = "", priority: str = "", section: str = "") -> dict:
-    """Add a checkbox task to a note. due is YYYY-MM-DD; priority is one of
-    highest/high/medium/low/lowest. If `section` is given the task is added at
-    the end of that heading's section, otherwise at the end of the note.
+def add_task(path: str, text: str, due: str = "", priority: str = "",
+             section: str = "", scheduled: str = "") -> dict:
+    """Add a checkbox task to a note. due (YYYY-MM-DD) is a HARD deadline;
+    scheduled (YYYY-MM-DD) is the ⏳ plan date — "this week" / "next week"
+    plans stamp the week's Sunday. priority is one of
+    highest/high/medium/low/lowest. If `section` is given the task is added
+    at the end of that heading's section, otherwise at the end of the note.
 
     Example: add_task(path="Tasks/Inbox", text="Renew domain", due="2026-07-25", priority="high")
     """
     _writable(path)
-    line = tk.format_task(text, due or None, priority or None, block_id=ids.stamp_id("t"))
+    line = tk.format_task(text, due or None, priority or None,
+                          block_id=ids.stamp_id("t"), scheduled=scheduled or None)
     if section:
         return append_to_note(path, line, section)
     # No section: append as a LIST CONTINUATION — a task after a task gets
-    # no blank separator (the paragraph-break append was scattering every
-    # captured task into its own island; 2026-07-23 dogfood report).
+    # no blank separator (a paragraph-break append scatters every captured
+    # task into its own island).
     v = get_vault()
     p = v.resolve(path)
     with v.locked():
@@ -365,6 +369,21 @@ def add_task(path: str, text: str, due: str = "", priority: str = "", section: s
     return {"updated": v.rel(p)}
 
 
+def _locate_task(text: str, task_text: str, path: str) -> tk.Task:
+    """One task by exact text, falling back to unique substring — shared
+    by every by-text task verb (set_task_status, set_task_due). Callers
+    hold the vault lock: locating outside it would let a concurrent
+    writer shift line numbers between read and write."""
+    needle = task_text.strip().lower()
+    hits = [t for t in tk.iter_tasks(text) if needle == t.text.lower()] or \
+           [t for t in tk.iter_tasks(text) if needle in t.text.lower()]
+    if not hits:
+        raise VaultError(f"No task matching {task_text!r} in {path}")
+    if len(hits) > 1:
+        raise VaultError(f"Ambiguous task text; matches: {[t.text for t in hits[:5]]}")
+    return hits[0]
+
+
 @mcp.tool()
 def set_task_status(path: str, task_text: str, done: bool = True) -> dict:
     """Mark a task done (or reopen it with done=false). task_text matches the task
@@ -374,20 +393,10 @@ def set_task_status(path: str, task_text: str, done: bool = True) -> dict:
     """
     _writable(path)
     v = get_vault()
-    # Read and locate the task under the lock: parsing outside it would let
-    # a concurrent writer shift line numbers between read and write, and the
-    # write-back of pre-lock lines would clobber their change.
     with v.locked():
         text = v.read(path)
         lines = text.splitlines()
-        needle = task_text.strip().lower()
-        hits = [t for t in tk.iter_tasks(text) if needle == t.text.lower()] or \
-               [t for t in tk.iter_tasks(text) if needle in t.text.lower()]
-        if not hits:
-            raise VaultError(f"No task matching {task_text!r} in {path}")
-        if len(hits) > 1:
-            raise VaultError(f"Ambiguous task text; matches: {[t.text for t in hits[:5]]}")
-        task = hits[0]
+        task = _locate_task(text, task_text, path)
         line = lines[task.line_no]
         # Rebuild the checkbox from the parsed position: string replacement would
         # miss nonstandard marks like [/] and touch brackets in the task text.
@@ -410,6 +419,68 @@ def set_task_status(path: str, task_text: str, done: bool = True) -> dict:
         v.write(path, "\n".join(lines) + "\n")
         v.snapshot_after(f"{'complete' if done else 'reopen'} task in {path}")
     return {"updated": path, "task": task.text, "done": done}
+
+
+@mcp.tool()
+def set_task_due(path: str, task_text: str, due: str = "") -> dict:
+    """Set a task's 📅 due date, or clear it with due="". task_text
+    matches by exact text or unique substring; everything else on the
+    line (priority, ➕ created, the ^id) stays byte-identical. This is
+    the reschedule verb — the dashboard's week→today move rides on it,
+    and every call is one revertible snapshot.
+
+    Example: set_task_due(path="Tasks/Inbox", task_text="Renew domain", due="2026-07-28")
+    """
+    _writable(path)
+    if due:
+        due = _valid_date(due, "due")
+    v = get_vault()
+    with v.locked():
+        text = v.read(path)
+        lines = text.splitlines()
+        task = _locate_task(text, task_text, path)
+        new_line = tk.set_line_due(task.raw, due or None)
+        if new_line == task.raw:
+            return {"updated": path, "task": task.text, "due": due or None,
+                    "previous_due": task.due, "line": task.raw, "written": False}
+        v.snapshot_before("set_task_due")
+        lines[task.line_no] = new_line
+        v.write(path, "\n".join(lines) + "\n")
+        v.snapshot_after(f"reschedule task in {path} to {due or 'no date'}")
+    return {"updated": path, "task": task.text, "due": due or None,
+            "previous_due": task.due, "line": new_line, "written": True}
+
+
+@mcp.tool()
+def set_task_scheduled(path: str, task_text: str, scheduled: str = "") -> dict:
+    """Set a task's ⏳ scheduled date — "work on this then" — or clear it
+    with scheduled="". This is the PLAN field, distinct from 📅 due (a
+    hard external commitment, which this never touches): most tasks have
+    no real deadline, so promoting one into today or pushing it later is
+    a judgment, recorded as ⏳. The dashboard's promote/defer verbs ride
+    on this; every call is one revertible snapshot.
+
+    Example: set_task_scheduled(path="Tasks/Inbox", task_text="Renew domain", scheduled="2026-07-27")
+    """
+    _writable(path)
+    if scheduled:
+        scheduled = _valid_date(scheduled, "scheduled")
+    v = get_vault()
+    with v.locked():
+        text = v.read(path)
+        lines = text.splitlines()
+        task = _locate_task(text, task_text, path)
+        new_line = tk.set_line_scheduled(task.raw, scheduled or None)
+        if new_line == task.raw:
+            return {"updated": path, "task": task.text, "scheduled": scheduled or None,
+                    "previous_scheduled": task.scheduled, "line": task.raw,
+                    "written": False}
+        v.snapshot_before("set_task_scheduled")
+        lines[task.line_no] = new_line
+        v.write(path, "\n".join(lines) + "\n")
+        v.snapshot_after(f"plan task in {path} for {scheduled or 'no date'}")
+    return {"updated": path, "task": task.text, "scheduled": scheduled or None,
+            "previous_scheduled": task.scheduled, "line": new_line, "written": True}
 
 
 @mcp.tool()
@@ -499,6 +570,27 @@ async def extract_tasks(text: str) -> dict:
 
 # --------------- entity schemas ---------------
 
+def nonconforming_rows(texts) -> list[dict]:
+    """validate_schema's core over (rel, text) pairs, never-reviewed
+    entities first. The MCP tool below walks the vault and delegates
+    here; the engine hands its per-pass note cache instead, so schema
+    validation costs no walk of its own."""
+    rows = []
+    for rel, text in texts:
+        etype, note_issues, bad_tasks, unmarked = note_text_issues(rel, text)
+        if not note_issues and not bad_tasks:
+            continue
+        rows.append({
+            "note": rel,
+            "entity": etype,
+            "unmarked": unmarked,
+            **({"issues": note_issues} if note_issues else {}),
+            **({"tasks": bad_tasks} if bad_tasks else {}),
+        })
+    rows.sort(key=lambda r: (not r["unmarked"], r["note"]))
+    return rows
+
+
 def note_text_issues(rel: str, text: str) -> tuple[str, list[str], list[dict], bool]:
     """The per-note core of validate_schema, callable on any text —
     including a simulated post-fix version that isn't on disk yet.
@@ -536,22 +628,15 @@ def validate_schema(folder: str = "", limit: int = 50, offset: int = 0) -> dict:
     """
     v = get_vault()
     surface_dirs = vc.get_config().surface_dirs
-    rows = []
     checked = 0
-    for p, rel in v.iter_knowledge_notes(surface_dirs, folder):
-        checked += 1
-        etype, note_issues, bad_tasks, unmarked = note_text_issues(
-            rel, read_lossy(p))
-        if not note_issues and not bad_tasks:
-            continue
-        rows.append({
-            "note": rel,
-            "entity": etype,
-            "unmarked": unmarked,
-            **({"issues": note_issues} if note_issues else {}),
-            **({"tasks": bad_tasks} if bad_tasks else {}),
-        })
-    rows.sort(key=lambda r: (not r["unmarked"], r["note"]))
+
+    def walked():
+        nonlocal checked
+        for p, rel in v.iter_knowledge_notes(surface_dirs, folder):
+            checked += 1
+            yield rel, read_lossy(p)
+
+    rows = nonconforming_rows(walked())
     page = rows[offset : offset + limit]
     result = {
         "total_checked": checked,

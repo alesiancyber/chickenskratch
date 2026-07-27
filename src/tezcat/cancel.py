@@ -1,11 +1,10 @@
 """Cooperative cancellation for long-running, human-initiated work.
 
-Cooperative — never asyncio.Task.cancel(). Two reasons, both already
-learned the hard way in this codebase:
+Cooperative — never asyncio.Task.cancel(). Two reasons:
 
 - The MCP SDK's transports are anyio cancel scopes bound to the task
   that entered them, so hard-cancelling a chat turn rots the sessions
-  unrecoverably (the 2026-07-25 pane flail; see pane.ChatSession).
+  unrecoverably (see pane.ChatSession).
 - A pass mutates the vault through gated tools. Cancelling mid-plan
   would abandon a proposal half-applied — recoverable via snapshots,
   but the queue would then disagree with the vault.

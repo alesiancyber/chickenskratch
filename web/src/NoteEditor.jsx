@@ -26,7 +26,7 @@ function statusLine(state, ephemeral) {
   if (state === "saving") return "saving…";
   if (state === "error") return "save failed";
   if (state === "dirty") return "unsaved · ⌘S";
-  if (ephemeral) return "saved · re-rendered each pass, so edits here are temporary";
+  if (ephemeral) return "saved · machine-managed surface — the engine may clear it";
   return "saved";
 }
 
@@ -53,7 +53,7 @@ export default function NoteEditor({ path, target, seq, visible = true, onClose 
       setState("clean");
     } catch (e) {
       const msg = String(e.message || e);
-      // 409 from the server: the engine (or you, in Obsidian) got here first
+      // 409 from the server: the engine (or another editor) got here first
       setState(/changed on disk/.test(msg) ? "conflict" : "error");
       setError(msg);
     }

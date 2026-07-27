@@ -2,9 +2,8 @@
 dashboard renders as rows, and `applier.preview` renders as a unified
 ```diff for anything text-shaped (the CLI, a proposal's own record).
 
-The Review.md integration these tests used to cover went away with the
-surface on 2026-07-26; what remains is the same computation with one
-fewer consumer."""
+One computation, two renderers — neither renderer owns diff logic of
+its own."""
 
 import asyncio
 

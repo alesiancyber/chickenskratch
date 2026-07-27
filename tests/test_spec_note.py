@@ -95,7 +95,8 @@ def test_spec_note_drives_engine_knobs_per_pass(vault, make_watcher, monkeypatch
     run(w)
     assert w.n_max == 2
     assert [p.name for p in w.processors] == [
-        "capture", "inbox_extract", "archive_done", "spec_drift"]
+        "capture", "inbox_extract", "archive_done", "spec_drift", "overlap",
+        "plan_today"]
     assert applied == ["spec-picked"]
 
     # a pinned knob wins over the note

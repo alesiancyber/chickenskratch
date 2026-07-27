@@ -9,7 +9,7 @@ from tezcat import pane
 
 class FakeProfile:
     model = "fake-model"
-    servers = ["obsidian"]
+    servers = ["vault"]
 
 
 class FakeAgent:

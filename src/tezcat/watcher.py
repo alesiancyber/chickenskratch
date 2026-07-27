@@ -7,14 +7,11 @@ state so an unchanged vault makes the next pass free. `uv run
 tezcat-watch` runs one by hand or cron; tezcatd runs one when the vault
 settles.
 
-The markdown surfaces this engine used to render — Review.md, Today.md,
-Changes.md — were retired 2026-07-26 (research/surface-subtraction-plan.md).
 Consent arrives through `decisions` from a human verb (the dashboard
 button, `tezcat decide`), never by parsing a note back: the vault is
-storage again, not an input device. What survives is the queue in
-`data/` (authoritative all along) and `_act`, which both channels always
-shared. Capture.md stays — it is the canvas's write-ahead log, not a
-compat surface.
+storage, not an input device. The queue in `data/` is authoritative;
+both consent channels converge on `_act`. Capture.md is the one surface
+the engine writes — the canvas's write-ahead log.
 
 The engine knows no processor by name — registry order encodes priority
 (capture first: active user input never starves), and per-processor
@@ -35,7 +32,7 @@ from pathlib import Path
 from tezcat_vault import markdown as md
 from tezcat_vault import vaultconfig as vc
 from tezcat_vault import workers as wk
-from tezcat_vault.vault import Vault, VaultError, atomic_write_text
+from tezcat_vault.vault import Vault, VaultError, atomic_write_text, read_lossy
 from tezcat_vault.vaultconfig import get_config
 
 from . import applier, commands, events, processors, proposals
@@ -44,7 +41,7 @@ from .corpus import record_dashboard
 from .processors import ProcessorSpec
 
 STATE_PATH = ROOT / "data" / "watcher_state.json"
-# n_max (proposals drafted per pass) now lives in VaultConfig — one home,
+# n_max (proposals drafted per pass) lives in VaultConfig — one home,
 # user-editable per vault in Spec.md.
 
 # How long a HUMAN-initiated pass waits for the pass lock before giving
@@ -53,6 +50,17 @@ STATE_PATH = ROOT / "data" / "watcher_state.json"
 # holder may be mid-draft: a decision is worth waiting a minute for, and
 # LockBusy is a clean 409 rather than a silently dropped verdict.
 DECISION_LOCK_WAIT_S = 90.0
+
+def _takewhile_not(commits: list[dict], stop_sha: str) -> list[dict]:
+    """Commits newer than stop_sha (newest first) — the applies a single
+    proposal just made."""
+    out = []
+    for c in commits:
+        if c["sha"] == stop_sha:
+            break
+        out.append(c)
+    return out
+
 
 class LockBusy(RuntimeError):
     """Another pass held the pass lock for the whole wait. Raised only for
@@ -65,20 +73,30 @@ SPEC_BODY = """\
 
 The properties above ARE this vault's configuration — the folder→type
 map, the capture/waiting inboxes, and the model-context exclusions.
-Edit them here (Obsidian's properties panel works); the engine reads
-this note at the start of every pass, no restart needed. Unlike
-everything else in Harness/, this note is yours: seeded once from the
-repo defaults, never regenerated.
+Edit them here in any editor; the engine reads this note at the start
+of every pass, no restart needed. Unlike everything else in Harness/,
+this note is yours: seeded once from the repo defaults, never
+regenerated.
 
 Folders are workspaces, not a taxonomy: the map supplies the default
 type for untyped notes, and a note's own frontmatter always wins. When
-a new top-level folder appears in the vault, a proposal to map it shows
-up in [[Review]].
+a new top-level folder appears in the vault, a proposal to map it
+shows up on the dashboard.
 
-auto_apply lists the processors trusted to act without a checkbox —
+auto_apply lists the processors trusted to act without your verdict —
 honored only for mechanical transformations that pass a deterministic
 fidelity check (your words only, existing lines byte-identical); any
-doubt falls back to [[Review]]. Judgment calls always queue.
+doubt queues for the dashboard (or `tezcat decide`). Judgment calls
+always queue — unless `autonomy: full`.
+
+`autonomy` is the consent posture. `gated` (the default): judgment
+always queues, and a failing verifier queues its proposal. `full`: a
+standing grant — everything in auto_apply applies, verifier or not;
+when a verifier objects, the fix applies anyway with the objections
+recorded on the proposal file. Every apply is still one revertible
+snapshot; the dashboard's changes feed and `tezcat-revert` are the
+audit trail, and a revert is the strongest training signal you can
+give.
 
 `worker` picks which models.yaml profile drafts proposals — a profile
 NAME, never a URL (endpoints and keys stay in the repo config). `n_max`
@@ -110,6 +128,47 @@ async def draft_grouping(item: dict) -> dict:
     )
 
 
+async def embed_pool(vault_path: str, items: dict[str, str]) -> dict[str, list[float]]:
+    """Default embedder: the per-vault Index (content-hash cached, so an
+    unchanged pool costs zero network). Returns {key: normalized vec}."""
+    from . import embeddings as em
+
+    index = em.Index(vault_path)
+    await index.update(items)
+    return {k: index.rows[k]["vec"] for k in items if k in index.rows}
+
+
+async def draft_overlap_worker(item: dict, pairs: list[tuple]) -> dict:
+    """Default overlap judge: ONE batched worker call for every candidate
+    pair this pass (draft_overlap validates the verdicts)."""
+    lines = []
+    for n, (a, b) in enumerate(pairs, 1):
+        (ta, ra), (tb, rb) = a, b
+
+        def describe(t, rel):
+            extras = ", ".join(x for x in (
+                f"due {t.due}" if t.due else "",
+                f"planned {t.scheduled}" if t.scheduled else "",
+                t.priority or "") if x)
+            return f"{t.block_id} — \"{t.text}\" (in {rel}{', ' + extras if extras else ''})"
+
+        lines.append(f"{n}. a: {describe(ta, ra)}\n   b: {describe(tb, rb)}")
+    return await wk.run_worker(wk.WORKERS["overlap"], pairs="\n".join(lines))
+
+
+async def draft_plan_today(item: dict) -> dict:
+    """Default plan drafter: one bounded worker call over the undated
+    pool; the reply only ever picks ids (draft_plan validates them)."""
+    lines = "\n".join(
+        f"{t.block_id}: {t.text} — created {t.created or 'unknown'}, "
+        f"priority {t.priority or 'none'}"
+        for t in item["tasks"])
+    return await wk.run_worker(
+        wk.WORKERS["plan_today"], today=item["today"],
+        max_picks=processors.MAX_PLAN_PICKS,
+        committed=item["committed"], tasks=lines)
+
+
 class Watcher:
     def __init__(
         self,
@@ -122,6 +181,9 @@ class Watcher:
         registry: tuple[ProcessorSpec, ...] | None = None,
         grouping_drafter=None,
         capture_extractor=None,
+        plan_drafter=None,
+        overlap_drafter=None,
+        embedder=None,
         should_cancel=None,
     ):
         self.vault_path = str(vault_path)
@@ -132,8 +194,8 @@ class Watcher:
         self.should_cancel = should_cancel or (lambda: False)
         # Per-vault state, queue, and (via with_suffix(".lock")) pass lock:
         # two vaults run from one checkout must not share a fingerprint,
-        # serialize each other's passes, or — the 2026-07-23 deploy-script
-        # find — auto-stale each other's pending proposals.
+        # serialize each other's passes, or auto-stale each other's
+        # pending proposals.
         digest = vault_digest(self.vault_path)
         self.proposals_dir = (Path(proposals_dir) if proposals_dir is not None
                               else proposals.dir_for(self.vault_path))
@@ -144,6 +206,9 @@ class Watcher:
         self.drafter = drafter or draft_schema_fix
         self.grouping_drafter = grouping_drafter or draft_grouping
         self.capture_extractor = capture_extractor or wk.extract_tasks
+        self.plan_drafter = plan_drafter or draft_plan_today
+        self.overlap_drafter = overlap_drafter or draft_overlap_worker
+        self.embedder = embedder or embed_pool
         # Explicit constructor args (tests, CLI flags) pin these knobs;
         # None means the vault's Spec.md decides, re-read every pass.
         self._n_max_override = n_max
@@ -158,6 +223,9 @@ class Watcher:
         # HEAD sha at scan time, stamped into drafted proposals; set once
         # per pass so processors never re-run git themselves
         self._pass_sha = ""
+        # The pass's one content walk (rel -> lossy text), built lazily by
+        # pass_notes() and reset per scanned pass. See pass_notes().
+        self._pass_notes: dict[str, str] | None = None
 
     def _configure(self, cfg) -> None:
         """Resolve the per-pass knobs: explicit constructor args win,
@@ -188,7 +256,14 @@ class Watcher:
         self.n_max = self._n_max_override if self._n_max_override is not None else cfg.n_max
         self.commands_enabled = commands_enabled
         self.processors = registry
-        self._by_kind = {p.name: p for p in self.processors}
+        # Hooks are looked up across the FULL registry, not the enabled
+        # one: a proposal drafted before its processor was disabled in
+        # Spec.md still needs its on_applied (reset_capture) when a human
+        # approves it later — disabling stops new scans, not the
+        # bookkeeping of already-drafted work.
+        hook_source = (self._registry_override if self._registry_override is not None
+                       else processors.REGISTRY)
+        self._by_kind = {p.name: p for p in hook_source}
         # Capture.md is the only surface left: the canvas's write-ahead
         # log, written before extraction so a dump survives it failing.
         self.capture_rel = cfg.surfaces.get("capture", "")
@@ -196,6 +271,26 @@ class Watcher:
         self.waiting_inbox = cfg.waiting_inbox
 
     # ---- shared machinery processors ride on ----
+
+    def pass_notes(self) -> dict[str, str]:
+        """The pass's ONE content walk: every knowledge note as
+        {rel: lossy text}, built on first use and shared by the command
+        scan, schema validation, and grouping — three consumers, one
+        read of the vault. Holding the texts trades memory (bounded by
+        the vault's markdown) for two full re-walks per pass.
+
+        Lossy reads only (I6: one mis-encoded note must not wedge the
+        pass) — any consumer about to WRITE against a note re-reads it
+        strictly itself, so replacement chars can never be written back.
+        The command phase refreshes entries it rewrites; nothing else
+        writes between cache build and the scans."""
+        if self._pass_notes is None:
+            surface_dirs = get_config(self.vault_path).surface_dirs
+            self._pass_notes = {
+                rel: read_lossy(p)
+                for p, rel in self.vault.iter_knowledge_notes(surface_dirs)
+            }
+        return self._pass_notes
 
     def write_surface(self, rel: str, content: str, message: str,
                       action: str = "write_surface") -> None:
@@ -220,6 +315,7 @@ class Watcher:
             "done_archive": base.done_archive,
             "exclude": list(base.exclude),
             "auto_apply": list(base.auto_apply),
+            "autonomy": base.autonomy,
             "fidelity": base.fidelity,
             "worker": base.worker,
             "disabled_processors": list(base.disabled_processors),
@@ -274,8 +370,7 @@ class Watcher:
             return
         from tezcat_vault import server
 
-        cfg = get_config(self.vault_path)
-        for item in commands.scan(self.vault, cfg.surface_dirs):
+        for item in commands.scan(self.pass_notes()):
             result = await commands.INLINE_COMMANDS[item["command"]](item["args"], self.vault_path)
             if result is None:
                 continue  # transient failure: the line stays armed, retried next scan
@@ -284,6 +379,9 @@ class Watcher:
                                     commands.render_callout(item, result))
             except VaultError:
                 continue  # the line was edited away mid-flight: the user's edit wins
+            # The cache entry is now stale by our own hand: refresh it so
+            # the proposal scans behind us see the post-command note.
+            self.pass_notes()[item["note"]] = read_lossy(self.vault.resolve(item["note"]))
             summary["commands"] += 1
 
     # ---- stage 3: draft proposals ----
@@ -292,7 +390,8 @@ class Watcher:
                      summary: dict) -> tuple[int, int]:
         """Draft up to n_max proposals; verified-safe drafts from trusted
         processors apply immediately. Returns (drafted, auto_applied)."""
-        auto_trusted = set(get_config(self.vault_path).auto_apply)
+        cfg = get_config(self.vault_path)
+        auto_trusted = set(cfg.auto_apply)
         drafted = auto = attempts = 0
         failed: set[str] = set()  # processors whose draft errored this pass
         for proc, item in items:
@@ -325,23 +424,37 @@ class Watcher:
                 continue  # drafter emitted an invalid plan: never enters the queue
             drafted += 1
             # Auto-apply: only processors the vault's Spec.md trusts, only
-            # with a verifier, only when it passes, only against an unmoved
-            # note — and never when the drafter itself flagged something a
-            # human must see (needs_review). Any failure means the proposal
-            # simply keeps its checkbox — verification degrades to review,
-            # never blocks.
-            if proc.name in auto_trusted and proc.verify and not p.get("needs_review"):
-                try:
-                    failures = proc.verify(self, item, p)
-                except Exception as e:
-                    # A verifier that RAISES is a verifier that didn't
-                    # vouch, so it means what a verifier that returns
-                    # failures means: keep the checkbox. It must never
-                    # take the pass down with it — the whole point of
-                    # this gate is that verification degrades to review.
-                    failures = [f"verifier raised {type(e).__name__}: {e}"]
+            # against an unmoved note, and never when the drafter itself
+            # flagged something a human must see (needs_review). The
+            # consent lanes:
+            # - gated (default): a verifier must pass — verification
+            #   degrades to review, never blocks — and a processor
+            #   without one (the judgment lanes) always queues;
+            # - autonomy: full (the vault's standing, human-written
+            #   grant; I2 amendment): everything in auto_apply applies.
+            #   A failing verifier no longer queues — it applies with
+            #   its failures recorded on the proposal, so the audit
+            #   trail names exactly what nobody vouched for.
+            if proc.name in auto_trusted and not p.get("needs_review"):
+                failures: list[str] = []
+                if proc.verify is not None:
+                    try:
+                        failures = proc.verify(self, item, p)
+                    except Exception as e:
+                        # A verifier that RAISES is a verifier that didn't
+                        # vouch, so it means what a verifier that returns
+                        # failures means. It must never take the pass down
+                        # with it.
+                        failures = [f"verifier raised {type(e).__name__}: {e}"]
+                elif cfg.autonomy != "full":
+                    continue  # judgment queues under gated autonomy
+                if failures and cfg.autonomy == "full":
+                    p["verifier_failures"] = failures  # applied, on the record
+                    failures = []
                 if failures or applier.is_stale(p, self.vault_path):
                     continue
+                head = self.vault.history(1)
+                before_sha = head[0]["sha"] if head else ""
                 try:
                     applier.apply(p, self.vault_path)
                 except Exception as e:
@@ -350,6 +463,14 @@ class Watcher:
                     proposals.resolve(p, "failed", self.proposals_dir)
                     print(f"auto-apply failed for {p['id']}: {type(e).__name__}: {e}")
                     continue
+                # An autonomous apply must be as easy to undo as it was to
+                # make: its own harness commits ride the resolved file, so
+                # the dashboard's audit row reverts THIS decision without
+                # hunting the git log. (Manual-edit sweep commits are the
+                # user's work and never included.)
+                p["undo"] = [c["sha"] for c in _takewhile_not(
+                    self.vault.history(10), before_sha)
+                    if c["subject"].startswith("harness:")]
                 # No corpus row: auto-applies are not human labels.
                 proposals.resolve(p, "auto", self.proposals_dir)
                 auto += 1
@@ -384,8 +505,7 @@ class Watcher:
             except Exception as e:
                 # A poison plan (e.g. a drafter emitting args the tools
                 # reject) must fail ITSELF, never the pass: left pending,
-                # the checked box would re-crash every pass forever — the
-                # engine wedged exactly this way on 2026-07-23.
+                # the approved proposal would re-crash every pass forever.
                 proposals.resolve(p, "failed", self.proposals_dir)
                 acted["failed"] += 1
                 print(f"apply failed for {p['id']} ({p['title'][:50]}): {type(e).__name__}: {e}")
@@ -435,9 +555,9 @@ class Watcher:
     def _notify_stale(self, p: dict) -> None:
         """A stale proposal voided its draft, so its processor must re-arm:
         the seen-hash would otherwise suppress the re-draft and the
-        extraction would silently vanish (the 2026-07-24 capture bug).
-        Dropping the entry by kind covers every extractor at once — a
-        processor that keeps no seen-hash simply has nothing to drop."""
+        extraction would silently vanish. Dropping the entry by kind
+        covers every extractor at once — a processor that keeps no
+        seen-hash simply has nothing to drop."""
         self.seen.pop(p["kind"], None)
 
     async def _acquire_pass_lock(self, wait: float):
@@ -467,15 +587,16 @@ class Watcher:
     async def run_once(self, decisions_only: bool = False,
                        decisions: list[tuple[str, str]] | None = None,
                        lock_wait: float = 0.0) -> dict:
-        """One engine pass. `decisions_only` is the fast lane a checkbox
-        trigger uses: act on decisions, re-render, done — no scanning or
-        drafting, and the git memo is left untouched so the next full
-        pass still scans whatever the apply changed.
+        """One engine pass. `decisions_only` is the fast lane: act on
+        decisions, done — no scanning or drafting, and the git memo is
+        left untouched so the next full pass still scans whatever the
+        apply changed.
 
-        `decisions` injects explicit (pid, verdict) pairs ahead of the
-        Review.md checkbox scan — the UI button's channel (service.decide).
-        Both converge on _act under the pass lock, so a click can never
-        race a checkbox or double-apply (_act resolves each pid once).
+        `decisions` injects explicit (pid, verdict) pairs — the human
+        verbs' channel (service.decide, the dashboard button, `tezcat
+        decide`). Every channel converges on _act under the pass lock,
+        so two front doors can never double-apply (_act resolves each
+        pid once).
 
         `lock_wait` seconds to wait for the pass lock, and it selects the
         contention contract. The default 0 is the timer lane: skip and
@@ -483,8 +604,8 @@ class Watcher:
         tick. Any positive wait is a human verb, and losing the lock after
         waiting is exceptional — LockBusy, not a summary of a pass that
         quietly did nothing. Anything carrying `decisions` MUST wait:
-        those verdicts exist nowhere else, so a `locked` return discarded
-        a human's decision, which is exactly what it used to do."""
+        those verdicts exist nowhere else, so a `locked` return would
+        silently discard a human's decision."""
         summary = {
             "commands": 0, "drafted": 0, "auto": 0, "approved": 0, "rejected": 0,
             "stale": 0, "failed": 0, "scanned": False, "locked": False,
@@ -543,16 +664,18 @@ class Watcher:
                 self._save_state(state.get("fingerprint") or {})
                 self._emit_pass(summary)
                 return summary
-            approved_pre_scan = summary["approved"]
             vs = applier.vault_state(self.vault_path)
             fingerprint = self._vault_fingerprint(vs)
             if state.get("fingerprint") != fingerprint:
+                # One content walk per pass: reset here so pass_notes()
+                # rebuilds against the tree `fingerprint` describes.
+                self._pass_notes = None
                 flipped, pending = self._auto_stale(pending, vs)
                 summary["stale"] += flipped
                 self._pass_sha = vs[0]
-                # Commands execute before the proposal scan: drafts see the
-                # post-command note, and command writes are scanned in-pass
-                # (so they never need the post-scan memo drop below).
+                # Commands execute before the proposal scan and refresh
+                # their notes in the pass cache, so drafts see the
+                # post-command note.
                 await self._run_commands(summary)
                 # One pending proposal per note is a queue invariant, so it
                 # is enforced here — not re-implemented in every scan. The
@@ -582,13 +705,17 @@ class Watcher:
                 summary["drafted"], summary["auto"] = await self._draft(items, summary)
                 summary["scanned"] = True
             summary["cancelled"] = bool(self.should_cancel())
-            # The memo must only describe a tree whose changes were all
-            # scanned. Applies that landed AFTER the scan (auto-applies)
-            # violate that, so the memo is dropped and the next pass
-            # rescans.
-            post_scan_applies = summary["auto"] + summary["approved"] - approved_pre_scan
-            fingerprint = {} if post_scan_applies else self._vault_fingerprint()
-            self._save_state(fingerprint)
+            # The memo is the fingerprint taken BEFORE the scan — the tree
+            # this pass actually read. Anything written after it (a command
+            # result, an auto-apply, the user typing while a draft was in
+            # flight) moves the tree past the memo, so the next pass
+            # rescans it. That costs one echo pass after a pass that wrote;
+            # re-fingerprinting at pass end instead would memoize mid-pass
+            # edits as scanned when no scan ever saw them, and a //command
+            # typed during a slow draft would never fire. A cancelled pass
+            # memoizes nothing: it stopped before finishing the scan a memo
+            # would vouch for.
+            self._save_state({} if summary["cancelled"] else fingerprint)
             proposals.prune(self.proposals_dir)
             self._emit_pass(summary)
             return summary

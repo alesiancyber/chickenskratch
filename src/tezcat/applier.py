@@ -35,8 +35,9 @@ from .proposals import content_hash
 # a hand-edited proposal file can't smuggle in an unlisted operation.
 ALLOWED_TOOLS = {
     "update_frontmatter", "replace_section", "append_to_note",
-    "add_task", "set_task_status", "add_card", "move_card", "create_note",
-    "replace_line", "archive_done_tasks",
+    "add_task", "set_task_status", "set_task_due", "set_task_scheduled",
+    "add_card", "move_card", "create_note", "replace_line",
+    "archive_done_tasks",
 }
 
 
@@ -65,17 +66,13 @@ def vault_state(vault_path: str) -> tuple[str, str]:
 
     - `status --porcelain` — which paths are dirty or untracked.
     - `diff HEAD` — the CONTENT of tracked edits. Porcelain alone lists
-      paths, so a second edit to an already-dirty note left the pass
-      fingerprint unchanged and the engine skipped the scan; an armed
-      //command in a dirty inbox never retried (2026-07-24).
+      paths, so a second edit to an already-dirty note would leave the
+      pass fingerprint unchanged, the engine would skip the scan, and an
+      armed //command in a dirty inbox would never retry.
     - content hashes of UNTRACKED files — the same hole, one step
       further out. Porcelain reports `?? Tasks/typing.md` identically no
-      matter what the file says, so typing a //command into a brand-new
-      note left the fingerprint unmoved and the command never fired.
-      This was masked until 2026-07-26: the engine re-rendered its
-      markdown surfaces every pass, and those commits swept untracked
-      notes into git as a side effect. Retiring the surfaces removed the
-      accidental heartbeat and exposed the real bug.
+      matter what the file says, so without the hash a //command typed
+      into a brand-new note never moves the fingerprint and never fires.
     """
     v = Vault(vault_path)
     v.ensure_repo()
@@ -110,17 +107,16 @@ def is_stale(proposal: dict, vault_path: str, state: tuple[str, str] | None = No
     if sha and sha == against["vault_sha"] and clean:
         return ""
     # WITH the exclusions: staleness reads a note's content, so it is a
-    # read like any other and I4 applies. Every other content-reading
-    # construction passes these; this one didn't, which made the queue the
-    # one place an excluded folder was still legible.
+    # read like any other and I4 applies — constructing without them
+    # would make the queue the one place an excluded folder is legible.
     v = Vault(vault_path, exclude=get_config(vault_path).exclude)
     try:
         current = v.read(against["note"])
     except vault_mod.VaultError:
         return f"note {against['note']} no longer exists"
     if proposal.get("kind") == "capture":
-        # Capture proposals hash the stripped text (see draft_capture):
-        # whitespace-only churn from autosave must not void an approval.
+        # Capture proposals hash the stripped TEXT (see draft_capture):
+        # whitespace-only churn from an autosave must not void an approval.
         current = capture_text(current)
     if content_hash(current) != against["content_hash"]:
         return f"{against['note']} changed since the proposal was drafted"
@@ -228,10 +224,10 @@ def simulate_for_note(note_text: str, proposal: dict, note: str | None = None) -
             # Any exception, not just ValueError/KeyError. Simulation is
             # best-effort by definition: a step it cannot model is
             # "not previewed", never a raise. A worker plan carrying
-            # malformed YAML in update_frontmatter threw yaml.ScannerError
-            # straight through here — into the dashboard's /api/review
-            # (a 500 that empties the whole queue view) and, once this walk
-            # became the verifier's too, into the auto-apply gate.
+            # malformed YAML in update_frontmatter raises yaml.ScannerError
+            # here — uncaught, that 500s the dashboard's /api/review
+            # (emptying the whole queue view) and, because this walk is
+            # also the verifier's, crashes the auto-apply gate.
             unpreviewable.append(f"{step['tool']}: preview failed "
                                  f"({type(e).__name__}: {e})")
             continue

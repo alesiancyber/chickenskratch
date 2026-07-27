@@ -1,21 +1,19 @@
 """CLI entry point.
 
-One-shot:     harness "add a task to renew the domain by next friday"
+One-shot:     tezcat "add a task to renew the domain by next friday"
 Interactive:  tezcat -i
-Model swap:   harness -m qwen3-8b "..."
-Skip gates:   harness --yes "..."   (auto-approve write tools)
+Model swap:   tezcat -m qwen3-8b "..."
+Skip gates:   tezcat --yes "..."   (auto-approve write tools)
 
-Plus the three verbs that used to be notes in the vault (2026-07-26,
-research/surface-subtraction-plan.md). Today.md, Changes.md, and
-Review.md were retired as machine-rendered surfaces; these print or act
-on exactly the same state, on demand, without a running dashboard:
+Plus the headless verbs — the dashboard's views and consent, on demand,
+with no UI process running:
 
   tezcat today                     the attention view
   tezcat changes                   recent snapshots
   tezcat decide <pid> approve      consent, headless
 
-That last one matters most: retiring Review.md removed a consent
-channel, and consent must never be reachable from only one process.
+That last one matters most: consent must never be reachable from only
+one process.
 """
 
 from __future__ import annotations
@@ -33,10 +31,10 @@ _VERBS = ("today", "changes", "decide")
 
 
 def _run_verb(verb: str, rest: list[str], vault: str) -> int:
-    """The retired surfaces, as commands. Reads (today/changes) go
-    straight to the collectors the dashboard uses; `decide` goes through
-    service.decide, so it takes the same pass lock and the same _act as
-    the button — one decision path, two front doors."""
+    """The headless verbs. Reads (today/changes) go straight to the
+    collectors the dashboard uses; `decide` goes through service.decide,
+    so it takes the same pass lock and the same _act as the button —
+    one decision path, two front doors."""
     from tezcat_vault.vault import Vault
     from tezcat_vault.vaultconfig import get_config
 

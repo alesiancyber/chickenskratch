@@ -3,10 +3,8 @@
 Verified auto-apply means the harness edits the vault without asking, so
 this exists to answer for it. A rendered view of the vault's own git log:
 every row is one snapshot commit, so revert (the dashboard's ↺, or
-`tezcat-revert`) always applies.
-
-It was a note in the vault until 2026-07-26; now it is what `harness
-changes` prints and what /api/changes serves. Deliberately never a
+`tezcat-revert`) always applies. Rendered by `tezcat changes` and
+/api/changes — never written into the vault, and deliberately never a
 revert checkbox: destructive actions don't ride text files.
 """
 
@@ -24,11 +22,10 @@ chat turn carry its chat id._
 """
 
 
-# Surfaces the engine rendered until 2026-07-26. They are gone, but their
-# commits are still in the vault's history — and a "update Harness/Today.md"
-# row is exactly as much not-news now as it was then. Keeping them here is
-# what stops the retirement from flooding the Changes list with the
-# harness redrawing surfaces that no longer exist.
+# Retired machine surfaces. The engine no longer writes them, but their
+# render commits are still in existing vaults' git history, and an
+# "update Harness/Today.md" row is never news. Dropping these from the
+# filter would flood the Changes list with the harness's old redraws.
 LEGACY_RENDERS = ("Harness/Review.md", "Harness/Today.md", "Harness/Changes.md")
 
 

@@ -1,0 +1,61 @@
+# Judgment cases for the overlap worker (duplicate/related/distinct over
+# candidate task pairs). Run live:  uv run tezcat-worker-eval -k overlap
+#
+# Case schema (worker: overlap):
+#   pairs:  submitted candidates, [{a, b, a_text, b_text, a_note, b_note}]
+#   expect: pinned verdicts, [{a, b, verdict, keep?}]
+#
+# Pair completeness (every pair answered, no ids invented) is enforced on
+# every case automatically.
+
+- name: overlap-plain-duplicate
+  worker: overlap
+  pairs:
+    - a: t-aaaaaaaaaaa1
+      b: t-aaaaaaaaaaa2
+      a_text: "Renew the domain registration"
+      b_text: "Renew domain registration"
+      a_note: Tasks/Inbox.md
+      b_note: Meetings/2026-07-20 Ops Sync.md
+  expect:
+    - {a: t-aaaaaaaaaaa1, b: t-aaaaaaaaaaa2, verdict: duplicate}
+
+- name: overlap-related-not-duplicate
+  worker: overlap
+  pairs:
+    - a: t-bbbbbbbbbbb1
+      b: t-bbbbbbbbbbb2
+      a_text: "Draft the incident postmortem"
+      b_text: "Schedule the postmortem review meeting"
+  expect:
+    - {a: t-bbbbbbbbbbb1, b: t-bbbbbbbbbbb2, verdict: related}
+
+# The customer-boundary rule, same as grouping's: near-identical wording
+# for two different clients is never a duplicate.
+- name: overlap-client-boundary
+  worker: overlap
+  pairs:
+    - a: t-acme0000001x
+      b: t-glbx0000001x
+      a_text: "Tune phishing detection rules for Acme Corp"
+      b_text: "Tune phishing detection rules for Globex"
+  expect:
+    - {a: t-acme0000001x, b: t-glbx0000001x, verdict: distinct}
+
+# A batch: verdicts must not bleed across pairs.
+- name: overlap-mixed-batch
+  worker: overlap
+  pairs:
+    - a: t-ccccccccccc1
+      b: t-ccccccccccc2
+      a_text: "chase Marcus for the firewall logs"
+      b_text: "Follow up with Marcus about firewall logs"
+      a_note: Tasks/Waiting.md
+      b_note: Tasks/Inbox.md
+    - a: t-ddddddddddd1
+      b: t-ddddddddddd2
+      a_text: "Rotate the wildcard TLS certificate"
+      b_text: "Buy a new laptop charger"
+  expect:
+    - {a: t-ccccccccccc1, b: t-ccccccccccc2, verdict: duplicate}
+    - {a: t-ddddddddddd1, b: t-ddddddddddd2, verdict: distinct}

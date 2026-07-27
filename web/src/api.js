@@ -115,7 +115,7 @@ export function useDashboard() {
       // everything except a checked task, the one change that provably
       // only rewrites a line inside a note that already existed.
       const reason = (() => { try { return JSON.parse(e.data).reason; } catch { return ""; } })();
-      if (reason === "task_done") refetch(["today", "review"]);
+      if (reason === "task_done" || reason === "reschedule") refetch(["today", "review"]);
       else refetch(reason === "revert"
         ? ["today", "review", "changes", "tree"]
         : ["today", "review", "tree"]);
@@ -126,11 +126,11 @@ export function useDashboard() {
   return { ...state, live, lastPassAt, activity, refetch };
 }
 
-/* Note references open OUR editor. There is no deep-link-out helper any
-   more (removed 2026-07-26): tezcat is the surface, not a launcher for
-   one. The vault stays plain markdown any editor can open — that's
-   portability, which is a property of the format, not a handoff we owe
-   another app from inside our own UI. */
+/* Note references open OUR editor. There is deliberately no
+   deep-link-out helper: tezcat is the surface, not a launcher for one.
+   The vault stays plain markdown any editor can open — that's
+   portability, a property of the format, not a handoff we owe another
+   app from inside our own UI. */
 
 export const noteName = (note) => note.replace(/\.md$/, "").split("/").pop();
 

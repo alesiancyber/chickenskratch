@@ -417,3 +417,20 @@
   expect:
     - match: "(?i)admin.*keys|keys"
   exact: true
+
+# Week-granular plan language: "this week"/"next week" are PLANS (⏳,
+# Sunday-anchored), never deadlines; deadline words still land in due.
+- name: extract-week-plans-vs-deadlines
+  text: |
+    Sort out the vendor contract this week. Next week I should start the
+    budget review. Send the SOW to legal by {tomorrow}.
+  expect:
+    - match: "(?i)vendor contract"
+      due: null
+      scheduled: "{this_sunday}"
+    - match: "(?i)budget review"
+      due: null
+      scheduled: "{next_sunday}"
+    - match: "(?i)SOW"
+      due: "{tomorrow}"
+      scheduled: null

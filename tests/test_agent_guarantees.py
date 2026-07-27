@@ -443,9 +443,9 @@ def test_vault_citations_never_launch_another_editor():
 
 def test_cli_citations_are_plain_paths(tmp_path):
     """The CLI has no editor of its own — so a citation is the vault path
-    and the line, printed. It used to be an obsidian:// URL; a terminal
-    that launches another app to show you your own note is treating that
-    app as the surface, which tezcat no longer does."""
+    and the line, printed. Never an app-scheme URL: a terminal that
+    launches another app to show you your own note is treating that app
+    as the surface, which tezcat does not do."""
     from tezcat.agent import Agent
     from tezcat.profiles import Profile
 

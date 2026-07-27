@@ -27,7 +27,7 @@ from .profiles import Profile
 from .skills import Skill, expand_slash, render_skill, skills_prompt_block, unknown_slash
 
 SYSTEM_PROMPT = """\
-You are an assistant that manages the user's Obsidian vault through the provided tools.
+You are an assistant that manages the user's markdown vault through the provided tools.
 Today is {today}.
 
 Paths are vault-relative and the .md extension is optional. Before modifying a note
@@ -185,8 +185,8 @@ class Agent:
             temperature=self.profile.temperature,
         )
         # A reasoning model that spends its whole token budget on hidden
-        # thought returns choices=[] (the workers hit this 2026-07-24).
-        # Fold it into the empty-content path, which already nudges once.
+        # thought returns choices=[]. Fold it into the empty-content
+        # path, which already nudges once.
         if not response.choices:
             return "", [], _usage_dict(response)
         msg = response.choices[0].message
@@ -340,11 +340,9 @@ class Agent:
         consumer's call: the pane passes `note_link=app_note_link` and gets
         a clickable `vault:` link into its own editor; the CLI has no editor
         to open, so it gets the vault-relative path and line, plainly.
-
-        It used to emit obsidian:// (or vscode://) here. That made another
-        app the place you read your own notes — abandoned 2026-07-26. Notes
-        the model already named inline are skipped, so citing never
-        duplicates."""
+        Never an app-scheme deep link — tezcat's surfaces are where notes
+        open. Notes the model already named inline are skipped, so citing
+        never duplicates."""
         if not self.vault or not self._cited:
             return content
         lines = []
@@ -418,12 +416,13 @@ class Agent:
                 "do not repeat it. Its result was: " + self._executed_writes[write_key]
             )
         if not is_write and write_key in self._executed_reads:
-            # The read-side twin (the 2026-07-25 pane flail: ~20 identical
-            # failing searches in one turn). Deterministic like the write
-            # guard, but scoped: any executed write clears this cache, so
-            # read → write → same read still re-executes (verifying your
-            # own change is legitimate; re-asking an unchanged world isn't
-            # — the client layer already retried server failures once).
+            # The read-side twin of the write loop guard: models can flail,
+            # re-issuing an identical failing search dozens of times in one
+            # turn. Deterministic like the write guard, but scoped: any
+            # executed write clears this cache, so read → write → same read
+            # still re-executes (verifying your own change is legitimate;
+            # re-asking an unchanged world isn't — the client layer already
+            # retried server failures once).
             return (
                 "REPEAT CALL: you already made this exact call this turn and "
                 "nothing has changed since — do not make it again. Its result was: "

@@ -24,8 +24,8 @@ Two classes of change, two contracts:
 ```
 src/tezcat_vault/   vault core: path safety, git snapshots, markdown/task/
                     kanban parsing, entity schemas, MCP server, LLM workers
-src/harness/        the engine: watcher pass, commands, processors, applier,
-                    proposals, evals, CLI chat, backends
+src/tezcat/         the engine: watcher pass, commands, processors, applier,
+                    proposals, evals, CLI chat, backends, dashboard server
 daemon/             tezcatd (Rust): event-driven trigger (FSEvents/inotify)
 config/             models.yaml (profiles/backends/worker), mcp.yaml
                     (MCP servers), vault.yaml (spec defaults), schemas/
@@ -81,20 +81,27 @@ convenience, not a replacement (everything it does, you can do by hand):
 ## Using it
 
 Your notes are text in the vault. The views over them are tezcat's —
-they were notes too until 2026-07-26, when Review/Today/Changes were
-retired (`research/surface-subtraction-plan.md`): a view that is also a
-file costs a write, a commit, and a churn guard every pass and buys
-nothing the renderer alone doesn't.
+rendered live, never written back as files: a view that is also a file
+costs a write, a commit, and a churn guard every pass and buys nothing
+the renderer alone doesn't.
 
 - **`//azure <query>`** on its own line in any note, press Enter →
   replaced in place by ranked Microsoft Learn links a few seconds later.
-  Model-free. Commands live in `src/harness/commands.py`; adding one is
+  Model-free. Commands live in `src/tezcat/commands.py`; adding one is
   an async function plus a registry entry (`//research` is reserved).
 - **`Harness/Capture.md`** — brain-dump anything; tasks get extracted
   and proposed. Free text in the task inbox gets the same treatment.
   This is the one surface left, and it is not a view: the canvas commits
   your dump here *before* extraction runs, so it survives extraction
   failing.
+- **Duplicates & links** — the overlap processor compares tasks across
+  notes: exact matches pair in code, near-matches through a cached
+  embedding index (`EMBED_BASE_URL`/`EMBED_MODEL`; defaults to Ollama's
+  `nomic-embed-text`, degrades to exact-only without an endpoint), and
+  one batched judge call decides duplicate / related / distinct. Fixes
+  queue per pair: a duplicate removes the redundant copy, a related
+  pair gains a `⇄ [[note#^id]]` block link — links, not prose. Rejected
+  pairs are remembered and never re-asked.
 - **Headless**, when no UI is running:
 
   ```sh
@@ -108,14 +115,15 @@ nothing the renderer alone doesn't.
 - **`Harness/Spec.md`** — the vault's own config, read fresh every
   pass: `folders` (type map), `capture_inbox`/`waiting_inbox`,
   `exclude` (e.g. `Private/` — never enters model context),
-  `auto_apply`, `fidelity` (strict|close), `worker` (models.yaml
-  profile name for the drafting workers), `n_max`,
+  `auto_apply`, `autonomy` (gated|full — `full` is the standing grant
+  that lets verifier-less judgment processors auto-apply; everything
+  stays snapshot-revertible), `fidelity` (strict|close), `worker`
+  (models.yaml profile name for the drafting workers), `n_max`,
   `disabled_processors` (incl. `inline_command`), and `daily_dir`.
   Renderer choices are repo config, not Spec keys: diffs are always
-  unified ```diff and callouts always `NOTE`. (There is no
-  `link_scheme` any more — see "Editor notes" below.)
-- **The dashboard** — `uv run tezcat-ui` (127.0.0.1:8399): the live
-  attention/decision surface, and since 2026-07-26 the primary one.
+  unified ```diff and callouts always `NOTE`.
+- **The dashboard** — `uv run tezcat-ui` (127.0.0.1:8399): the primary
+  attention/decision surface.
   Pending proposals with rich side-by-side diffs, approve/reject/revert
   buttons (the same gated paths every other channel uses), j/k·a/r
   keyboard review, ⌘K palette, SSE-live off the engine's passes.
@@ -137,23 +145,20 @@ nothing the renderer alone doesn't.
 
 Editor notes: tezcat's own surfaces are the front end, and note
 references anywhere in the UI (rows, citations, "filed → Inbox") open
-tezcat's editor — no app-scheme deep links are emitted, and the
-`link_scheme` knob that used to pick between `obsidian://` and
-`vscode://` was deleted 2026-07-26. The vault is still an ordinary
-folder of markdown, so opening it in Obsidian, Foam/VSCode, or vim
-works exactly as well as it always did — that's the format being
-portable, which is a byproduct we keep, not a compatibility target we
-design toward. If you do keep an editor open alongside, turn on its
-autosave (`files.autoSave: afterDelay` in VSCode): the disk file is
-what the harness sees.
+tezcat's editor — no app-scheme deep links are emitted. The vault is
+still an ordinary folder of markdown, so any editor can open it —
+that's the format being portable, a byproduct we keep, not a
+compatibility target we design toward. If you do keep an editor open
+alongside, turn on its autosave (`files.autoSave: afterDelay` in
+VSCode): the disk file is what the harness sees.
 
 ## CLI
 
 ```sh
 uv run tezcat "add a task to renew the domain by friday"   # chat escape hatch
 uv run tezcat -i                                           # REPL
-uv run tezcat today             # the attention view (was Harness/Today.md)
-uv run tezcat changes           # the audit log   (was Harness/Changes.md)
+uv run tezcat today             # the attention view
+uv run tezcat changes           # the audit log
 uv run tezcat decide <pid> approve|reject    # consent without a UI process
 uv run tezcat-revert            # list snapshots; tezcat-revert <sha> undoes one
 uv run tezcat-ui                # the dashboard server (127.0.0.1:8399)
@@ -173,12 +178,14 @@ The vault server plugs into any MCP client (Claude Desktop/Code):
 TEZCAT_VAULT_PATH=~/Vaults/personal uv run tezcat-vault-mcp
 ```
 
-19 tools: notes (`list_notes`, `read_note`, `search_vault`,
+22 tools: notes (`list_notes`, `read_note`, `search_vault`,
 `create_note`, `append_to_note`, `replace_section`, `replace_line`,
 `update_frontmatter`), tasks (`list_tasks`, `add_task`,
-`set_task_status`, `extract_tasks`), boards (`create_board`,
+`set_task_status`, `set_task_due`, `set_task_scheduled`,
+`archive_done_tasks`, `extract_tasks`), boards (`create_board`,
 `read_board`, `add_card`, `move_card`), plus `validate_schema`,
-`open_daily_note`, `create_meeting_note`. Semantic tools own format
+`open_daily_note`, `create_meeting_note`.
+Semantic tools own format
 correctness (a model never hand-edits kanban markdown); edits are
 anchored to headings/tasks/lines — whole-file rewrites don't exist.
 

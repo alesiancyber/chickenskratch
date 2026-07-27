@@ -93,6 +93,12 @@ def test_ingest_feeds_the_capture_pipeline(vault, wkw):
     # one `tezcat-revert` away regardless
     assert "renew the domain" not in (vault / "Harness/Capture.md").read_text()
     assert any("ingest into" in c["subject"] for c in Vault(vault).history(10))
+    # the receipt: what was applied, revertible at the point of action
+    (a,) = result["applied"]
+    assert a["note"] == "Tasks/Inbox.md" and a["undo"]
+    for sha in a["undo"]:
+        service.revert(str(vault), sha)
+    assert "renew the domain" not in (vault / "Tasks/Inbox.md").read_text()
 
 
 def test_ingest_queues_when_the_drafter_flags_review(vault, wkw):
@@ -114,7 +120,7 @@ def test_ingest_queues_when_the_drafter_flags_review(vault, wkw):
 
 def test_ingest_empty_text_is_a_no_op(vault, wkw):
     result = asyncio.run(service.ingest(str(vault), "   \n ", **wkw))
-    assert result == {"summary": {}, "queued": [], "deferred": False}
+    assert result == {"summary": {}, "queued": [], "applied": [], "deferred": False}
 
 
 def test_revert_undoes_a_snapshot_and_rejects_junk(vault, wkw):
@@ -135,6 +141,23 @@ def test_partial_approval_applies_only_the_chosen_steps(vault, wkw):
     """The prototype-parity amendment: a capture proposal approved with
     a steps subset applies exactly those steps; the trimmed queue file
     is the consent record."""
+    # staleness keys on capture text; _capture_proposal plants the
+    # surface to match
+    p = _capture_proposal(vault, wkw)
+    summary = asyncio.run(service.decide(str(vault), p["id"], "approve",
+                                         steps=[0], **wkw))
+    assert summary["approved"] == 1
+    inbox = (vault / "Tasks/Inbox.md").read_text()
+    assert "renew the domain" in inbox and "call the bank" not in inbox
+    resolved = [x for x in proposals.load_all(wkw["proposals_dir"]) if x["id"] == p["id"]]
+    assert len(resolved[0]["apply"]) == 1  # the trimmed file is the record
+    assert resolved[0]["partial"] is True
+    # The dump stays on the surface: clearing it would discard the text
+    # behind the step the user did NOT approve ("call the bank").
+    assert "call the bank" in (vault / "Harness/Capture.md").read_text()
+
+
+def _capture_proposal(vault, wkw) -> dict:
     p = proposals.new_proposal(
         kind="capture", note="Harness/Capture.md", vault_sha="",
         note_content="renew the domain\ncall the bank",
@@ -144,16 +167,23 @@ def test_partial_approval_applies_only_the_chosen_steps(vault, wkw):
             {"tool": "add_task", "args": {"path": "Tasks/Inbox.md", "text": "renew the domain"}},
             {"tool": "add_task", "args": {"path": "Tasks/Inbox.md", "text": "call the bank"}},
         ])
-    # partial staleness keys on capture text; plant the surface to match
+    (vault / "Harness").mkdir(exist_ok=True)
     (vault / "Harness/Capture.md").write_text("renew the domain\ncall the bank\n")
     proposals.save(p, wkw["proposals_dir"])
-    summary = asyncio.run(service.decide(str(vault), p["id"], "approve",
-                                         steps=[0], **wkw))
+    return p
+
+
+def test_full_approval_still_clears_the_capture_surface(vault, wkw):
+    """The counterpart guard: only PARTIAL approvals keep the dump —
+    approving everything resets the surface for the next one."""
+    from tezcat.processors import CAPTURE_SKELETON
+
+    p = _capture_proposal(vault, wkw)
+    summary = asyncio.run(service.decide(str(vault), p["id"], "approve", **wkw))
     assert summary["approved"] == 1
     inbox = (vault / "Tasks/Inbox.md").read_text()
-    assert "renew the domain" in inbox and "call the bank" not in inbox
-    resolved = [x for x in proposals.load_all(wkw["proposals_dir"]) if x["id"] == p["id"]]
-    assert len(resolved[0]["apply"]) == 1  # the trimmed file is the record
+    assert "renew the domain" in inbox and "call the bank" in inbox
+    assert (vault / "Harness/Capture.md").read_text() == CAPTURE_SKELETON
 
 
 def test_partial_approval_with_no_steps_is_a_reject(vault, wkw):
@@ -341,3 +371,56 @@ def test_ingest_defers_rather_than_losing_the_dump(vault, wkw, monkeypatch):
         result = asyncio.run(service.ingest(str(vault), "call the bank", **wkw))
     assert result["deferred"] is True
     assert "call the bank" in (vault / "Harness/Capture.md").read_text()
+
+
+def test_reschedule_task_moves_the_date_and_lands_in_the_corpus(vault, wkw):
+    """The week→today move: one gated vault edit, one revertible
+    snapshot, one corpus row — the scheduling label a future triage
+    worker trains on."""
+    import json as _json
+
+    from tezcat import corpus
+
+    (vault / "Tasks/Inbox.md").write_text(
+        "## Tasks\n\n- [ ] prep the deck 📅 2099-01-10 ^t-aaaaaaaaaaaa\n")
+    r = service.reschedule_task(str(vault), "Tasks/Inbox.md", "prep the deck", "2099-01-02")
+    assert r["written"] and r["previous_due"] == "2099-01-10"
+    assert "- [ ] prep the deck 📅 2099-01-02 ^t-aaaaaaaaaaaa" \
+        in (vault / "Tasks/Inbox.md").read_text()
+    assert any("reschedule" in c["subject"] for c in Vault(str(vault)).history())
+
+    rows = [_json.loads(ln) for f in sorted(corpus.CORPUS_DIR.glob("*.jsonl"))
+            for ln in f.read_text().splitlines()]
+    label = rows[-1]["label"]
+    assert label["source"] == "reschedule" and label["direction"] == "promote"
+    assert label["from_due"] == "2099-01-10" and label["to_due"] == "2099-01-02"
+    assert "prep the deck" in label["task"]  # the row is self-contained
+
+    # same date again: a no-op writes nothing and labels nothing
+    before = len(rows)
+    again = service.reschedule_task(str(vault), "Tasks/Inbox.md", "prep the deck", "2099-01-02")
+    assert again["written"] is False
+    rows_after = [ln for f in sorted(corpus.CORPUS_DIR.glob("*.jsonl"))
+                  for ln in f.read_text().splitlines()]
+    assert len(rows_after) == before
+
+
+def test_plan_task_moves_the_plan_field_and_labels_it(vault, wkw):
+    """The judgment verb: ⏳ moves, 📅 untouched, and the corpus row says
+    field=scheduled so plan moves are separable from hard-date moves."""
+    import json as _json
+
+    from tezcat import corpus
+
+    (vault / "Tasks/Inbox.md").write_text(
+        "## Tasks\n\n- [ ] shape the roadmap 📅 2099-06-01 ^t-aaaaaaaaaaaa\n")
+    r = service.plan_task(str(vault), "Tasks/Inbox.md", "shape the roadmap", "2099-05-01")
+    assert r["written"] and r["scheduled"] == "2099-05-01"
+    text = (vault / "Tasks/Inbox.md").read_text()
+    assert "⏳ 2099-05-01" in text and "📅 2099-06-01" in text
+
+    rows = [_json.loads(ln) for f in sorted(corpus.CORPUS_DIR.glob("*.jsonl"))
+            for ln in f.read_text().splitlines()]
+    label = rows[-1]["label"]
+    assert label["source"] == "reschedule" and label["field"] == "scheduled"
+    assert label["direction"] == "promote" and label["to_due"] == "2099-05-01"

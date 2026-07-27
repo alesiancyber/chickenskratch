@@ -316,6 +316,16 @@ body.resizing * { pointer-events: none; }
   letter-spacing: 0.02em;
   margin-bottom: var(--s2);
 }
+/* the region's one verb (do / start / nudge / decide) — muted, never
+   competing with the reserved needs-you channel */
+.section-verb {
+  margin-left: var(--s2);
+  color: var(--ink-3);
+  font-weight: 400;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
 .meta { color: var(--ink-2); }
 .ghost { color: var(--ink-3); }
 .small { font-size: var(--text-small); }
@@ -442,6 +452,29 @@ section { margin-bottom: var(--s5); }
   font-size: var(--text-small);
 }
 .proposal[data-state="open"] .caret { transform: rotate(90deg); }
+
+/* ---- the reference fold: evidence, not work ---- */
+
+.reference {
+  border-top: 1px solid var(--line);
+  padding-top: var(--s3);
+}
+.reference-toggle {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: var(--s1) 0;
+  cursor: pointer;
+  color: var(--ink-3);
+  font: inherit;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  text-align: left;
+}
+.reference-toggle:hover { color: var(--ink-2); }
+.reference[data-state="open"] .reference-toggle .caret { transform: rotate(90deg); }
+.reference [data-state] section { margin-top: var(--s4); margin-bottom: var(--s3); }
 
 /* ---- diff: the one place semantic color lives ---- */
 

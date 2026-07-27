@@ -1,11 +1,11 @@
 """Human-verb service entries: decide / ingest / revert / run_pass.
 
-The owned-surfaces convergence point (0-C items 10–11): the Review.md
-checkbox scan and the UI's buttons meet at the same engine pass under
-the same flock pass lock, so a click can never race a checkbox,
-double-apply, or bypass a gate (I1/I2). Reads have no entry here —
-views are free (I5); these are the write verbs, all human-initiated:
-models have no route to any of them.
+The convergence point for every consent channel: the dashboard's
+buttons and `tezcat decide` meet at the same engine pass under the
+same flock pass lock, so two front doors can never race or
+double-apply, and nothing bypasses a gate (I1/I2). Reads have no entry
+here — views are free (I5); these are the write verbs, all
+human-initiated: models have no route to any of them.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from tezcat_vault.vault import Vault, VaultError
 from tezcat_vault.vaultconfig import get_config
 
 from . import cancel, commands, events, processors, proposals
-from .corpus import record_revert
+from .corpus import record_reschedule, record_revert
 from .watcher import DECISION_LOCK_WAIT_S, LockBusy, Watcher
 
 _SHA_RE = re.compile(r"[0-9a-f]{7,40}")
@@ -38,24 +38,22 @@ async def run_pass(vault_path: str, decisions_only: bool = False, **watcher_kw) 
 
 async def decide(vault_path: str, pid: str, verdict: str,
                  steps: list[int] | None = None, **watcher_kw) -> dict:
-    """Act on one proposal — the UI button's path. Runs the decisions
-    fast lane with the verdict injected ahead of the checkbox scan;
-    both channels resolve through Watcher._act under the pass lock.
+    """Act on one proposal — the UI button's and `tezcat decide`'s path.
+    Runs the decisions fast lane; every channel resolves through
+    Watcher._act under the pass lock.
 
     Waits for the pass lock (DECISION_LOCK_WAIT_S) rather than skipping
-    on contention. A checkbox has a next tick to be read on; a click does
-    not — the verdict lives only in this call, so a `locked` return
-    silently threw away a human decision while the dashboard optimistically
-    rendered it as done. On a real timeout this raises LockBusy and the
-    route says so.
+    on contention: the verdict lives only in this call, so a `locked`
+    return would silently throw away a human decision while the
+    dashboard optimistically rendered it as done. On a real timeout this
+    raises LockBusy and the route says so.
 
-    `steps` (approve only) is partial approval — the prototype-parity
-    amendment: the queue file is trimmed to the chosen apply steps and
-    the trimmed proposal is what applies, goes stale-checked, and lands
-    in the corpus (the queue file IS the consent record). An empty
-    selection is a reject. Review.md keeps all-or-nothing; this is a
-    dashboard/canvas affordance only. Single-user assumption: the trim
-    and the pass are not atomic against a concurrent engine pass."""
+    `steps` (approve only) is partial approval: the queue file is
+    trimmed to the chosen apply steps and the trimmed proposal is what
+    applies, goes stale-checked, and lands in the corpus (the queue file
+    IS the consent record). An empty selection is a reject.
+    Single-user assumption: the trim and the pass are not atomic
+    against a concurrent engine pass."""
     if verdict not in ("approve", "reject"):
         raise ValueError(f"verdict must be approve|reject, got {verdict!r}")
     if not _PID_RE.fullmatch(pid):
@@ -73,7 +71,12 @@ async def decide(vault_path: str, pid: str, verdict: str,
             verdict = "reject"
         elif len(keep) < len(p["apply"]):
             untrimmed = p
-            proposals.save({**p, "apply": [p["apply"][i] for i in keep]},
+            # `partial` rides in the consent record: on_applied hooks must
+            # know (a partial capture approval keeps the dump on the
+            # surface — clearing it would discard the text behind the
+            # steps the user did NOT approve).
+            proposals.save({**p, "apply": [p["apply"][i] for i in keep],
+                            "partial": True},
                            w.proposals_dir)
     try:
         return await w.run_once(decisions_only=True, decisions=[(pid, verdict)],
@@ -88,18 +91,60 @@ async def decide(vault_path: str, pid: str, verdict: str,
 
 
 def complete_task(vault_path: str, note: str, text: str) -> dict:
-    """Check a task off from the dashboard — the prototype-parity verb.
-    The editor always had this hand (ticking the checkbox in the note);
-    this gives the dashboard the same one, through the gated
-    set_task_status tool: snapshot per mutation (I1), matched by the
-    task's own text. Raises VaultError when nothing matches (the note
-    moved — the row was stale, refetch)."""
+    """Check a task off from the dashboard. The editor always had this
+    hand (ticking the checkbox in the note); this gives the dashboard
+    the same one, through the gated set_task_status tool: snapshot per
+    mutation (I1), matched by the task's own text. Raises VaultError
+    when nothing matches (the note moved — the row was stale, refetch)."""
     from . import applier
     applier.use_vault(vault_path)
     from tezcat_vault import server
 
     result = server.set_task_status(note, text, True)
     events.emit(vault_path, "vault_changed", {"reason": "task_done", "note": note})
+    return result
+
+
+def reschedule_task(vault_path: str, note: str, text: str, due: str) -> dict:
+    """Move a task along the time axis — the week view's "→ today", and
+    the same shape for any future defer verb. A human verb on the gated
+    set_task_due tool: snapshot per mutation (I1), matched by the task's
+    own text, raises VaultError when nothing matches (stale row —
+    refetch). Every reschedule lands in the corpus with its from/to
+    dates: which tasks a human pulls forward, and which they push, is
+    exactly what a future triage worker trains on."""
+    from . import applier
+    applier.use_vault(vault_path)
+    from tezcat_vault import server
+
+    result = server.set_task_due(note, text, due)
+    if result.get("written"):
+        record_reschedule(note, result["line"], result["task"],
+                          result.get("previous_due"), result.get("due"),
+                          field="due")
+        events.emit(vault_path, "vault_changed",
+                    {"reason": "reschedule", "note": note})
+    return result
+
+
+def plan_task(vault_path: str, note: str, text: str, when: str) -> dict:
+    """Promote or defer a task's ⏳ plan date — the judgment verb. Most
+    tasks carry no hard 📅, so "work on this today" / "push this out"
+    moves ⏳ only; a real deadline is never fabricated or touched.
+    Same contract as reschedule_task: gated tool, snapshot per mutation
+    (I1), corpus row per move — the promote/defer stream is the training
+    data a future triage worker learns this user's judgment from."""
+    from . import applier
+    applier.use_vault(vault_path)
+    from tezcat_vault import server
+
+    result = server.set_task_scheduled(note, text, when)
+    if result.get("written"):
+        record_reschedule(note, result["line"], result["task"],
+                          result.get("previous_scheduled"),
+                          result.get("scheduled"), field="scheduled")
+        events.emit(vault_path, "vault_changed",
+                    {"reason": "reschedule", "note": note})
     return result
 
 
@@ -114,7 +159,7 @@ async def ingest(vault_path: str, text: str, **watcher_kw) -> dict:
     text = text.strip()
     w = Watcher(vault_path, **watcher_kw)
     if not text:
-        return {"summary": {}, "queued": [], "deferred": False}
+        return {"summary": {}, "queued": [], "applied": [], "deferred": False}
     if not w.capture_rel:
         raise ValueError("this vault has no capture surface configured")
     processors.ensure_capture(w)
@@ -124,16 +169,30 @@ async def ingest(vault_path: str, text: str, **watcher_kw) -> dict:
         raw = processors.CAPTURE_SKELETON
     w.write_surface(w.capture_rel, raw.rstrip("\n") + "\n\n" + text + "\n",
                     f"ingest into {w.capture_rel}", action="ingest")
-    before = {p["id"] for p in proposals.pending(w.proposals_dir)}
+    before = {p["id"] for p in proposals.load_all(w.proposals_dir)}
     try:
         summary = await w.run_once(lock_wait=DECISION_LOCK_WAIT_S)
     except LockBusy:
         # Unlike a decision, the dump is already durable on the capture
         # surface (snapshot-bracketed above) — the next pass extracts it.
         # So this is deferral, not failure, and the canvas says so.
-        return {"summary": {"locked": True}, "queued": [], "deferred": True}
-    queued = [p for p in proposals.pending(w.proposals_dir) if p["id"] not in before]
-    return {"summary": summary, "queued": queued, "deferred": False}
+        return {"summary": {"locked": True}, "queued": [], "applied": [],
+                "deferred": True}
+    fresh = [p for p in proposals.load_all(w.proposals_dir) if p["id"] not in before]
+    queued = [p for p in fresh if p["status"] == "pending"]
+    # What this dump auto-applied, WITH its undo — the canvas puts a
+    # revert button on the receipt, so the point of action is also the
+    # point of undo (a canvas revert is the same negative label as any
+    # other).
+    applied = [{
+        "id": p["id"], "kind": p["kind"], "title": p["title"],
+        "note": (p["apply"][0].get("args", {}).get("path")
+                 if p.get("apply") else "") or p["drafted_against"]["note"],
+        "undo": p.get("undo", []),
+        "unvouched": bool(p.get("verifier_failures")),
+    } for p in fresh if p["status"] == "auto"]
+    return {"summary": summary, "queued": queued, "applied": applied,
+            "deferred": False}
 
 
 def read_note(vault_path: str, rel: str) -> dict:
@@ -173,8 +232,9 @@ def write_note(vault_path: str, rel: str, text: str, base_hash: str) -> dict:
         "path": rel,
         "hash": proposals.content_hash(text),
         "written": True,
-        # Surfaces are re-rendered every pass; saying so beats letting the
-        # user discover it when their edit vanishes.
+        # Machine-managed surfaces (Capture.md) can be rewritten by the
+        # engine; saying so beats letting the user discover it when
+        # their edit vanishes.
         "ephemeral": rel in machine,
     }
 

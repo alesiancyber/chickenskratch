@@ -3,26 +3,24 @@
 A dashboard is a VIEW, not a mutation: it proposes attention, never
 changes, so it needs none of the trust machinery — no verdict, no
 verifier, no staleness. Wrongness costs a glance. `collect` feeds
-/api/today; `to_markdown` is what `tezcat today` prints (it was rendered
-into Harness/Today.md until 2026-07-26). v1 is pure tier-0
-code over the existing parsers; a triage worker (ranking, nudges) is a
-later, separately-evaled layer that must earn its place over this
-deterministic core.
+/api/today; `to_markdown` is what `tezcat today` prints. v1 is pure
+tier-0 code over the existing parsers; a triage worker (ranking,
+nudges) is a later, separately-evaled layer that must earn its place
+over this deterministic core.
 
 Design rule: ONE SCREEN, OR IT'S NOT A DASHBOARD — every section caps
 its rows and folds the rest behind a count.
 
-Split rule (owned-surfaces 0-C): `collect()` builds the typed view-model
-and is the only code that reads vault state; `to_markdown()` and the UI
-server are two renderers of that model. Neither renderer ever parses
-the other's output.
+Split rule: `collect()` builds the typed view-model and is the only
+code that reads vault state; `to_markdown()` and the UI server are two
+renderers of that model. Neither renderer ever parses the other's
+output.
 
-Churn discipline: the date is the only clock input, so within a day the
-render is a pure function of vault state — written only on change, and
-the activity count excludes Harness/-only commits so a render can never
-feed the next one. The 6am heartbeat pass (config/launchd/
-com.tezcat.heartbeat.plist) guarantees the date rollover renders even
-when the vault is quiet.
+The date is the only clock input, so within a day the view is a pure
+function of vault state; the activity count excludes Harness/-only
+commits so the harness's own writes never inflate it. The 6am heartbeat
+pass (config/launchd/com.tezcat.heartbeat.plist) covers the date
+rollover on a quiet vault.
 """
 
 from __future__ import annotations
@@ -34,7 +32,13 @@ from tezcat_vault import markdown as md
 from tezcat_vault import tasks as tk
 from tezcat_vault.vault import Vault, VaultError, read_lossy
 
-SOON_DAYS = 3   # "due soon" horizon
+SOON_DAYS = 3   # "due soon" horizon (the Today view's forward glance)
+
+
+def week_end(d: dt.date) -> dt.date:
+    """The Sunday ending d's week — the ⏳ anchor for week-granular plans
+    ("this week" stamps this Sunday, "next week" the one after)."""
+    return d + dt.timedelta(days=6 - d.weekday())
 MAX_ROWS = 8    # per section; the rest folds behind a "+N more"
 WAITING_AGE_MIN = 3  # days before a waiting item starts showing its age
 
@@ -71,13 +75,25 @@ def collect(v: Vault, cfg, pending_decisions: int, today: dt.date | None = None)
     the full sets."""
     today = today or dt.date.today()
     surface_dirs = cfg.surface_dirs
-    dated, boards = _walk(v, surface_dirs)
+    open_tasks, boards = _walk(v, surface_dirs)
+    due, planned, this_week, next_week, later = _time_model(
+        open_tasks, today, cfg.waiting_inbox)
     return {
         "date": today.isoformat(),
         "pending_decisions": pending_decisions,
-        # Capture is the only surface left to point at (2026-07-26).
+        # Capture is the only vault surface there is to point at.
         "surfaces": {"capture": cfg.surfaces.get("capture", "")},
-        "due": _due_model(dated, today),
+        "due": due,
+        # The week-granular lanes: planned = ⏳ today or carried; this
+        # week / next week are calendar weeks (Sunday-anchored) mixing
+        # hard dues and plans, each row labeled; later = dated past next
+        # week; backlog = the long-term queue (no date, no week) that
+        # promotion and plan_today draw from.
+        "planned": planned,
+        "this_week": this_week,
+        "next_week": next_week,
+        "later": later,
+        "backlog": _backlog(open_tasks, cfg.capture_inbox, today),
         "waiting": _waiting_rows(v, cfg.waiting_inbox, today),
         "stranded": _stranded_meeting_actions(v, cfg.meetings_dir, today),
         "meetings": _meetings_today(v, cfg.meetings_dir, today),
@@ -86,33 +102,99 @@ def collect(v: Vault, cfg, pending_decisions: int, today: dt.date | None = None)
     }
 
 
-def _due_model(dated: list[tuple[tk.Task, str]], today: dt.date) -> dict:
-    """Bucketed so old debt can never crowd out the present. Overdue is
-    ordered freshest-first (ancient overdue is the least actionable);
-    soon is ordered soonest-first."""
+def _time_model(open_tasks: list[tuple[tk.Task, str]], today: dt.date,
+                waiting_inbox: str):
+    """(due buckets, planned, this_week, next_week, later). Bucketed so
+    old debt can never crowd out the present: overdue is ordered
+    freshest-first (ancient overdue is the least actionable).
+
+    Precedence per task — one task, one row:
+    - a hard 📅 at or past today outranks any plan (a deadline is a fact)
+    - ⏳ at or past today is TODAY's row (`slipped` counts the carry —
+      a week plan that ends undone rolls into today for re-deciding)
+    - 📅 inside the soon horizon still surfaces on Today (imminent
+      deadlines outrank week filing)
+    - otherwise the earliest of ⏳/📅 files the task into its calendar
+      week: this week, next week, or later — `kind` says which field
+      placed it, so the row can say "due Thu" vs "planned".
+    The waiting inbox is excluded — region 3 owns that note."""
     horizon = today + dt.timedelta(days=SOON_DAYS)
-    out: dict = {"horizon": horizon.isoformat(),
+    this_sunday = week_end(today)
+    next_sunday = this_sunday + dt.timedelta(days=7)
+    due: dict = {"horizon": horizon.isoformat(),
+                 "this_sunday": this_sunday.isoformat(),
+                 "next_sunday": next_sunday.isoformat(),
                  "broken": [], "overdue": [], "due_today": [], "soon": []}
-    for task, rel in dated:
-        d = _safe_date(task.due)
-        row = {"text": task.text, "due": task.due, "note": rel}
-        if d is None:
-            out["broken"].append(row)
-        elif d < today:
-            out["overdue"].append({**row, "days": (today - d).days})
-        elif d == today:
-            out["due_today"].append({**row, "days": 0})
-        elif d <= horizon:
-            out["soon"].append({**row, "days": (d - today).days})
-    out["overdue"].sort(key=lambda r: r["days"])
-    out["soon"].sort(key=lambda r: r["days"])
-    return out
+    planned: list[dict] = []
+    this_week: list[dict] = []
+    next_week: list[dict] = []
+    later: list[dict] = []
+    for task, rel in open_tasks:
+        if rel == waiting_inbox:
+            continue
+        d = _safe_date(task.due) if task.due else None
+        s = _safe_date(task.scheduled) if task.scheduled else None
+        row = {"text": task.text, "due": task.due or "",
+               "scheduled": task.scheduled or "", "note": rel}
+        if task.due and d is None:
+            due["broken"].append(row)
+        elif d is not None and d < today:
+            due["overdue"].append({**row, "days": (today - d).days})
+        elif d is not None and d == today:
+            due["due_today"].append({**row, "days": 0})
+        elif s is not None and s <= today:
+            planned.append({**row, "slipped": (today - s).days})
+        else:
+            # soon (Today's forward glance) and the week buckets (the
+            # Week tab) are different VIEWS: a task due in 2 days
+            # legitimately rows in both.
+            if d is not None and d <= horizon:
+                due["soon"].append({**row, "days": (d - today).days})
+            when = min(x for x in (d, s) if x is not None) if (d or s) else None
+            if when is None:
+                continue  # undated & unplanned: the backlog's business
+            week_row = {**row, "when": when.isoformat(),
+                        "kind": "due" if when == d else "planned",
+                        "days": (when - today).days}
+            if when <= this_sunday:
+                this_week.append(week_row)
+            elif when <= next_sunday:
+                next_week.append(week_row)
+            else:
+                later.append(week_row)
+    due["overdue"].sort(key=lambda r: r["days"])
+    due["soon"].sort(key=lambda r: r["days"])
+    planned.sort(key=lambda r: -r["slipped"])       # longest-carried first
+    for bucket in (this_week, next_week, later):
+        bucket.sort(key=lambda r: (r["kind"] != "due", r["days"]))
+    return due, planned, this_week, next_week, later[:50]
+
+
+def _backlog(open_tasks: list[tuple[tk.Task, str]], capture_inbox: str,
+             today: dt.date, cap: int = 100) -> list[dict]:
+    """The judgment pool: open, top-level inbox tasks with neither a 📅
+    nor a ⏳ — nothing the time model can place. Oldest first (age is
+    the strongest deterministic surfacing signal we have), bounded so a
+    neglected inbox costs one big list, not an unbounded one."""
+    rows = []
+    for task, rel in open_tasks:
+        if rel != capture_inbox or task.due or task.scheduled:
+            continue
+        if task.raw.lstrip() != task.raw:
+            continue  # subtasks ride with their parent
+        born = _safe_date(task.created) if task.created else None
+        rows.append({"text": task.text, "note": rel,
+                     "priority": task.priority or "",
+                     "age_days": (today - born).days if born else None,
+                     "id": task.block_id or ""})
+    rows.sort(key=lambda r: -(r["age_days"] or -1))
+    return rows[:cap]
 
 
 def _walk(v: Vault, surface_dirs: frozenset[str]):
-    """One walk: (dated open tasks, boards). Kanban cards carry no dates
-    and are reported via their boards, not the task list."""
-    dated: list[tuple[tk.Task, str]] = []
+    """One walk: (open tasks, boards). Kanban cards carry no dates and
+    are reported via their boards, not the task list."""
+    open_tasks: list[tuple[tk.Task, str]] = []
     boards: list[tuple[str, kb.Board]] = []
     for p, rel in v.iter_knowledge_notes(surface_dirs):
         text = read_lossy(p)
@@ -124,9 +206,9 @@ def _walk(v: Vault, surface_dirs: frozenset[str]):
                 pass  # a malformed board never breaks the dashboard
             continue
         for task in tk.iter_tasks(text):
-            if not task.done and task.due:
-                dated.append((task, rel))
-    return dated, boards
+            if not task.done:
+                open_tasks.append((task, rel))
+    return open_tasks, boards
 
 
 def _waiting_rows(v: Vault, waiting_inbox: str, today: dt.date) -> list[dict]:
@@ -194,8 +276,8 @@ def _in_flight(boards: list[tuple[str, kb.Board]]) -> list[dict]:
 
 def _activity_since_midnight(v: Vault, today: dt.date, surface_dirs: frozenset[str]) -> int:
     """Snapshot commits since midnight, excluding those that touched only
-    Harness/ surfaces — so this render's own commit (and Review/Changes
-    re-renders) can never change the count and feed the next render."""
+    Harness/ surfaces — the harness maintaining its own surfaces is not
+    the user's activity."""
     v.ensure_repo()
     r = v._git("log", "--since", f"{today.isoformat()}T00:00:00",
                "--pretty=format:%x1e%H", "--name-only")
@@ -248,9 +330,9 @@ def _in_flight_row_md(r: dict) -> str:
 
 
 def to_markdown(model: dict) -> str:
-    """Pure function of the view-model. This stopped being written into
-    the vault on 2026-07-26 — it is now what `tezcat today` prints, the
-    headless view for when the dashboard isn't running."""
+    """Pure function of the view-model: what `tezcat today` prints, the
+    headless view for when the dashboard isn't running. Never written
+    into the vault."""
     today = dt.date.fromisoformat(model["date"])
     capture = model["surfaces"]["capture"]
 
@@ -266,6 +348,12 @@ def to_markdown(model: dict) -> str:
                       f"the dashboard, or `tezcat decide <id> approve`**"]
 
     lines += ["", "## Due", *_due_section_md(model["due"])]
+
+    planned = [f"- {r['text']}"
+               + (f" — carried {r['slipped']}d" if r["slipped"] else "")
+               + f" · {_link(r['note'])}" for r in model.get("planned", [])]
+    if planned:
+        lines += ["", "## Planned today", *_cap(planned)]
 
     waiting = [_waiting_row_md(r) for r in model["waiting"]]
     if waiting:
@@ -283,6 +371,10 @@ def to_markdown(model: dict) -> str:
     in_flight = [_in_flight_row_md(r) for r in model["in_flight"]]
     if in_flight:
         lines += ["", "## In flight", *_cap(in_flight)]
+
+    if model.get("backlog"):
+        lines += ["", f"_{len(model['backlog'])} undated task(s) in the backlog "
+                      f"— plan from the dashboard's Week tab_"]
 
     if model["activity"]:
         lines += ["", f"_{model['activity']} vault change(s) since midnight "

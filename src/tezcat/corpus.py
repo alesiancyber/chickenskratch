@@ -6,17 +6,16 @@ self-contained JSONL row under data/corpus/YYYY-MM.jsonl. Rows inline
 the full trajectory because chat transcripts are scratch (the vault is
 the archive); anything that reconstructs via chat_id would be broken by
 the time a fine-tune wants it. Capture only: no export or training
-pipeline here. record_dashboard is the live label source;
-record_confirm and record_revert wait on their owned-surface callers
-(the escape-hatch pane's inline write gate and the dashboard's revert
-button — research/owned-surfaces-plan.md).
+pipeline here. Four label sources: record_dashboard (proposal
+decisions), record_confirm (the pane's write gate), record_revert
+(the dashboard's ↺ and the CLI), record_reschedule (a human dragging
+a task across the time axis).
 
 Capture never breaks its caller: _append swallows its own failures, so a
 full disk or an unserializable payload costs a training row, not a
-decision, a gate, or a revert. That guarantee used to be spelled
-`try/except OSError: pass` at each of the three call sites — which meant
-it was three chances to forget, and it caught only OSError (a TypeError
-out of json.dumps sailed straight through into the caller).
+decision, a gate, or a revert. The swallow lives HERE, once — spelled
+per-call-site it is N chances to forget, and a bare `except OSError`
+misses the TypeError json.dumps raises on an exotic payload.
 """
 
 from __future__ import annotations
@@ -53,7 +52,8 @@ def _append(rec: dict, corpus_dir: Path | None) -> Path | None:
     telemetry: losing one must never cost the user the decision, the
     gate verdict, or the revert that produced it."""
     label = rec.get("label", {})
-    if not rec.get("messages") and not label.get("proposal") and not label.get("sha"):
+    if (not rec.get("messages") and not label.get("proposal")
+            and not label.get("sha") and not label.get("task")):
         return None
     try:
         d = Path(corpus_dir) if corpus_dir else CORPUS_DIR
@@ -115,6 +115,40 @@ def record_revert(
         "commit_message": commit_message,
     }
     return _append(_envelope(chat_id, model, messages, label), corpus_dir)
+
+
+def record_reschedule(
+    note: str,
+    task_line: str,
+    task_text: str,
+    from_due: str | None,
+    to_due: str | None,
+    field: str = "due",
+    corpus_dir: Path | None = None,
+) -> Path | None:
+    """A human moving a task along the time axis. `field` says which
+    axis: "due" (📅, the rare hard commitment) or "scheduled" (⏳, the
+    plan — where promote/defer live). No polarity — this is a scheduling
+    label, not an approval: which tasks a person pulls forward and which
+    they push is the signal a future triage worker trains on. The raw
+    line makes the row self-contained."""
+    if to_due and (not from_due or to_due < from_due):
+        direction = "promote"
+    elif from_due and (not to_due or to_due > from_due):
+        direction = "defer"
+    else:
+        direction = "unchanged"
+    label = {
+        "source": "reschedule",
+        "field": field,
+        "note": note,
+        "task": task_line,
+        "task_text": task_text,
+        "from_due": from_due,
+        "to_due": to_due,
+        "direction": direction,
+    }
+    return _append(_envelope("", "", [], label), corpus_dir)
 
 
 def record_dashboard(

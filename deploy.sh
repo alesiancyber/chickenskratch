@@ -157,6 +157,6 @@ cat <<EOF
   Config:    $VAULT/Harness/Spec.md   (worker model, auto_apply, knobs — live per pass)
   Daemon:    data/logs/tezcatd.log    ($([ "$LAUNCHD" = 1 ] && echo installed || echo "skipped — run: daemon/target/release/tezcatd --vault $VAULT --repo $REPO"))
 
-  Try it: open any note, type '//azure obsidian sync' on its own line, press Enter.
+  Try it: open any note, type '//azure storage account keys' on its own line, press Enter.
   Worker model: set 'worker: <profile>' in Spec.md (profiles/keys in config/models.yaml + .env).
 EOF

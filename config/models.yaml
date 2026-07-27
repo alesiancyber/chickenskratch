@@ -6,7 +6,7 @@
 # Raise it globally with `OLLAMA_CONTEXT_LENGTH=16384 ollama serve`, or
 # bake it into a Modelfile.
 
-default: gemini-3.1-pro   # explicit cloud switch 2026-07-22; local profiles below still work via -m
+default: gemini-3.1-pro   # cloud is the deliberate default; local profiles below still work via -m
 worker: gemini-3.1-pro    # profile the background workers run on (WORKER_* env still overrides)
 vault: ../testvault   # relative to this config file
 
@@ -28,8 +28,8 @@ backends:
     # Dedicated worker model (task extraction — src/tezcat_vault/workers.py).
     # --chat-template-args disables Qwen3.5's default thinking mode: with it
     # on, every reply hides in `reasoning` and the worker fails loud.
-    # A/B vs gemma4:e2b (2026-07-20, evals/reports/workers/): 7/8 vs 6/8,
-    # ~7x faster; qwen errs by inventing (visible), gemma by dropping (not).
+    # Chosen by worker-eval bakeoff (evals/reports/workers/); re-run the
+    # suite before swapping it.
     url: http://127.0.0.1:8081/v1
     command: "uv tool run --from mlx-lm mlx_lm.server --model mlx-community/Qwen3.5-4B-MLX-4bit --port 8081 --chat-template-args '{\"enable_thinking\": false}'"
 
@@ -57,14 +57,11 @@ models:
     max_iterations: 10
     max_tool_result_chars: 4000
     confirm_writes: true
-    servers: [obsidian]        # 4b gets the minimal tool surface
+    servers: [vault]        # 4b gets the minimal tool surface
 
-  # Cloud profiles. As of 2026-07-22
-  # the cloud switch is deliberately ON: gemini-3.1-pro is the default
-  # chat profile, reached DIRECTLY at the Google endpoint with
-  # GEMINI_API_KEY from the gitignored .env (reverted 2026-07-25: the
-  # 2026-07-24 work-LiteLLM routing is unreachable off the work network
-  # — that variant lives in git history if it's ever needed again).
+  # Cloud profiles. The cloud switch is deliberately ON: gemini-3.1-pro
+  # is the default chat profile, reached DIRECTLY at the Google endpoint
+  # with GEMINI_API_KEY from the gitignored .env.
   # Vault text (minus Private/, excluded in code) leaves the machine on
   # these profiles — the no-secrets rule (PHILOSOPHY.md I4) is
   # load-bearing here.
@@ -74,9 +71,9 @@ models:
   # override it, and with neither set workers fall back to the local
   # mlx-worker backend.
 
-  # Flagship (most capable). The Pro tier is preview-only on the API as
-  # of 2026-07-22 (verified against this key's /models list — no stable
-  # gemini-3.1-pro exists); revisit the id when it stabilizes.
+  # Flagship (most capable). The Pro tier is preview-only on the API
+  # (no stable gemini-3.1-pro id exists yet); revisit the id when it
+  # stabilizes.
   gemini-3.1-pro:
     model: gemini-3.1-pro-preview
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/
@@ -89,7 +86,7 @@ models:
     # filesystem server. I4's spirit: what leaves the machine is the
     # vault's non-private content, nothing else. Filesystem search stays
     # available on the local profiles, where results never egress.
-    servers: [obsidian, ms-learn]
+    servers: [vault, ms-learn]
 
   # Fast mid-tier — the sensible worker/daily-driver alternative.
   gemini-3.6-flash:
@@ -100,7 +97,7 @@ models:
     max_iterations: 15
     max_tool_result_chars: 24000
     confirm_writes: true
-    servers: [obsidian, ms-learn]   # cloud never sees the filesystem server
+    servers: [vault, ms-learn]   # cloud never sees the filesystem server
 
   # Cheapest non-deprecated tier; kept for cost-sensitive one-offs.
   gemini-3.5-flash-lite:
@@ -110,7 +107,7 @@ models:
     temperature: 0.2
     max_iterations: 15
     confirm_writes: true
-    servers: [obsidian, ms-learn]   # cloud never sees the filesystem server
+    servers: [vault, ms-learn]   # cloud never sees the filesystem server
 
   # Example future entry for the 32GB network server:
   # homelab-70b:

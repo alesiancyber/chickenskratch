@@ -24,7 +24,7 @@ import yaml
 from tezcat_vault import ids
 from tezcat_vault import markdown as md
 from tezcat_vault import tasks as tk
-from tezcat_vault.vault import VaultError, read_lossy
+from tezcat_vault.vault import VaultError
 from tezcat_vault.vaultconfig import SPEC_REL, get_config
 
 from . import applier, grouping, proposals
@@ -55,7 +55,7 @@ class ProcessorSpec:
     on_applied: Callable[[Watcher, dict], None] | None = None  # post-apply hook
     # Deterministic safety check enabling auto-apply (Spec.md `auto_apply`):
     # (w, item, proposal) -> failure strings. Empty = safe to apply without
-    # a checkbox; any failure (or no verifier) = the Review.md queue.
+    # a human verdict; any failure (or no verifier) = the review queue.
     verify: Callable[[Watcher, dict, dict], list[str]] | None = None
 
 
@@ -113,11 +113,11 @@ async def draft_capture(w: Watcher, item: dict) -> dict | None:
         note=item["note"],
         vault_sha=item["vault_sha"],
         # Hash the stripped TEXT, not the raw note: extraction only ever
-        # sees the text, so staleness must key on it too. Hashing raw let
-        # a whitespace-only autosave between scan and approval void the
-        # user's approval — and the unchanged text hash then blocked the
-        # re-arm, silently dropping the task (2026-07-24). is_stale
-        # normalizes the same way for capture proposals.
+        # sees the text, so staleness must key on it too. Hashing raw
+        # lets a whitespace-only autosave between scan and approval void
+        # the user's approval — and the unchanged text hash then blocks
+        # the re-arm, silently dropping the task. is_stale normalizes
+        # the same way for capture proposals.
         note_content=item["text"],
         title="Add " + " + ".join(parts),
         summary=f"Extracted from {item['note']}; approving adds them and clears the surface.",
@@ -131,7 +131,11 @@ async def draft_capture(w: Watcher, item: dict) -> dict | None:
 
 
 def _capture_applied(w: Watcher, p: dict) -> None:
-    if w.capture_rel:
+    # A PARTIAL approval leaves the dump in place: clearing the surface
+    # would discard the user's text behind the steps they did NOT
+    # approve. The seen-hash keeps the remaining text from re-drafting;
+    # editing the surface re-arms extraction.
+    if w.capture_rel and not p.get("partial"):
         reset_capture(w)
 
 
@@ -152,12 +156,13 @@ def _split_owed(tasks: list[dict]) -> tuple[list[dict], list[dict]]:
 
 
 def _task_issue(t: dict) -> str:
-    """One extracted task as a Review.md line — what the user is being
-    asked to approve, dates and priorities included."""
+    """One extracted task as a reviewable issue line — what the user is
+    being asked to approve, dates and priorities included."""
     return (
         (f"waiting on {t['owed_by']}: " if t.get("owed_by") else "")
         + t["text"]
         + (f" — due {t['due']}" if t.get("due") else "")
+        + (f" — planned for week of {t['scheduled']}" if t.get("scheduled") else "")
         + (f", {t['priority']}" if t.get("priority") else "")
     )
 
@@ -173,6 +178,7 @@ def _add_task_step(path: str, t: dict) -> dict:
         "path": path,
         "text": f"{t['owed_by']}: {t['text']}" if t.get("owed_by") else t["text"],
         **({"due": t["due"]} if t.get("due") else {}),
+        **({"scheduled": t["scheduled"]} if t.get("scheduled") else {}),
         **({"priority": t["priority"]} if t.get("priority") else {}),
     }}
 
@@ -277,7 +283,8 @@ async def draft_inbox(w: Watcher, item: dict) -> dict | None:
     while kept and not kept[-1].strip():
         kept.pop()
     new_lines = [
-        tk.format_task(t["text"], t.get("due"), t.get("priority"), block_id=ids.stamp_id("t"))
+        tk.format_task(t["text"], t.get("due"), t.get("priority"),
+                       block_id=ids.stamp_id("t"), scheduled=t.get("scheduled"))
         for t in own
     ]
     content = "\n".join([*kept, *new_lines]).strip("\n")
@@ -532,27 +539,25 @@ async def draft_spec_drift(w: Watcher, item: dict) -> dict | None:
 
 
 def scan_schema(w: Watcher) -> list[dict]:
-    """Deterministic work items per nonconforming note. Harness/ and
-    Private/ are excluded by the validate_schema implementation itself
-    (the engine points tezcat_vault at this vault at pass start);
+    """Deterministic work items per nonconforming note, validated over
+    the pass's shared note cache (Harness/ and Private/ never enter it);
     coverage dedupe and sha stamping are engine context."""
     from tezcat_vault import server
 
     items = []
-    for row in server.validate_schema(limit=10_000)["nonconforming"]:
+    for row in server.nonconforming_rows(w.pass_notes().items()):
         try:
             content = w.vault.read(row["note"])
         except VaultError:
-            # Per NOTE, not per processor. validate_schema walks with
-            # read_lossy, so it happily reports a mis-encoded note that
-            # this strict read then rejects — and the engine catches scan
-            # failures at the PROCESSOR level, so one latin-1 note (a
-            # paste out of Outlook is enough) silently disabled schema
-            # fixing entirely, every pass, forever. Skipping the note
-            # costs that note its fix; raising cost every note theirs.
-            # Strict is still right here: this content is the base for a
-            # read-modify-write, and replacement chars must never be
-            # written back.
+            # Per NOTE, not per processor. The cache reads lossily, so it
+            # happily reports a mis-encoded note that this strict read
+            # then rejects — and the engine catches scan failures at the
+            # PROCESSOR level, so one latin-1 note (a paste out of
+            # Outlook is enough) would silently disable schema fixing
+            # entirely, every pass. Skipping the note costs that note its
+            # fix; raising costs every note theirs. Strict is still right
+            # here: this content is the base for a read-modify-write, and
+            # replacement chars must never be written back.
             continue
         items.append({
             "kind": "schema_fix",
@@ -596,12 +601,10 @@ async def draft_schema(w: Watcher, item: dict) -> dict | None:
 
 def scan_grouping(w: Watcher) -> list[dict]:
     """Groupable flat task lists (grouping.py's structural rules), one
-    work item per note. Surfaces are machine-rendered, not knowledge —
-    never candidates; Private/ is invisible to iter_notes already."""
-    surface_dirs = get_config(w.vault_path).surface_dirs
+    work item per note, over the pass's shared note cache (surfaces are
+    machine-rendered, not knowledge — never in it; Private/ likewise)."""
     items = []
-    for p, rel in w.vault.iter_knowledge_notes(surface_dirs):
-        text = read_lossy(p)
+    for rel, text in w.pass_notes().items():
         cand = grouping.note_candidate(text)
         if cand is None:
             continue
@@ -700,6 +703,319 @@ def verify_archive(w: Watcher, item: dict, proposal: dict) -> list[str]:
     return failures
 
 
+# ---- overlap: duplicates and links across notes ----
+#
+# The pattern: build the boundary in code, let similarity rank inside
+# it, and let one bounded judge call decide — never more. Exact
+# duplicates (normalized-identical text) are found deterministically;
+# near-matches come from the embedding index (content-hash cached, so
+# an unchanged vault re-embeds nothing) and are judged in ONE worker
+# call: duplicate (remove the redundant copy), related (add a ⇄ link —
+# links, not prose), or distinct (drop it). Verdicts queue — judgment
+# has no verifier — and resolved pair verdicts are remembered via the
+# queue itself, so a rejected pair stops nagging (until queue retention
+# expires it).
+
+OVERLAP_SIM_THRESHOLD = 0.80  # cosine floor for a pair to be worth judging
+MAX_OVERLAP_PAIRS = 4         # judged pairs per pass — a trickle, not an audit
+
+_NORM_RE = re.compile(r"[^a-z0-9 ]+")
+
+
+def _norm_text(text: str) -> str:
+    return " ".join(_NORM_RE.sub(" ", text.lower()).split())
+
+
+def _metadata_score(t) -> int:
+    return int(bool(t.due)) + int(bool(t.scheduled)) + int(bool(t.priority))
+
+
+def _linked_line(raw: str, target_note: str, target_id: str) -> str:
+    """`raw` with a ⇄ block link to the other task appended — before the
+    trailing ^ref, which must stay the last token."""
+    core, ref = ids.split_block_ref(raw)
+    line = f"{core} ⇄ [[{target_note.removesuffix('.md')}#^{target_id}]]"
+    return ids.attach_block_ref(line, ref) if ref else line
+
+
+def _decided_pairs(w: Watcher) -> set[frozenset]:
+    """Pairs a human (or staleness) already resolved: never re-ask. The
+    queue is the memory — resolved overlap proposals carry their pairs,
+    and queue retention (30d) is the natural expiry of a dismissal."""
+    decided = set()
+    for p in proposals.load_all(w.proposals_dir):
+        if p.get("kind") != "overlap" or p.get("status") == "pending":
+            continue
+        for pair in p.get("pairs", []):
+            if len(pair) == 2:
+                decided.add(frozenset(pair))
+    return decided
+
+
+def scan_overlap(w: Watcher) -> list[dict]:
+    """The comparison pool: every open, top-level, stamped task across
+    the knowledge notes (the pass cache — no walk of its own). Exact
+    duplicates are paired here in code; near-match pairing needs the
+    embedding index and lives in the draft, where async belongs. The
+    seen-hash keys on the whole pool, so an unchanged vault never
+    re-embeds or re-judges."""
+    cfg = get_config(w.vault_path)
+    pool: list[tuple] = []  # (Task, rel)
+    for rel, text in w.pass_notes().items():
+        for t in tk.iter_tasks(text):
+            if t.done or t.raw.lstrip() != t.raw or not t.block_id:
+                continue
+            pool.append((t, rel))
+    if len(pool) < 2:
+        return []
+    key = content_hash("\n".join(f"{rel}\t{t.block_id}\t{t.text}" for t, rel in sorted(
+        pool, key=lambda x: (x[1], x[0].block_id))))
+    if key == w.seen.get("overlap"):
+        return []
+    decided = _decided_pairs(w)
+    by_norm: dict[str, list] = {}
+    for t, rel in pool:
+        norm = _norm_text(t.text)
+        if norm:
+            by_norm.setdefault(norm, []).append((t, rel))
+    exact = []
+    for _norm, group in by_norm.items():
+        for i in range(len(group)):
+            for j in range(i + 1, len(group)):
+                a, b = group[i], group[j]
+                if frozenset((a[0].block_id, b[0].block_id)) in decided:
+                    continue
+                exact.append((a, b))
+    try:
+        content = w.vault.read(cfg.capture_inbox)
+    except VaultError:
+        return []
+    return [{
+        "kind": "overlap",
+        # Anchored on the inbox (capture's dups mostly involve it); the
+        # real per-step staleness is replace_line's exactly-once anchor,
+        # which fails loud if any target line moved.
+        "note": cfg.capture_inbox,
+        "content": content,
+        "vault_sha": w._pass_sha,
+        "pool": pool,
+        "exact": exact[:MAX_OVERLAP_PAIRS],
+        "decided": decided,
+        "seen_key": key,
+    }]
+
+
+async def _fuzzy_candidates(w: Watcher, item: dict) -> list[tuple]:
+    """Near-match pairs from the embedding index, best first, bounded.
+    Degrades to [] when the endpoint is down — exact duplicates and the
+    rest of the pass never depend on the embedder (I6)."""
+    from tezcat.embeddings import EmbeddingError, cosine
+
+    pool = item["pool"]
+    texts = {t.block_id: t.text for t, _rel in pool}
+    try:
+        vecs = await w.embedder(w.vault_path, texts)
+    except (EmbeddingError, Exception) as e:  # noqa: BLE001 — degrade, never fail
+        print(f"overlap: embeddings unavailable, exact-only this pass ({e})")
+        return []
+    by_id = {t.block_id: (t, rel) for t, rel in pool}
+    exact_ids = {frozenset((a[0].block_id, b[0].block_id)) for a, b in item["exact"]}
+    scored = []
+    ids_list = [i for i in texts if i in vecs]
+    for i in range(len(ids_list)):
+        for j in range(i + 1, len(ids_list)):
+            a, b = ids_list[i], ids_list[j]
+            pair = frozenset((a, b))
+            if pair in item["decided"] or pair in exact_ids:
+                continue
+            ta, ra = by_id[a]
+            tb, rb = by_id[b]
+            # already linked either way: the ⇄ is the durable verdict
+            if a in tb.raw or b in ta.raw:
+                continue
+            sim = cosine(vecs[a], vecs[b])
+            if sim >= OVERLAP_SIM_THRESHOLD:
+                scored.append((sim, by_id[a], by_id[b]))
+    scored.sort(key=lambda x: -x[0])
+    return [(a, b) for _s, a, b in scored[:MAX_OVERLAP_PAIRS]]
+
+
+def _overlap_steps(verdicts: list[dict], capture_inbox: str) -> tuple[list, list, list]:
+    """(apply steps, issues, pairs) from judged verdicts — one step per
+    actionable pair, 1:1 with issues so partial approval reads cleanly."""
+    steps, issues, pairs = [], [], []
+    for v in verdicts:
+        (ta, ra), (tb, rb) = v["a"], v["b"]
+        pairs.append([ta.block_id, tb.block_id])
+        if v["verdict"] == "duplicate":
+            keep_a = v["keep"] == ta.block_id
+            win, wrel = (ta, ra) if keep_a else (tb, rb)
+            lose, lrel = (tb, rb) if keep_a else (ta, ra)
+            issues.append(f"duplicate: “{lose.text}” ({lrel}) ≡ kept in {wrel}")
+            steps.append({"tool": "replace_line", "args": {
+                "path": lrel, "line_text": lose.raw, "content": ""}})
+        else:  # related
+            # the inbox copy carries the link (it's the transient one);
+            # otherwise the pair's first task does
+            if rb == capture_inbox and ra != capture_inbox:
+                src, srel, dst, drel = tb, rb, ta, ra
+            else:
+                src, srel, dst, drel = ta, ra, tb, rb
+            issues.append(f"related: “{src.text}” ({srel}) ⇄ “{dst.text}” ({drel})")
+            steps.append({"tool": "replace_line", "args": {
+                "path": srel, "line_text": src.raw,
+                "content": _linked_line(src.raw, drel, dst.block_id)}})
+    return steps, issues, pairs
+
+
+async def draft_overlap(w: Watcher, item: dict) -> dict | None:
+    """Exact pairs with a one-sided metadata story resolve in code; every
+    other candidate goes to the judge in ONE batched call. Verdicts the
+    judge returns as distinct simply don't become steps — and the pool
+    hash plus the queue's pair memory keep them from being re-asked."""
+    verdicts: list[dict] = []
+    to_judge: list[tuple] = []
+    for a, b in item["exact"]:
+        (ta, _ra), (tb, _rb) = a, b
+        sa, sb = _metadata_score(ta), _metadata_score(tb)
+        if sa and sb:
+            to_judge.append((a, b))  # both carry metadata: not mechanically mergeable
+            continue
+        if sa != sb:
+            win, lose = (a, b) if sa > sb else (b, a)
+        else:  # both bare: the older line wins; tie falls to the first
+            win, lose = (a, b) if (a[0].created or "") <= (b[0].created or "") else (b, a)
+        verdicts.append({"a": win, "b": lose, "verdict": "duplicate",
+                         "keep": win[0].block_id})
+    to_judge += await _fuzzy_candidates(w, item)
+    # Asked and answered for this pool, whatever the outcome.
+    w.seen["overlap"] = item["seen_key"]
+    if to_judge:
+        reply = await w.overlap_drafter(item, to_judge)
+        answered = {}
+        for p in reply.get("pairs") or []:
+            answered[frozenset((str(p.get("a")), str(p.get("b"))))] = p
+        for a, b in to_judge:
+            key = frozenset((a[0].block_id, b[0].block_id))
+            p = answered.get(key)
+            if p is None:
+                return None  # silently-missing pairs are failures (grouping's rule)
+            verdict = p.get("verdict")
+            if verdict == "duplicate":
+                keep = str(p.get("keep") or "")
+                if keep not in key:
+                    return None  # invented keep id: broken output dies here
+                verdicts.append({"a": a, "b": b, "verdict": "duplicate", "keep": keep})
+            elif verdict == "related":
+                verdicts.append({"a": a, "b": b, "verdict": "related", "keep": None})
+            elif verdict != "distinct":
+                return None
+    actionable = [v for v in verdicts if v["verdict"] in ("duplicate", "related")]
+    if not actionable:
+        return None
+    cfg = get_config(w.vault_path)
+    steps, issues, pairs = _overlap_steps(actionable, cfg.capture_inbox)
+    p = proposals.new_proposal(
+        kind="overlap",
+        note=item["note"],
+        vault_sha=item["vault_sha"],
+        note_content=item["content"],
+        title=f"Resolve {len(steps)} overlapping task pair(s)",
+        summary="Duplicates: the redundant copy is removed (the kept line is "
+        "untouched, and the removal is one revertible snapshot). Related: a "
+        "⇄ link is added — links, not prose. Approve per pair.",
+        issues=issues,
+        apply=steps,
+        entity_ids=[i for pair in pairs for i in pair],
+    )
+    p["pairs"] = pairs  # the queue's dismissal memory (see _decided_pairs)
+    return p
+
+
+# ---- plan_today: the judgment lane — pick today's work from the backlog ----
+
+MAX_PLAN_PICKS = 3
+
+
+def scan_plan(w: Watcher) -> list[dict]:
+    """The undated pool: open, top-level, stamped inbox tasks carrying
+    neither 📅 nor ⏳ — nothing deterministic can place them, so placing
+    them IS judgment, and judgment always queues (no verifier can vouch
+    for a plan). One work item for the whole pool; the once-a-day
+    cadence rides the seen-hash (keyed on date + pool), so a rejected
+    plan never re-asks until tomorrow or the inbox changes."""
+    cfg = get_config(w.vault_path)
+    try:
+        content = w.vault.read(cfg.capture_inbox)
+    except VaultError:
+        return []
+    pool = [t for t in tk.iter_tasks(content)
+            if not t.done and t.raw.lstrip() == t.raw
+            and not t.due and not t.scheduled and t.block_id]
+    if not pool:
+        return []
+    today = dt.date.today().isoformat()
+    key = content_hash(today + "\n".join(t.block_id for t in pool))
+    if key == w.seen.get("plan_today"):
+        return []
+    # What's already committed today (due or planned) — the worker needs
+    # this to know when picking nothing is the right answer. Counted off
+    # the pass's note cache: no extra walk.
+    committed = 0
+    for text in w.pass_notes().values():
+        for t in tk.iter_tasks(text):
+            if t.done:
+                continue
+            if (t.due and t.due <= today) or (t.scheduled and t.scheduled <= today):
+                committed += 1
+    return [{
+        "kind": "plan_today",
+        "note": cfg.capture_inbox,
+        "content": content,
+        "vault_sha": w._pass_sha,
+        "tasks": pool,
+        "today": today,
+        "committed": committed,
+        "seen_key": key,
+    }]
+
+
+async def draft_plan(w: Watcher, item: dict) -> dict | None:
+    reply = await w.plan_drafter(item)
+    # Asked and answered for this pool+day, whatever the answer: an
+    # empty or broken reply must not re-ask every pass.
+    w.seen["plan_today"] = item["seen_key"]
+    pool = {t.block_id: t for t in item["tasks"]}
+    picks = reply.get("picks") or []
+    ids = [str(p.get("id", "")) for p in picks]
+    if not ids:
+        return None  # "nothing worth surfacing today" is a correct answer
+    if (len(ids) > MAX_PLAN_PICKS or len(set(ids)) != len(ids)
+            or any(i not in pool for i in ids)):
+        return None  # broken output dies here, never in the queue
+    issues = []
+    for p in picks:
+        t = pool[str(p["id"])]
+        reason = str(p.get("reason", "")).strip()
+        issues.append(t.text + (f" — {reason}" if reason else ""))
+    return proposals.new_proposal(
+        kind="plan_today",
+        note=item["note"],
+        vault_sha=item["vault_sha"],
+        note_content=item["content"],
+        title=f"Plan today: {len(ids)} task(s) from the backlog",
+        summary="Approving stamps ⏳ today on the picked tasks — a plan, "
+        "never a deadline. Approve some, reject the rest: every verdict "
+        "teaches the judge your judgment.",
+        issues=issues,
+        apply=[{"tool": "set_task_scheduled", "args": {
+            "path": item["note"], "task_text": pool[i].text,
+            "scheduled": item["today"],
+        }} for i in ids],
+        entity_ids=ids,
+    )
+
+
 # ---- the registry ----
 
 CAPTURE = ProcessorSpec(
@@ -715,16 +1031,29 @@ SCHEMA_FIX = ProcessorSpec("schema_fix", scan_schema, draft_schema,
 GROUPING = ProcessorSpec("grouping", scan_grouping, draft_grouping)
 ARCHIVE_DONE = ProcessorSpec("archive_done", scan_archive, draft_archive,
                              render_diff=False, verify=verify_archive)
+OVERLAP = ProcessorSpec("overlap", scan_overlap, draft_overlap,
+                        render_diff=False)
+PLAN_TODAY = ProcessorSpec("plan_today", scan_plan, draft_plan,
+                           render_diff=False)
 
 # Capture first: the user actively feeding the pipeline is never starved
 # out of n_max by a maintenance backlog. archive_done outranks schema/
 # grouping — the one-proposal-per-note invariant means whoever scans a
-# note first claims it, and grouping was claiming the inbox (a stamped
+# note first claims it, and grouping would claim the inbox (a stamped
 # flat list is a grouping candidate) while done tasks sat unarchived;
-# housekeeping first, then fix/group what remains. (//commands are not
-# processors — they execute in their own pass phase; see commands.py.)
+# housekeeping first, then fix what remains. overlap and plan_today
+# anchor on the INBOX note, and grouping treats the inbox (a stamped
+# flat list) as a permanent candidate — so grouping must come AFTER
+# them, or the one-per-note claim starves dedupe and planning forever
+# behind a cosmetic regroup. Within the suggestion lanes: dedupe before
+# planning (planning a task that's about to be merged away is wasted
+# judgment); they alternate passes when both want the inbox, because a
+# scan's claim lasts one pass but its seen-hash lasts until the pool
+# changes. (//commands are not processors — they execute in their own
+# pass phase; see commands.py.)
 REGISTRY: tuple[ProcessorSpec, ...] = (
-    CAPTURE, INBOX_EXTRACT, ARCHIVE_DONE, SPEC_DRIFT, SCHEMA_FIX, GROUPING)
+    CAPTURE, INBOX_EXTRACT, ARCHIVE_DONE, SPEC_DRIFT, SCHEMA_FIX, OVERLAP,
+    PLAN_TODAY, GROUPING)
 
 
 def registry(disabled: Sequence[str] = ()) -> tuple[ProcessorSpec, ...]:

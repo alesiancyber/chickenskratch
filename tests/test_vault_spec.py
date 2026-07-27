@@ -207,7 +207,7 @@ def test_the_vault_lock_is_bounded_not_forever(tmp_path, monkeypatch):
     root.mkdir()
     v = Vault(root)
     digest = hashlib.sha1(str(v.root).encode()).hexdigest()[:12]
-    lock_path = Path(tempfile.gettempdir()) / f"obsidian-harness-{digest}.lock"
+    lock_path = Path(tempfile.gettempdir()) / f"tezcat-vault-{digest}.lock"
     with open(lock_path, "w") as wedged:
         fcntl.flock(wedged, fcntl.LOCK_EX)
         start = time.monotonic()

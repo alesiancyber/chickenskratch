@@ -56,8 +56,9 @@ properties:
       properties:
         tool:
           enum: [update_frontmatter, replace_section, append_to_note,
-                 add_task, set_task_status, add_card, move_card, create_note,
-                 replace_line, archive_done_tasks]
+                 add_task, set_task_status, set_task_due, set_task_scheduled,
+                 add_card, move_card, create_note, replace_line,
+                 archive_done_tasks]
         args:
           type: object
   needs_review:
@@ -65,5 +66,34 @@ properties:
     # impossible worker date was dropped): forces the checkbox even for
     # a trusted processor whose verifier passes
     type: boolean
+  partial:
+    # set when a decision trimmed the plan to a subset of its steps: the
+    # trimmed file is the consent record, and on_applied hooks read this
+    # (a partial capture approval must not clear the capture surface)
+    type: boolean
+  undo:
+    # autonomy audit trail: the harness commits this proposal's apply
+    # created (newest first) — reverting them all reverts the decision
+    type: array
+    items:
+      type: string
+  verifier_failures:
+    # autonomy: full only — the proposal applied although its verifier
+    # could not vouch; these strings are what it objected to. The audit
+    # trail for the standing grant.
+    type: array
+    items:
+      type: string
+  pairs:
+    # overlap proposals: the judged [a, b] id pairs, 1:1 with apply steps.
+    # Resolved proposals' pairs are the dismissal memory — a pair a human
+    # rejected is never re-asked while the file lives (queue retention)
+    type: array
+    items:
+      type: array
+      items:
+        type: string
+      minItems: 2
+      maxItems: 2
   resolved:
     type: ["object", "null"]

@@ -19,9 +19,13 @@ const NoteEditor = lazy(() => import("./NoteEditor.jsx"));
    context rather than being threaded through five components. */
 const OpenNote = createContext(() => {});
 
-/* The owned attention/decision surface. Optimistic + undoable, never
-   modal — actions apply instantly, undo IS revert(sha) (the
-   git-snapshot guarantee surfaced as UX). Keyboard-first: j/k walk
+/* The owned attention/decision surface. Four regions, one question
+   each, one verb each — do (today), start (lands soon), nudge (stalled
+   on someone else), decide (captured, not yet dispositioned) — and
+   everything that answers no question (in flight, history) folds under
+   Reference. The empty state is the success condition. Optimistic +
+   undoable, never modal — actions apply instantly, undo IS revert(sha)
+   (the git-snapshot guarantee surfaced as UX). Keyboard-first: j/k walk
    decisions, a/r decide, e opens the editor, u undoes, ⌘J summons the
    escape hatch, ⌘K everything else.
 
@@ -116,14 +120,27 @@ function Rows({ items, render, fold = FOLD, label = "" }) {
   );
 }
 
-function Section({ id, label, children }) {
+/* One question per region, and the heading IS the question — if a region
+   can't be phrased as something you'd ask, it's decoration and belongs
+   under Reference. Each region carries exactly one verb (do / start /
+   nudge / decide), so nothing renders twice under two names. */
+function Section({ id, label, verb, children }) {
   return (
     <section id={id}>
-      <div className="section-label">{label}</div>
+      <div className="section-label">
+        {label}
+        {verb && <span className="section-verb">{verb}</span>}
+      </div>
       {children}
     </section>
   );
 }
+
+/* One key shape for the optimistic done-strike set. NUL as separator
+   because note paths and task text can both contain anything printable;
+   String.fromCharCode(0) equals the "\u0000" literal used where the set
+   is built. */
+const doneKey = (r) => r.note + String.fromCharCode(0) + r.text;
 
 /* a task row with the prototype's checkbox: click = done, through the
    gated set_task_status tool */
@@ -139,16 +156,19 @@ function TaskRow({ r, right, onDone, done }) {
   );
 }
 
-function DueSection({ due, onDone, doneKeys }) {
+/* Region 1 — do. Hard commitments first (due today, overdue, broken
+   dates — rows carry the delta, never the bare state), then the plan:
+   ⏳-today tasks, with how long each has carried and a "later" defer.
+   Then today's meetings. */
+function DoToday({ due, planned, meetings, onDone, doneKeys, onDefer, moved }) {
   const rows = [
     ...due.broken.map((r) => ({ ...r, cls: "overdue", when: `due date ${r.due} is not a real date` })),
     ...due.overdue.map((r) => ({ ...r, cls: "overdue", when: `${r.days}d overdue` })),
     ...due.due_today.map((r) => ({ ...r, cls: "due-today", when: "due today" })),
-    ...due.soon.map((r) => ({ ...r, cls: "meta", when: `in ${r.days}d` })),
   ];
-  if (rows.length === 0) return null;
+  if (rows.length === 0 && meetings.length === 0 && planned.length === 0) return null;
   return (
-    <Section id="due" label="Due">
+    <Section id="do-today" label="What must be done today?" verb="do">
       <Rows
         items={rows}
         render={(r, i) => (
@@ -157,7 +177,112 @@ function DueSection({ due, onDone, doneKeys }) {
                    right={<span className={`small ${r.cls}`}>{r.when}</span>} />
         )}
       />
+      {planned.map((r, i) => (
+        <TaskRow key={`p${i}`} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
+                 right={<>
+                   <span className="small ghost">
+                     {r.slipped ? `planned · carried ${r.slipped}d` : "planned"}
+                   </span>
+                   {r.due && <span className="chip">due {r.due}</span>}
+                   {moved.has(doneKey(r))
+                     ? <span className="chip">pushed</span>
+                     : <button className="affordance linklike"
+                               onClick={(e) => { e.stopPropagation(); onDefer(r); }}>
+                         later →
+                       </button>}
+                 </>} />
+      ))}
+      {meetings.map((rel) => (
+        <NoteRow note={rel} key={rel}>
+          <span className="grow">{noteName(rel)}</span>
+          <span className="chip">meeting today</span>
+        </NoteRow>
+      ))}
     </Section>
+  );
+}
+
+const weekday = (iso) =>
+  new Date(iso + "T00:00:00").toLocaleDateString(undefined, { weekday: "short" });
+
+/* The week tab — the this-week / next-week planning model. Three
+   horizons and one promote ladder: long-term queue → next week → this
+   week → today. Rows mix hard dues (chip keeps the day: "due Thu") and
+   ⏳ plans ("planned" — week-granular on purpose, no false day
+   precision). Every move sets ⏳ through the gated verb (a plan, never
+   a deadline): one revertible snapshot, one corpus row — the
+   promote/defer stream the judge trains on. */
+function WeekPane({ today, onDone, doneKeys, moved, onMove }) {
+  const { due } = today;
+  const mover = (r, when, label) => moved.has(doneKey(r))
+    ? <span className="chip verdict-approve">moved</span>
+    : <button className="affordance linklike"
+              onClick={(e) => { e.stopPropagation(); onMove(r, when, label); }}>
+        {label}
+      </button>;
+  const whenChip = (r) => (
+    <span className={"small " + (r.kind === "due" ? "meta" : "ghost")}>
+      {r.kind === "due" ? `due ${weekday(r.when)}` : "planned"}
+    </span>
+  );
+  const empty = today.this_week.length + today.next_week.length
+    + today.later.length + today.backlog.length === 0;
+  return (
+    <>
+      <header className="header">
+        <div className="title">This week</div>
+        <div className="date">plan by week — days are for deadlines</div>
+      </header>
+      {empty && <div className="empty-state title">Nothing on the runway.</div>}
+      {today.this_week.length > 0 && (
+        <Section id="this-week" label="What lands this week?" verb="do">
+          <Rows items={today.this_week} render={(r, i) => (
+            <TaskRow key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
+                     right={<>{whenChip(r)}{mover(r, today.date, "→ today")}</>} />
+          )} />
+        </Section>
+      )}
+      {today.next_week.length > 0 && (
+        <Section id="next-week" label="What's lined up for next week?" verb="prep">
+          <Rows items={today.next_week} render={(r, i) => (
+            <TaskRow key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
+                     right={<>{whenChip(r)}
+                            {mover(r, due.this_sunday, "→ this week")}</>} />
+          )} />
+        </Section>
+      )}
+      {today.later.length > 0 && (
+        <Section id="later" label="Later — has a date, not this fortnight">
+          <Rows items={today.later} fold={5} render={(r, i) => (
+            <TaskRow key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
+                     right={<>
+                       <span className="small ghost">{r.kind === "due"
+                         ? `due ${r.when}` : `planned ${r.when}`}</span>
+                       {mover(r, due.this_sunday, "→ this week")}
+                     </>} />
+          )} />
+        </Section>
+      )}
+      {today.backlog.length > 0 && (
+        <Section id="backlog" label="Long-term queue — no week attached" verb="judge">
+          <Rows items={today.backlog} fold={8} label="queued" render={(r, i) => (
+            <TaskRow key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
+                     right={<>
+                       {r.priority && <span className="chip">{r.priority}</span>}
+                       {r.age_days != null && (
+                         <span className="small ghost">{r.age_days}d old</span>
+                       )}
+                       {moved.has(doneKey(r))
+                         ? <span className="chip verdict-approve">moved</span>
+                         : <>
+                             {mover(r, due.this_sunday, "→ this week")}
+                             {mover(r, today.date, "→ today")}
+                           </>}
+                     </>} />
+          )} />
+        </Section>
+      )}
+    </>
   );
 }
 
@@ -339,7 +464,7 @@ function Palette({ open, setOpen, today, changes, health, tree, refetch, runPass
           <Command.Item onSelect={go(refetch)}>
             <span>Refresh</span><span className="ghost small">now</span>
           </Command.Item>
-          {["Harness/Capture.md", "Harness/Review.md", "Harness/Today.md"].map((n) => (
+          {["Harness/Capture.md", "Harness/Spec.md"].map((n) => (
             <Command.Item key={n} onSelect={go(() => openNote(n))}>
               <span>Open {noteName(n)}</span><span className="ghost small">↗ editor</span>
             </Command.Item>
@@ -382,6 +507,14 @@ export default function App() {
   const [acted, setActed] = useState({});          // pid -> "approve" | "reject"
   const [toast, setToast] = useState(null);        // {label, undo: [shas]}
   const [selectedPid, setSelectedPid] = useState(null);
+  // Proposals whose accept box is live in the canvas right now: decide
+  // them where you dumped them — the dashboard must not ask the same
+  // question twice on one screen. A reload clears the canvas history,
+  // and the ids fall through to the decision region so consent is never
+  // trapped in a scratch surface.
+  const [inlinePids, setInlinePids] = useState(() => new Set());
+  const [view, setView] = useState("today");       // "today" | "week"
+  const [movedKeys, setMovedKeys] = useState(() => new Set()); // optimistic week→today
   const [doneKeys, setDoneKeys] = useState(new Set());
   const [canvasSeed, setCanvasSeed] = useState("");
   // Which note is open, and which of the two the right column is showing.
@@ -399,7 +532,9 @@ export default function App() {
   const toastTimer = useRef(null);
   const ticker = usePassTicker(lastPassAt);
 
-  const visible = useMemo(() => review ?? [], [review]);
+  const visible = useMemo(
+    () => (review ?? []).filter((p) => !inlinePids.has(p.id)),
+    [review, inlinePids]);
 
   const showToast = useCallback((label, undo = []) => {
     setToast({ label, undo });
@@ -407,11 +542,10 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), 5500);
   }, []);
 
-  /* Optimistic, but only optimistic about things that CAN happen. The
-     server now 409s when a decision can't take the pass lock (it used to
-     return a summary of nothing, which fell through to "Failed to apply"
-     while the row stayed marked decided — the one state that was neither
-     true nor recoverable without a refetch). Any throw drops the mark. */
+  /* Optimistic, but only optimistic about things that CAN happen: the
+     server 409s when a decision can't take the pass lock, so a lost
+     verdict lands in the catch below instead of leaving the row marked
+     decided over a change that never applied. Any throw drops the mark. */
   const decide = useCallback(async (pid, verdict, steps) => {
     setActed((a) => ({ ...a, [pid]: verdict }));   // optimistic, instantly
     try {
@@ -444,6 +578,23 @@ export default function App() {
     refetch();
   }, [toast, refetch, showToast]);
 
+  // Reverting an autonomous decision = reverting its own commits, in
+  // order. The revert is the negative label the autonomous mode trains
+  // on — this button existing is what makes "revert, don't hand-fix"
+  // a reasonable ask.
+  const [revertedAuto, setRevertedAuto] = useState(() => new Set());
+  const revertAuto = useCallback(async (a) => {
+    setRevertedAuto((s) => new Set(s).add(a.id));
+    try {
+      for (const sha of a.undo) await postJSON("/api/revert", { sha });
+      showToast("Reverted — recorded as a negative label");
+    } catch (e) {
+      setRevertedAuto((s) => { const n = new Set(s); n.delete(a.id); return n; });
+      showToast(`Revert failed: ${e.message || e}`);
+    }
+    refetch();
+  }, [refetch, showToast]);
+
   const revertCommit = useCallback(async (sha) => {
     try {
       const res = await postJSON("/api/revert", { sha });
@@ -465,6 +616,29 @@ export default function App() {
       showToast(`Couldn’t check it off: ${e.message || e}`);
     }
   }, [showToast]);
+
+  /* Promote/defer move the ⏳ plan date, NEVER 📅 — most tasks have no
+     real deadline, and fabricating one would read "overdue" tomorrow:
+     manufactured urgency. Every move is corpus-recorded (promote vs
+     defer) — the stream a future triage worker trains on. */
+  const planTask = useCallback(async (r, when, label) => {
+    const key = doneKey(r);
+    setMovedKeys((k) => new Set(k).add(key));       // optimistic, instantly
+    try {
+      await postJSON("/api/task/plan", { note: r.note, text: r.text, when });
+      showToast(`${label} — snapshot kept`);
+    } catch (e) {
+      setMovedKeys((k) => { const n = new Set(k); n.delete(key); return n; });
+      showToast(`Couldn’t move it: ${e.message || e}`);
+    }
+  }, [showToast]);
+  // Defer from Today = the rest of this week; on Sunday there is no
+  // rest, so it rolls to next week's anchor.
+  const deferTask = useCallback((r) => {
+    const when = today?.due?.this_sunday !== today?.date
+      ? today?.due?.this_sunday : today?.due?.next_sunday;
+    return planTask(r, when, "Pushed to later this week");
+  }, [planTask, today]);
 
   const runPass = useCallback(() => { postJSON("/api/pass").catch(() => {}); }, []);
   const stopPass = useCallback(() => { cancelJob("pass").catch(() => {}); }, []);
@@ -507,6 +681,8 @@ export default function App() {
         return;
       }
       if (paletteOpen || e.metaKey || e.ctrlKey || e.altKey) return;
+      // the review shortcuts belong to the today view's decision region
+      if (view !== "today") return;
       // the canvas textarea is always mounted now: never steal its keys
       if (/^(input|textarea|select)$/i.test(e.target.tagName)) return;
       // nor the explorer's: its rows are buttons, and `e` on a focused
@@ -534,7 +710,7 @@ export default function App() {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [paletteOpen, visible, acted, selectedPid, decide, undo, openNoteAt,
+  }, [paletteOpen, view, visible, acted, selectedPid, decide, undo, openNoteAt,
       togglePane, toggleExplorer]);
 
   /* refetch reconciles: decided proposals leave the queue, done rows
@@ -552,6 +728,16 @@ export default function App() {
                      ...today.due.soon, ...today.due.broken, ...today.waiting])
       live.add(r.note + "\u0000" + r.text);
     setDoneKeys((k) => new Set([...k].filter((key) => live.has(key))));
+    // moved rows leave the week buckets once the refetch lands; pruning
+    // by liveness (not clearing) keeps the "moved" chip up during the
+    // gap between optimistic mark and fresh data
+    const moveLive = new Set([...today.due.soon,
+                              ...(today.this_week ?? []),
+                              ...(today.next_week ?? []),
+                              ...(today.later ?? []),
+                              ...(today.planned ?? []),
+                              ...(today.backlog ?? [])].map(doneKey));
+    setMovedKeys((k) => new Set([...k].filter((key) => moveLive.has(key))));
   }, [today]);
 
   if (error && !today)
@@ -563,8 +749,12 @@ export default function App() {
   const pending = visible.filter((p) => !(p.id in acted)).length;
   const nothingDue = today.due.broken.length + today.due.overdue.length
     + today.due.due_today.length + today.due.soon.length === 0;
+  // The empty state is the success condition, and Reference content
+  // (work in flight, history) never blocks it — only the four question
+  // regions count.
   const nothing = pending === 0 && nothingDue && today.waiting.length === 0
-    && today.stranded.length === 0 && today.in_flight.length === 0;
+    && today.stranded.length === 0 && today.meetings.length === 0
+    && (today.planned ?? []).length === 0;
 
   return (
     <OpenNote.Provider value={openNoteAt}>
@@ -587,6 +777,20 @@ export default function App() {
       <div className="split" ref={splitRef}
            style={{ gridTemplateColumns: `${frac}fr 6px ${1 - frac}fr` }}>
       <div className="col" id="col-today">
+      {/* Two horizons over one model: Today answers "what needs me
+          now", Week is the runway — and its verb is the move. */}
+      <div className="tabs small">
+        <button className={"tab" + (view === "today" ? " current" : "")}
+                onClick={() => setView("today")}>Today</button>
+        <button className={"tab" + (view === "week" ? " current" : "")}
+                onClick={() => setView("week")}>Week</button>
+      </div>
+
+      {view === "week" ? (
+        <WeekPane today={today} onDone={taskDone}
+                  doneKeys={doneKeys} moved={movedKeys} onMove={planTask} />
+      ) : (
+      <>
       <header className="header">
         <div className="title">Today</div>
         <div className="date">{dateStr}</div>
@@ -599,26 +803,26 @@ export default function App() {
 
       {nothing && <div className="empty-state title">Nothing needs you.</div>}
 
-      {visible.length > 0 && (
-        <Section id="review" label="Decisions">
-          {visible.map((p) => (
-            <Proposal key={p.id} p={p} health={health}
-                      selected={p.id === selectedPid}
-                      actedVerdict={acted[p.id]}
-                      onDecide={decide}
-                      innerRef={(el) => { rowRefs.current[p.id] = el; }} />
-          ))}
-          <div className="ghost small" style={{ marginTop: "var(--s2)" }}>
-            j/k select · a approve · r reject · e edit · u undo
-          </div>
+      <DoToday due={today.due} planned={today.planned ?? []}
+               meetings={today.meetings} onDone={taskDone} doneKeys={doneKeys}
+               onDefer={deferTask} moved={movedKeys} />
+
+      {today.due.soon.length > 0 && (
+        <Section id="soon" label="What lands soon?" verb="start">
+          <Rows items={today.due.soon} render={(r, i) => (
+            <TaskRow key={i} r={r} onDone={taskDone} done={doneKeys.has(doneKey(r))}
+                     right={<span className="small meta">in {r.days}d</span>} />
+          )} />
         </Section>
       )}
 
-      <DueSection due={today.due} onDone={taskDone} doneKeys={doneKeys} />
-
       {today.waiting.length > 0 && (
-        <Section id="waiting" label="Waiting on">
-          <Rows items={today.waiting} render={(r, i) => (
+        <Section id="stalled" label="What’s stalled on someone else?" verb="nudge">
+          {/* Oldest first: the longer it has sat, the harder to ignore —
+              the row's action is a nudge, and age is the nudge's case. */}
+          <Rows items={[...today.waiting].sort(
+                  (a, b) => (b.waiting_days ?? 0) - (a.waiting_days ?? 0))}
+                render={(r, i) => (
             <TaskRow key={i} r={r} onDone={taskDone}
                      done={doneKeys.has(r.note + "\u0000" + r.text)}
                      right={<>
@@ -629,57 +833,112 @@ export default function App() {
         </Section>
       )}
 
-      {today.stranded.length > 0 && (
-        <Section id="stranded" label="Stranded in meetings">
+      {(visible.length > 0 || today.stranded.length > 0) && (
+        <Section id="review" label="What needs a decision?" verb="decide">
+          {visible.map((p) => (
+            <Proposal key={p.id} p={p} health={health}
+                      selected={p.id === selectedPid}
+                      actedVerdict={acted[p.id]}
+                      onDecide={decide}
+                      innerRef={(el) => { rowRefs.current[p.id] = el; }} />
+          ))}
+          {visible.length > 0 && (
+            <div className="ghost small" style={{ marginTop: "var(--s2)" }}>
+              j/k select · a approve · r reject · e edit · u undo
+            </div>
+          )}
+          {/* Undated action items rotting in old meeting notes: captured
+              but never dispositioned — the decision is to date it, do it,
+              or delete it. Clicking opens the note on the line. */}
           <Rows items={today.stranded} fold={5} render={(r, i) => (
             <NoteRow note={r.note} target={r.text} key={i}>
               <span className="grow">{r.text}</span>
-              <span className="small ghost">{r.age_days}d old</span>
+              <span className="small ghost">{r.age_days}d old · undated</span>
             </NoteRow>
           )} />
         </Section>
       )}
 
-      {today.meetings.length > 0 && (
-        <Section id="meetings" label="Today’s meetings">
-          {today.meetings.map((rel) => (
-            <NoteRow note={rel} key={rel}>
-              <span className="grow">{noteName(rel)}</span>
-            </NoteRow>
-          ))}
-        </Section>
-      )}
-
-      {today.in_flight.length > 0 && (
-        <Section id="inflight" label="In flight">
-          {today.in_flight.map((b, i) => (
-            <NoteRow note={b.note} key={i}>
+      {/* The autonomy audit: under the standing grant, "what did it
+          change without asking?" is a real question with a real action
+          — revert, which is also the training label. One row per
+          autonomous decision, revertible as a decision (its own
+          commits), "unvouched" marking applies the verifier objected
+          to. Absent entirely when the harness has been quiet. */}
+      {(today.recent_auto ?? []).length > 0 && (
+        <Section id="auto" label="What changed without you?" verb="audit">
+          {today.recent_auto.map((a) => (
+            <div className="row" key={a.id}>
               <span className="grow">
-                {noteName(b.note)} <span className="meta">· {b.column}:</span>{" "}
-                {b.cards.slice(0, 5).join(", ")}
-                {b.cards.length > 5 && <span className="ghost"> +{b.cards.length - 5}</span>}
+                {a.title}
+                {a.unvouched && <span className="chip attention">unvouched</span>}
               </span>
-            </NoteRow>
-          ))}
-        </Section>
-      )}
-
-      {changes?.commits?.length > 0 && (
-        <Section id="changes" label="Changes">
-          <Rows items={changes.commits} fold={6} label="commits" render={(c) => (
-            <div className="row commit" key={c.sha}>
-              <span className="grow">
-                {c.subject}
-                <span className="files"> {c.files.slice(0, 3).join(", ")}
-                  {c.files.length > 3 && ` +${c.files.length - 3}`}</span>
-              </span>
-              <span className="small ghost">{c.date.slice(5, 16).replace("T", " ")}</span>
-              <button className="affordance linklike" onClick={() => revertCommit(c.sha)}>
-                revert ↺
-              </button>
+              <span className="small ghost">{a.ts.slice(5, 16).replace("T", " ")}</span>
+              {revertedAuto.has(a.id)
+                ? <span className="chip verdict-reject">reverted</span>
+                : a.undo.length > 0 && (
+                    <button className="affordance linklike"
+                            onClick={() => revertAuto(a)}>revert ↺</button>
+                  )}
             </div>
-          )} />
+          ))}
         </Section>
+      )}
+
+      {/* Below the fold on purpose: nothing here answers a question or
+          carries an action — it's evidence (work in flight, the audit
+          trail). Folded so reference can never crowd out the four
+          regions above, and closed by default so the empty state stays
+          reachable. */}
+      {(today.in_flight.length > 0 || changes?.commits?.length > 0) && (
+        <Collapsible.Root asChild>
+          <section className="reference">
+            <Collapsible.Trigger asChild>
+              <button className="row reference-toggle">
+                <span className="caret">▸</span>
+                <span className="grow small">Reference</span>
+                <span className="ghost small">
+                  {today.in_flight.length > 0 && `${today.in_flight.length} board(s) in flight · `}
+                  history
+                </span>
+              </button>
+            </Collapsible.Trigger>
+            <Collapsible.Content>
+              {today.in_flight.length > 0 && (
+                <Section id="inflight" label="In flight">
+                  {today.in_flight.map((b, i) => (
+                    <NoteRow note={b.note} key={i}>
+                      <span className="grow">
+                        {noteName(b.note)} <span className="meta">· {b.column}:</span>{" "}
+                        {b.cards.slice(0, 5).join(", ")}
+                        {b.cards.length > 5 && <span className="ghost"> +{b.cards.length - 5}</span>}
+                      </span>
+                    </NoteRow>
+                  ))}
+                </Section>
+              )}
+              {changes?.commits?.length > 0 && (
+                <Section id="changes" label="History — each row is one revertible snapshot">
+                  <Rows items={changes.commits} fold={6} label="commits" render={(c) => (
+                    <div className="row commit" key={c.sha}>
+                      <span className="grow">
+                        {c.subject}
+                        <span className="files"> {c.files.slice(0, 3).join(", ")}
+                          {c.files.length > 3 && ` +${c.files.length - 3}`}</span>
+                      </span>
+                      <span className="small ghost">{c.date.slice(5, 16).replace("T", " ")}</span>
+                      <button className="affordance linklike" onClick={() => revertCommit(c.sha)}>
+                        revert ↺
+                      </button>
+                    </div>
+                  )} />
+                </Section>
+              )}
+            </Collapsible.Content>
+          </section>
+        </Collapsible.Root>
+      )}
+      </>
       )}
       </div>
 
@@ -710,7 +969,8 @@ export default function App() {
             </div>
           </header>
           <Canvas seed={canvasSeed} onOpenNote={openNoteAt}
-                  onSeedConsumed={() => setCanvasSeed("")} />
+                  onSeedConsumed={() => setCanvasSeed("")}
+                  onInlinePids={setInlinePids} />
         </div>
 
         {openNote && (

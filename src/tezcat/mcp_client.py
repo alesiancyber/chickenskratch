@@ -5,9 +5,9 @@ streamable HTTP, exposes one merged tool list (namespaced per server),
 and routes calls back to the owning session. A server that fails to
 connect is reported and skipped — it never takes the session down.
 
-Obsidian tools keep their bare names (primary domain); every other
-server's tools are prefixed `server__tool` so origins stay obvious to
-both the model and the user.
+The vault server's tools keep their bare names (primary domain); every
+other server's tools are prefixed `server__tool` so origins stay obvious
+to both the model and the user.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
-PRIMARY_SERVER = "obsidian"
+PRIMARY_SERVER = "vault"
 
 
 def sanitize_tool_name(name: str) -> str:
@@ -37,9 +37,9 @@ def sanitize_tool_name(name: str) -> str:
 
 
 # Kept shortish: an unreachable remote server (offline laptop) delays the
-# first message by this much before degrading gracefully. ms-learn's
-# handshake includes a forced 1s stream-reconnect, so 6 was too tight on a
-# slow network (2026-07-24: a timed-out connect crashed the whole pass).
+# first message by this much before degrading gracefully. Not shorter:
+# ms-learn's handshake includes a forced 1s stream-reconnect, so a tight
+# budget times out real connects on a slow network.
 CONNECT_TIMEOUT = 15
 
 # Per-tool-call ceiling. Generous — docs searches legitimately take tens

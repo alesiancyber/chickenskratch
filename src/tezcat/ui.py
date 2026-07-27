@@ -1,20 +1,23 @@
 """The owned dashboard's server.
 
-Reads (I5, free): JSON view-models over the same collectors the
-markdown surfaces render from — today.collect(), the pending queue with
-structured diff payloads (diffs.diff_rows), recent_commits, worker
+Reads (I5, free): JSON view-models — today.collect(), the pending queue
+with structured diff payloads (diffs.diff_rows), recent_commits, worker
 health — plus one SSE stream tailing the engine's events file. The UI
 parses no markdown and owns no state: a wrong read costs a glance, and
 a dead UI process degrades to the editor path.
 
-Writes (Phase 2): decide / revert / pass — all human-initiated button
-verbs, all through service.py, resolving in the same engine pass and
-pass lock as the checkbox scan (I1/I2). The channel is hardened as a
+Writes: decide / revert / pass — all human-initiated button verbs, all
+through service.py, resolving in the same engine pass and pass lock as
+every other consent channel (I1/I2). The channel is hardened as a
 consent channel: bound to 127.0.0.1 unconditionally (the localhost
 bind is the trust boundary, not a flag), and writes require
 application/json from a local origin — a hostile web page's form POST
 or cross-origin fetch dies on the content-type preflight or the origin
-check. Models have no route here: no MCP server exposes HTTP POST.
+check. Every route — reads included — also requires a local Host
+header: DNS rebinding resolves an attacker's domain to 127.0.0.1 and
+reads the vault through the victim's browser as same-origin GETs, and
+the one thing a rebound request cannot fake is its Host. Models have
+no route here: no MCP server exposes HTTP POST.
 
 The daemon stays the only trigger authority — POST /api/pass asks for
 the same pass it would run, nothing more.
@@ -31,6 +34,8 @@ from urllib.parse import urlparse
 
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
+from starlette.middleware import Middleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
@@ -96,14 +101,46 @@ def _sse_response(request, pump, cleanup=None) -> StreamingResponse:
                              headers={"Cache-Control": "no-cache"})
 
 
+RECENT_AUTO_HOURS = 48
+
+
+def _recent_auto(vault_path: str, cap: int = 8) -> list[dict]:
+    """Autonomous applies from the last two days, newest first — the
+    audit rows for `autonomy: full`. Each carries the undo shas its
+    apply recorded, so the dashboard reverts the DECISION, not a commit
+    the user has to go hunting for; `unvouched` marks the ones whose
+    verifier objected (the first place to look when something's off)."""
+    import datetime as dt
+
+    cutoff = (dt.datetime.now() - dt.timedelta(hours=RECENT_AUTO_HOURS)
+              ).isoformat(timespec="seconds")
+    rows = []
+    for p in proposals.load_all(proposals.dir_for(vault_path)):
+        if p.get("status") != "auto":
+            continue
+        ts = (p.get("resolved") or {}).get("ts", "")
+        if ts < cutoff:
+            continue
+        rows.append({
+            "id": p["id"], "kind": p["kind"], "title": p["title"], "ts": ts,
+            "note": p["drafted_against"]["note"],
+            "undo": p.get("undo", []),
+            "unvouched": bool(p.get("verifier_failures")),
+        })
+    rows.sort(key=lambda r: r["ts"], reverse=True)
+    return rows[:cap]
+
+
 def today_model(vault_path: str) -> dict:
     pending = len(proposals.pending(proposals.dir_for(vault_path)))
-    return today.collect(_vault(vault_path), get_config(vault_path), pending)
+    model = today.collect(_vault(vault_path), get_config(vault_path), pending)
+    model["recent_auto"] = _recent_auto(vault_path)
+    return model
 
 
 def review_model(vault_path: str) -> list[dict]:
     """The pending queue with structured diffs — the same simulate the
-    checkbox surface previews, shipped as rows instead of HTML."""
+    verifiers walk, shipped as JSON rows."""
     v = _vault(vault_path)
     applier.use_vault(vault_path)
     out = []
@@ -115,13 +152,18 @@ def review_model(vault_path: str) -> list[dict]:
             "created": p["created"], "note": p["drafted_against"]["note"],
             "needs_review": bool(p.get("needs_review")),
             "diff": None, "not_previewed": [], "diff_error": "",
-            # partial approval: capture steps map 1:1 to apply entries
+            # partial approval: steps map 1:1 to apply entries for the
+            # kinds whose plan is a per-item list (captured tasks, plan
+            # picks, overlap pairs) — approve some, reject the rest.
+            # Overlap steps are replace_line ops, so their label is the
+            # matching issue line (same index by construction).
             "steps": [
-                {"label": s["args"].get("text") or s["tool"],
+                {"label": (p["issues"][i] if p["kind"] == "overlap" and i < len(p["issues"])
+                           else s["args"].get("text") or s["args"].get("task_text") or s["tool"]),
                  "due": s["args"].get("due", ""),
                  "to": s["args"].get("path", "")}
-                for s in p["apply"]
-            ] if p["kind"] == "capture" else [],
+                for i, s in enumerate(p["apply"])
+            ] if p["kind"] in ("capture", "plan_today", "overlap") else [],
         }
         if p["kind"] not in _NO_DIFF_KINDS:
             try:
@@ -169,17 +211,17 @@ def tree_model(vault_path: str) -> dict:
 
 
 def changes_model(vault_path: str, limit: int = 20) -> dict:
-    """Recent snapshots minus machine renders — literally the same filter
-    the Changes.md surface applies (changes.recent_news), so the two
-    renderings of "what changed" can never disagree."""
+    """Recent snapshots minus machine renders — the same filter `tezcat
+    changes` prints through (changes.recent_news), so the two renderings
+    of "what changed" can never disagree."""
     return {"commits": changes.recent_news(
         _vault(vault_path), changes.machine_rels(get_config(vault_path)), limit)}
 
 
 # Worker reachability is a network probe — ~90ms against a cloud endpoint,
-# four times the cost of every other read combined. It was being paid on
-# every refetch, so a checked task waited on an HTTPS round trip to say so.
-# Whether the worker is up doesn't change per keystroke.
+# four times the cost of every other read combined. Paid per refetch, it
+# makes a checked task wait on an HTTPS round trip just to say so; whether
+# the worker is up doesn't change per keystroke, so it's TTL-cached.
 HEALTH_TTL_SECONDS = 15.0
 _probe: dict = {"at": 0.0, "base": "", "up": False}
 
@@ -257,9 +299,9 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         head_before, _ = await run_in_threadpool(applier.vault_state, vault_path)
         steps = body.get("steps")
         try:
-            # On the engine thread: a decision applies a plan and re-renders
-            # three surfaces, all synchronously. On this loop that froze the
-            # whole server — SSE included — for the duration.
+            # On the engine thread: a decision applies a plan synchronously
+            # (git subprocesses, file writes). Run on this loop it freezes
+            # the whole server — SSE included — for the duration.
             summary = await engine.run(service.decide(
                 vault_path, str(body.get("pid", "")), str(body.get("verdict", "")),
                 steps=steps if isinstance(steps, list) else None))
@@ -306,7 +348,8 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
                 cmd_results.append({"command": name, "args": args, "result": result})
             else:
                 rest.append(line)
-        out = {"commands": cmd_results, "summary": {}, "queued": [], "deferred": False}
+        out = {"commands": cmd_results, "summary": {}, "queued": [],
+               "applied": [], "deferred": False}
         if "\n".join(rest).strip():
             # Engine thread: ingest runs a FULL pass (scan + draft + render).
             out.update(await engine.run(service.ingest(vault_path, "\n".join(rest))))
@@ -348,6 +391,42 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
             result = await run_in_threadpool(
                 service.complete_task, vault_path,
                 str(body.get("note", "")), str(body.get("text", "")))
+        except VaultLocked as e:
+            return JSONResponse({"error": str(e)}, status_code=503)
+        except VaultError as e:
+            return JSONResponse({"error": str(e)}, status_code=409)
+        return JSONResponse(result)
+
+    async def task_due_route(request):
+        """The hard-commitment reschedule (📅). Same contract as
+        task_done: human-initiated, gated tool, one revertible snapshot
+        — plus a corpus row per move."""
+        body, err = await guard_write(request)
+        if err:
+            return err
+        try:
+            result = await run_in_threadpool(
+                service.reschedule_task, vault_path,
+                str(body.get("note", "")), str(body.get("text", "")),
+                str(body.get("due", "")))
+        except VaultLocked as e:
+            return JSONResponse({"error": str(e)}, status_code=503)
+        except VaultError as e:
+            return JSONResponse({"error": str(e)}, status_code=409)
+        return JSONResponse(result)
+
+    async def task_plan_route(request):
+        """The judgment verb (⏳): promote into today, defer out. The
+        UI's promote/defer buttons land here — never on 📅, so a plan
+        can never fabricate a deadline."""
+        body, err = await guard_write(request)
+        if err:
+            return err
+        try:
+            result = await run_in_threadpool(
+                service.plan_task, vault_path,
+                str(body.get("note", "")), str(body.get("text", "")),
+                str(body.get("when", "")))
         except VaultLocked as e:
             return JSONResponse({"error": str(e)}, status_code=503)
         except VaultError as e:
@@ -416,10 +495,10 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         return JSONResponse({"ok": ok}, status_code=200 if ok else 410)
 
     async def chat_events(request):
-        # Its OWN feed, like /api/events. Draining one shared queue meant
-        # get() removed the record, so a second tab — or the overlap while
-        # a browser reconnects this very stream — didn't get a copy, it
-        # took the other's half of the turn.
+        # Its OWN feed, like /api/events. One shared queue would be wrong:
+        # get() removes the record, so a second tab — or the overlap while
+        # a browser reconnects this very stream — wouldn't get a copy, it
+        # would take the other's half of the turn (see fanout.py).
         queue = chat.events.subscribe()
 
         async def pump():
@@ -476,6 +555,8 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         Route("/api/note", note_get_route),
         Route("/api/note", note_put_route, methods=["POST"]),
         Route("/api/task/done", task_done_route, methods=["POST"]),
+        Route("/api/task/due", task_due_route, methods=["POST"]),
+        Route("/api/task/plan", task_plan_route, methods=["POST"]),
         Route("/api/pass", pass_route, methods=["POST"]),
         Route("/api/cancel", cancel_route, methods=["POST"]),
         Route("/api/chat", chat_send_route, methods=["POST"]),
@@ -491,16 +572,25 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
 
     @contextlib.asynccontextmanager
     async def lifespan(app):
-        """Shutdown was unhandled: the pane's Agent spawns MCP servers as
-        child processes on the first turn, and nothing ever closed the
-        session — every server run orphaned an tezcat-vault-mcp (plus tezcat-files-mcp
-        and any HTTP sessions) and leaked HARNESS_CHAT_ID into the
-        environment. Close the session, then stop the engine thread."""
+        """Shutdown must close the chat session: the pane's Agent spawns
+        MCP servers as child processes on the first turn, and a server
+        exit that skips this orphans a tezcat-vault-mcp (plus
+        tezcat-files-mcp and any HTTP sessions) and leaks HARNESS_CHAT_ID
+        into the environment. Close the session, then stop the engine
+        thread."""
         yield
         await chat.close()
         engine.shutdown()
 
-    return Starlette(routes=routes, lifespan=lifespan)
+    return Starlette(routes=routes, lifespan=lifespan, middleware=[
+        # The rebinding gate, on EVERY route: guard_write covers the
+        # write verbs, but a DNS-rebound page reads /api/note and
+        # /api/tree as same-origin GETs — the localhost bind alone
+        # cannot tell a rebound request from a local one; the Host
+        # header can.
+        Middleware(TrustedHostMiddleware,
+                   allowed_hosts=["127.0.0.1", "localhost", "::1"]),
+    ])
 
 
 def main() -> None:

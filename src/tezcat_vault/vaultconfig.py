@@ -3,11 +3,11 @@ harness surfaces.
 
 The vault describes itself: the user-facing keys (folders, inboxes,
 exclusions) live in the frontmatter of `Harness/Spec.md` *inside the
-vault* — editable in Obsidian like any note, read fresh each engine
-pass. `config/vault.yaml` supplies the defaults a new vault's Spec.md is
+vault* — editable like any note, read fresh each engine pass.
+`config/vault.yaml` supplies the defaults a new vault's Spec.md is
 seeded from (and the fallback when no vault is resolvable, e.g. the MCP
 server starting cold). Machine concerns — surface paths, schemas_dir —
-stay repo-side: moving Review.md is a code decision, not a note edit.
+stay repo-side: moving a surface is a code decision, not a note edit.
 """
 
 from __future__ import annotations
@@ -35,11 +35,21 @@ class VaultConfig:
     # Where completed tasks get filed out of the working inboxes (the
     # archive_done processor). Empty string disables archiving.
     done_archive: str = "Tasks/Archive.md"
-    # Processors trusted to apply without a checkbox — ONLY honored for
-    # processors that ship a deterministic verifier, and only when it
-    # passes; anything else falls back to the Review.md queue. The
-    # trust list is user-editable per vault in Harness/Spec.md.
+    # Processors trusted to apply without a human verdict — ONLY honored
+    # for processors that ship a deterministic verifier, and only when it
+    # passes; anything else falls back to the review queue. The trust
+    # list is user-editable per vault in Harness/Spec.md.
     auto_apply: tuple[str, ...] = ("capture", "inbox_extract", "schema_fix", "archive_done")
+    # Consent posture. "gated" (default): auto-apply requires a passing
+    # deterministic verifier, so judgment always queues and a failing
+    # verifier queues its proposal. "full": a standing human grant,
+    # written per vault in Spec.md — EVERYTHING in auto_apply applies:
+    # verifier-less judgment lanes included, and a failing verifier
+    # applies anyway with its objections recorded on the proposal
+    # (verifier_failures). needs_review still queues, staleness still
+    # guards, and every apply remains one revertible snapshot; reverts
+    # become the negative labels.
+    autonomy: str = "gated"
     # How closely auto-applied extractions must match the user's text:
     # "strict" = word-for-word (every output word present in the input);
     # "close"  = grammar/punctuation allowance — added words must be
@@ -58,14 +68,14 @@ class VaultConfig:
     disabled_processors: tuple[str, ...] = ()
     # Proposals drafted per engine pass; a big backlog drains over days.
     n_max: int = 5
-    # Folder for daily notes (align with Foam's dailyNotes.directory or
-    # Obsidian's daily-note folder — the harness follows, either way).
+    # Folder for daily notes (if another editor's daily-notes plugin has
+    # its own setting, point both at the same folder — the harness follows).
     daily_dir: str = "Daily"
-    # Folder for meeting notes. A Spec.md key like daily_dir, because it
-    # is the same KIND of thing — where a note type lives — and it was
-    # sitting as a bare "Meetings" literal in three places (the create
-    # tool and both of Today's meeting walks), so a user who renamed the
-    # folder lost the dashboard sections without being told why.
+    # Folder for meeting notes. A Spec.md key like daily_dir — the same
+    # KIND of thing (where a note type lives), and every consumer (the
+    # create tool, Today's meeting walks) must read it from here: a bare
+    # "Meetings" literal means a user who renames the folder loses the
+    # dashboard sections without being told why.
     meetings_dir: str = "Meetings"
 
     @property
@@ -124,6 +134,8 @@ def _spec_overrides(base: VaultConfig, fm: dict) -> VaultConfig:
         out = replace(out, auto_apply=tuple(str(n) for n in fm["auto_apply"]))
     if fm.get("fidelity") in ("strict", "close"):
         out = replace(out, fidelity=str(fm["fidelity"]))
+    if fm.get("autonomy") in ("gated", "full"):
+        out = replace(out, autonomy=str(fm["autonomy"]))
     if isinstance(fm.get("worker"), str):
         out = replace(out, worker=fm["worker"].strip())
     if isinstance(fm.get("disabled_processors"), list):
@@ -148,8 +160,8 @@ _merged_cache: dict[str, tuple[float | None, VaultConfig]] = {}
 def get_config(vault_path: str | None = None) -> VaultConfig:
     """The effective spec for a vault: repo defaults with the vault's own
     `Harness/Spec.md` frontmatter applied over them. Cached per
-    (vault, spec-note mtime) — editing the note in Obsidian takes effect
-    on the next engine pass, no restart."""
+    (vault, spec-note mtime) — editing the note takes effect on the
+    next engine pass, no restart."""
     base_key = str(os.environ.get("VAULT_CONFIG_PATH") or _DEFAULT_PATH)
     if base_key not in _base_cache:
         _base_cache[base_key] = load_config()

@@ -79,22 +79,41 @@ function QueuedProposal({ p, verdict, error, onDecide }) {
   );
 }
 
-function DumpBlock({ entry, acted, errors, onDecide, onOpenNote }) {
+function DumpBlock({ entry, acted, errors, onDecide, onOpenNote, undone, onRevert }) {
   const auto = entry.summary?.auto || 0;
+  const applied = entry.applied ?? [];
   const quiet = !entry.error && !entry.deferred && auto === 0
     && entry.queued.length === 0 && entry.commands.length === 0;
   return (
     <div className="dump">
       <div className="dump-meta small ghost">
         {entry.when}
-        {/* "filed → Inbox" opens the Inbox in our editor. It used to
-            launch Obsidian, which is the one thing a receipt for work
-            WE just did should never do. */}
-        {auto > 0 && <span className="applied"> · ✓ filed → <button
+        {/* "filed → Inbox" opens the Inbox in our editor — a receipt
+            for work WE just did must never launch another app. Shown
+            bare only when the apply predates per-decision receipts. */}
+        {auto > 0 && applied.length === 0 && <span className="applied"> · ✓ filed → <button
           className="linklike doc-link"
           onClick={() => onOpenNote("Tasks/Inbox.md")}>Inbox</button></span>}
       </div>
       <div className="dump-text">{entry.text}</div>
+      {/* The autonomous receipt: what THIS dump changed, revertible at
+          the point of action — a canvas revert is the same negative
+          label as any other. */}
+      {applied.map((a) => (
+        <div className="dump-meta small" key={a.id}>
+          <span className="applied">✓ {a.title} → <button
+            className="linklike doc-link"
+            onClick={() => onOpenNote(a.note)}>{a.note.replace(/\.md$/, "")}</button></span>
+          {a.unvouched && <span className="chip attention">unvouched</span>}
+          {undone[a.id]
+            ? <span className="chip verdict-reject">reverted</span>
+            : a.undo?.length > 0 && (
+                <button className="affordance linklike"
+                        onClick={() => onRevert(a)}>revert ↺</button>
+              )}
+          {errors[a.id] && <span className="ghost"> {errors[a.id]}</span>}
+        </div>
+      ))}
       {entry.commands.map((c, i) => <Callout key={i} {...c} />)}
       {entry.queued.map((p) => (
         <QueuedProposal key={p.id} p={p} verdict={acted[p.id]}
@@ -114,13 +133,27 @@ function DumpBlock({ entry, acted, errors, onDecide, onOpenNote }) {
   );
 }
 
-export default function Canvas({ seed, onSeedConsumed, onOpenNote }) {
+export default function Canvas({ seed, onSeedConsumed, onOpenNote, onInlinePids }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState([]);
   const [acted, setActed] = useState({});
-  const [errors, setErrors] = useState({});   // pid -> why the decide failed
+  const [errors, setErrors] = useState({});   // pid -> why the decide/revert failed
+  const [undone, setUndone] = useState({});   // pid -> true once its applies reverted
   const taRef = useRef(null);
+
+  /* Tell the dashboard which proposals have a live accept box here, so
+     it doesn't ask the same question twice on one screen. Undecided ids
+     only — once acted (or after a reload clears this history), they are
+     the dashboard's again. */
+  useEffect(() => {
+    if (!onInlinePids) return;
+    const ids = new Set();
+    for (const e of history)
+      for (const p of e.queued ?? [])
+        if (!acted[p.id]) ids.add(p.id);
+    onInlinePids(ids);
+  }, [history, acted, onInlinePids]);
 
   useEffect(() => {
     if (seed) {
@@ -141,6 +174,7 @@ export default function Canvas({ seed, onSeedConsumed, onOpenNote }) {
       const res = await postJSON("/api/ingest", { text: t });
       setHistory((h) => [{ id: Date.now(), text: t, when: stamp(),
         commands: res.commands ?? [], queued: res.queued ?? [],
+        applied: res.applied ?? [],
         deferred: Boolean(res.deferred),
         summary: res.summary ?? {} }, ...h]);
       setText("");
@@ -152,6 +186,17 @@ export default function Canvas({ seed, onSeedConsumed, onOpenNote }) {
     setBusy(false);
     taRef.current?.focus();
   }, [text, busy]);
+
+  const revertApplied = useCallback(async (a) => {
+    setUndone((u) => ({ ...u, [a.id]: true }));   // optimistic, instantly
+    setErrors((e) => { const { [a.id]: _gone, ...rest } = e; return rest; });
+    try {
+      for (const sha of a.undo) await postJSON("/api/revert", { sha });
+    } catch (e) {
+      setUndone((u) => { const { [a.id]: _gone, ...rest } = u; return rest; });
+      setErrors((es) => ({ ...es, [a.id]: String(e.message || e) }));
+    }
+  }, []);
 
   const decide = useCallback(async (pid, verdict, steps) => {
     setActed((a) => ({ ...a, [pid]: verdict }));
@@ -200,7 +245,8 @@ export default function Canvas({ seed, onSeedConsumed, onOpenNote }) {
       <div className="dump-history">
         {history.map((entry) => (
           <DumpBlock key={entry.id} entry={entry} acted={acted} errors={errors}
-                     onDecide={decide} onOpenNote={onOpenNote} />
+                     onDecide={decide} onOpenNote={onOpenNote}
+                     undone={undone} onRevert={revertApplied} />
         ))}
       </div>
     </div>

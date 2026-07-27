@@ -1,18 +1,18 @@
 """Inline //commands — the vault is the command line.
 
-Commands are the second class of vault change, split from proposals
-(2026-07-23 redesign). A proposal is a change the harness INFERRED: it
-earns trust through a checkbox or a verifier, queues in Review.md, and
-whole-note staleness guards the diff a human approved. A command is a
-change the user ORDERED by typing it: trust is intrinsic, nothing
-queues, and staleness is scoped to the one line the order anchors on —
+Commands are the second class of vault change, distinct from proposals.
+A proposal is a change the harness INFERRED: it earns trust through a
+human verdict or a verifier, queues under data/, and whole-note
+staleness guards the diff a human approved. A command is a change the
+user ORDERED by typing it: trust is intrinsic, nothing queues, and
+staleness is scoped to the one line the order anchors on —
 replace_line's exactly-once anchor IS the staleness check. Both classes
 share the same substrate: gated vault tools, snapshot-per-mutation,
-Changes.md, tezcat-revert.
+the changes log, tezcat-revert.
 
 A line starting with a known //command at column 0 of any non-surface
 note is executed on the next engine pass and replaced in place by its
-result, rendered as an Obsidian callout. Enter is the submit key: a
+result, rendered as a markdown callout. Enter is the submit key: a
 final line with no newline after it is still being typed. Only KNOWN
 command names match, so prose and code comments starting with // are
 never touched. LLM-backed commands (future) write directly too — the
@@ -23,8 +23,6 @@ from __future__ import annotations
 
 import re
 from collections.abc import Awaitable, Callable
-
-from tezcat_vault.vault import Vault, read_lossy
 
 _CMD_RE = re.compile(r"^//([a-z][\w-]*)\s+(\S.*)$")
 _CMD_PREFIX_RE = re.compile(r"^//([a-z][\w-]*)\b")
@@ -89,12 +87,12 @@ INLINE_COMMANDS: dict[str, Callable[[str, str], Awaitable[str | None]]] = {
 }
 
 
-def scan(vault: Vault, surface_dirs: frozenset[str]) -> list[dict]:
+def scan(notes: dict[str, str]) -> list[dict]:
     """Typed commands awaiting execution: one per note per pass (a note
-    with several resolves over successive passes)."""
+    with several resolves over successive passes). `notes` is the pass's
+    shared content walk (Watcher.pass_notes) — rel -> text."""
     items = []
-    for p, rel in vault.iter_knowledge_notes(surface_dirs):
-        text = read_lossy(p)
+    for rel, text in notes.items():
         lines = text.splitlines()
         # Enter is the submit key: a final line with no newline after it
         # is still being typed — never execute a half-typed command.
@@ -111,9 +109,9 @@ def scan(vault: Vault, surface_dirs: frozenset[str]) -> list[dict]:
 
 def render_callout(item: dict, result: str) -> str:
     """The result as a NOTE callout: a visually distinct titled block in
-    both Obsidian and VSCode/GitHub previews (GitHub alerts require the
-    uppercase form), plain text on disk. The title echoes the command
-    (provenance) and, being blockquoted, can never re-match the command
-    scan or read as inbox task intent."""
+    common markdown previews (GitHub alerts require the uppercase form),
+    plain text on disk. The title echoes the command (provenance) and,
+    being blockquoted, can never re-match the command scan or read as
+    inbox task intent."""
     quoted = "\n".join("> " + ln for ln in result.splitlines())
     return f"> [!NOTE] //{item['command']} {item['args']}\n{quoted}"

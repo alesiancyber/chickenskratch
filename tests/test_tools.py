@@ -436,15 +436,12 @@ def test_kanban_card_blank_lines_and_complete_literal_round_trip(vault):
 
 
 def test_spec_is_never_tool_writable_and_capture_still_is(vault):
-    """What a model must not be able to write. This list used to be led
-    by Review.md — writing it meant checking your own approve boxes. That
-    file is gone (2026-07-26) and consent moved to the localhost-only
-    HTTP channel and the CLI, neither of which a model can reach at all.
-
-    Spec.md remains: an edit there could lift the Private/ exclusion or
-    extend auto_apply trust. Capture.md remains deliberately writable —
-    writing it only ever feeds the proposal queue, which is gated
-    downstream anyway (dump-from-chat is a legitimate flow)."""
+    """What a model must not be able to write. Spec.md: an edit there
+    could lift the Private/ exclusion or extend auto_apply trust —
+    consent lives on the localhost-only HTTP channel and the CLI,
+    neither of which a model can reach. Capture.md is deliberately
+    writable — writing it only ever feeds the proposal queue, which is
+    gated downstream anyway (dump-from-chat is a legitimate flow)."""
     with pytest.raises(vault_mod.VaultError, match="machine-managed"):
         server.update_frontmatter("Harness/Spec", "exclude", "[]")
     with pytest.raises(vault_mod.VaultError, match="machine-managed"):
@@ -455,3 +452,63 @@ def test_spec_is_never_tool_writable_and_capture_still_is(vault):
     # actually exercised, in test_spec_note's approval path)
     # Capture is an input surface: writing it only ever feeds the queue.
     server.append_to_note("Harness/Capture.md", "brain dump line")
+
+
+def test_set_task_due_rewrites_only_the_date(vault):
+    """The reschedule verb: 📅 moves, every other token — text, priority,
+    ➕ birth date, the ^id — stays byte-identical."""
+    server.create_note("Tasks/sched.md",
+        "# S\n\n"
+        "- [ ] pay the invoice 🔼 📅 2099-02-15 ➕ 2026-07-20 ^t-aaaaaaaaaaaa\n"
+        "- [ ] dateless chore ^t-bbbbbbbbbbbb\n")
+    r = server.set_task_due("Tasks/sched", "pay the invoice", "2099-02-01")
+    assert r["previous_due"] == "2099-02-15" and r["due"] == "2099-02-01" and r["written"]
+    text = (vault / "Tasks/sched.md").read_text()
+    assert "- [ ] pay the invoice 🔼 📅 2099-02-01 ➕ 2026-07-20 ^t-aaaaaaaaaaaa" in text
+
+    # a dateless task gains 📅 with the ^id still the last token
+    server.set_task_due("Tasks/sched", "dateless chore", "2099-02-02")
+    assert "- [ ] dateless chore 📅 2099-02-02 ^t-bbbbbbbbbbbb" \
+        in (vault / "Tasks/sched.md").read_text()
+
+    # clearing removes the date and nothing else
+    server.set_task_due("Tasks/sched", "dateless chore", "")
+    assert "- [ ] dateless chore ^t-bbbbbbbbbbbb" in (vault / "Tasks/sched.md").read_text()
+
+    # setting the date it already has is a no-op, not a snapshot
+    again = server.set_task_due("Tasks/sched", "pay the invoice", "2099-02-01")
+    assert again["written"] is False
+
+
+def test_set_task_due_fails_loud_on_junk(vault):
+    server.create_note("Tasks/sched2.md", "- [ ] alpha task\n- [ ] alpha task twin\n")
+    with pytest.raises(vault_mod.VaultError, match="real date"):
+        server.set_task_due("Tasks/sched2", "alpha task", "tomorrow")
+    with pytest.raises(vault_mod.VaultError, match="Ambiguous"):
+        server.set_task_due("Tasks/sched2", "alpha", "2099-02-01")
+    with pytest.raises(vault_mod.VaultError, match="No task matching"):
+        server.set_task_due("Tasks/sched2", "ghost", "2099-02-01")
+
+
+def test_set_task_scheduled_touches_only_the_plan_field(vault):
+    """⏳ is the judgment field: setting it never touches 📅 — a plan
+    must never fabricate or move a deadline."""
+    server.create_note("Tasks/plan.md",
+        "# P\n\n"
+        "- [ ] write the brief 📅 2099-03-01 ➕ 2026-07-20 ^t-aaaaaaaaaaaa\n"
+        "- [ ] loose thread ^t-bbbbbbbbbbbb\n")
+    r = server.set_task_scheduled("Tasks/plan", "write the brief", "2099-02-20")
+    assert r["written"] and r["previous_scheduled"] is None
+    text = (vault / "Tasks/plan.md").read_text()
+    assert ("- [ ] write the brief ⏳ 2099-02-20 📅 2099-03-01 ➕ 2026-07-20 "
+            "^t-aaaaaaaaaaaa") in text
+
+    server.set_task_scheduled("Tasks/plan", "loose thread", "2099-02-21")
+    assert "- [ ] loose thread ⏳ 2099-02-21 ^t-bbbbbbbbbbbb" \
+        in (vault / "Tasks/plan.md").read_text()
+
+    # clearing the plan leaves the deadline alone
+    server.set_task_scheduled("Tasks/plan", "write the brief", "")
+    text = (vault / "Tasks/plan.md").read_text()
+    assert "⏳" not in text.split("loose thread")[0]
+    assert "📅 2099-03-01" in text

@@ -1,8 +1,8 @@
-"""The escape-hatch pane's server side (owned-surfaces Phase 4).
+"""The escape-hatch pane's server side.
 
-The frozen chat escape hatch re-homed where its tool activity is
+The frozen chat escape hatch, homed where its tool activity is
 visible — principle 7's second home, under the same contract as the
-CLI: this module hosts the SAME Agent loop `harness` runs (same
+CLI: this module hosts the SAME Agent loop `tezcat` runs (same
 profile resolution, same server allowlists, same write gate, same
 skills), with its hooks pointed at an event queue instead of a
 terminal:
@@ -11,19 +11,21 @@ terminal:
                            result (MCP made legible)
 - `confirm`             -> an Allow/Deny future the UI resolves; every
                            verdict lands in the corpus via
-                           record_confirm WITH the full trajectory —
-                           the label source the chat era never had
+                           record_confirm WITH the full trajectory
 
 Transcripts stay scratch: history lives in the Agent's in-memory
 messages and dies with the session — the vault is the archive. The
-session sets HARNESS_CHAT_ID so vault snapshots made in-pane carry the
-Chat-Id trailer (revert attribution, exactly like the CLI).
+session injects HARNESS_CHAT_ID into ITS OWN MCP servers' env, so
+vault snapshots made in-pane carry the Chat-Id trailer (revert
+attribution). Scoped to those child processes, never os.environ: the
+engine shares this process, and a process-global var would stamp the
+pane's Chat-Id onto engine commits.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
+import dataclasses
 import uuid
 
 from tezcat_vault import ids
@@ -54,8 +56,8 @@ class ChatSession:
         # Every Agent/MCP interaction happens inside ONE long-lived worker
         # task: the MCP SDK's transports are anyio cancel scopes bound to
         # the task that entered them, so per-request tasks would rot the
-        # sessions unrecoverably (the 2026-07-25 pane flail). The worker
-        # also serializes turns, like a terminal.
+        # sessions unrecoverably. The worker also serializes turns, like
+        # a terminal.
         self._inbox: asyncio.Queue | None = None
         self._worker: asyncio.Task | None = None
 
@@ -174,7 +176,6 @@ class ChatSession:
             except TimeoutError:
                 self._worker.cancel()
         self._worker = None
-        os.environ.pop("HARNESS_CHAT_ID", None)
 
     # ---- the real Agent, exactly as the CLI builds it ----
 
@@ -185,11 +186,17 @@ class ChatSession:
 
         config, vault, servers = load_runtime(vault=self.vault_path)
         profile = config.profile(None)  # the default chat profile
-        # Vault snapshots made from this session carry the trailer, so
-        # Changes.md rows and revert corpus labels attribute to it.
-        os.environ["HARNESS_CHAT_ID"] = self.chat_id
+        # The chat id rides into the MCP servers THIS session spawns, via
+        # their own env — never os.environ. The engine runs in this same
+        # process and rebuilds its vault singleton from the environment,
+        # so a process-global var would stamp the pane's Chat-Id onto
+        # engine commits: auto-applies misattributed to the chat in the
+        # changes rows, and reverted engine actions filed against the
+        # chat's trajectory in the corpus.
+        servers = [dataclasses.replace(s, env={**s.env, "HARNESS_CHAT_ID": self.chat_id})
+                   for s in servers]
         # note_link: this pane sits next to our own editor, so a cited
-        # source opens there instead of launching Obsidian.
+        # source opens there — never in another app.
         agent = Agent(profile, servers, log=self._log, confirm=self._confirm,
                       skills=load_skills(), vault=vault, log_result=self._log_result,
                       should_cancel=cancel.token(cancel.CHAT),

@@ -38,11 +38,14 @@ def test_extracts_well_formed_tasks(monkeypatch):
     }
     monkeypatch.setattr(workers, "_worker_client", lambda: fake_client(json.dumps(payload)))
     tasks = asyncio.run(workers.extract_tasks("Rio needs to migrate DNS by Friday...", "2026-07-20"))
-    # owed_by is normalized onto every item (absent/empty -> None)
+    # owed_by and scheduled are normalized onto every item (absent -> None)
     assert tasks == [
-        {"text": "Migrate DNS", "due": "2026-07-24", "priority": "high", "owed_by": None},
-        {"text": "Revisit the pricing page", "due": None, "priority": None, "owed_by": None},
-        {"text": "Send the vendor contract", "due": None, "priority": None, "owed_by": "Nadia"},
+        {"text": "Migrate DNS", "due": "2026-07-24", "scheduled": None,
+         "priority": "high", "owed_by": None},
+        {"text": "Revisit the pricing page", "due": None, "scheduled": None,
+         "priority": None, "owed_by": None},
+        {"text": "Send the vendor contract", "due": None, "scheduled": None,
+         "priority": None, "owed_by": "Nadia"},
     ]
 
 

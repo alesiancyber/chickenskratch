@@ -3,10 +3,10 @@ scan → draft → queue → decide → apply through the gated tools, with
 staleness and the git memo. A scripted fake drafter stands in for the
 worker LLM, same philosophy as FakeOpenAI.
 
-Decisions arrive as `decisions=[(pid, verdict)]` — the one channel left
-after the Review.md checkbox was retired (2026-07-26). It is exactly what
-service.decide hands the engine for a dashboard button or `harness
-decide`, so these tests exercise the production path."""
+Decisions arrive as `decisions=[(pid, verdict)]` — the one consent
+channel. It is exactly what service.decide hands the engine for a
+dashboard button or `tezcat decide`, so these tests exercise the
+production path."""
 
 import asyncio
 import json
@@ -62,8 +62,9 @@ def test_first_pass_scans_and_drafts_into_the_queue(vault, watcher):
     assert all(p["kind"] == "schema_fix" and p["status"] == "pending" for p in rows)
     assert not any(p["drafted_against"]["note"].startswith("Private/") for p in rows)
 
-    # The queue in data/ is the whole record now: a pass drafts proposals
-    # and writes NOTHING into the vault (2026-07-26 — Review.md retired).
+    # The queue in data/ is the whole record: a pass drafts proposals and
+    # writes NOTHING into the vault — the retired markdown surfaces must
+    # never come back as files.
     assert not (vault / "Harness/Review.md").exists()
     retired = {"Harness/Review.md", "Harness/Today.md", "Harness/Changes.md"}
     assert not any(f in retired for c in Vault(vault).history() for f in c["files"])
@@ -339,3 +340,80 @@ def test_a_raising_post_apply_hook_does_not_lose_the_apply(vault, make_watcher):
     assert summary["approved"] == 1
     assert "hooked" in (vault / "Tasks/Inbox.md").read_text()
     assert proposals.pending(w.proposals_dir) == []
+
+
+# --------------- the git memo describes what the scan READ ---------------
+
+
+def test_note_written_while_drafting_is_scanned_next_pass(vault, make_watcher):
+    """The memo is the fingerprint taken BEFORE the scan. Anything that
+    lands after it — here a note written while a draft was in flight,
+    standing in for the user typing during a slow worker call — must
+    force the next pass to rescan, never be memoized as already seen."""
+    async def drafter_racing_a_user_edit(item):
+        (vault / "Tasks" / "typed-mid-pass.md").write_text("call the vendor\n")
+        return await fake_drafter(item)
+
+    w = make_watcher(vault, disabled=("archive_done",),
+                     drafter=drafter_racing_a_user_edit, n_max=1)
+    assert run(w)["scanned"]
+    assert run(w)["scanned"], "the mid-pass note was memoized as scanned"
+
+
+def test_a_cancelled_pass_memoizes_nothing(vault, make_watcher):
+    """A stop request ends the pass early, so the memo cannot vouch that
+    the tree was scanned — the next pass must start over."""
+    w = make_watcher(vault, disabled=("archive_done",), drafter=fake_drafter,
+                     n_max=3, should_cancel=lambda: True)
+    summary = run(w)
+    assert summary["cancelled"]
+    w2 = make_watcher(vault, disabled=("archive_done",), drafter=fake_drafter, n_max=3)
+    assert run(w2)["scanned"]
+
+
+# --------------- one content walk per pass ---------------
+
+
+def test_the_pass_walks_the_vault_exactly_once(vault, watcher, monkeypatch):
+    """Commands, schema validation, and grouping all consume the shared
+    pass_notes cache: a scanned pass costs ONE iter_knowledge_notes walk.
+    A second walk appearing here means a consumer regressed to reading
+    the vault itself."""
+    walks = []
+    original = Vault.iter_knowledge_notes
+
+    def counting(self, *args, **kwargs):
+        walks.append(1)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Vault, "iter_knowledge_notes", counting)
+    assert run(watcher)["scanned"]
+    assert len(walks) == 1
+
+
+# --------------- hooks outlive disabling ---------------
+
+
+def test_capture_approved_after_disabling_still_resets_the_surface(vault, make_watcher):
+    """Disabling a processor stops new scans, not the bookkeeping of
+    already-drafted work: a pending capture proposal approved after
+    `disabled_processors: [capture]` still runs on_applied, so the
+    surface resets instead of re-offering the same dump forever."""
+    from tezcat.processors import CAPTURE_SKELETON
+
+    async def faithful(text, today):
+        return [{"text": ln, "due": None, "priority": None, "owed_by": None}
+                for ln in text.splitlines() if ln.strip()]
+
+    (vault / "Harness" / "Capture.md").write_text("renew the domain\n")
+    drafting = make_watcher(vault, capture_extractor=faithful,
+                            disabled=("archive_done",), drafter=fake_drafter)
+    run(drafting)
+    pending = proposals.pending(drafting.proposals_dir)
+    pid = next(p["id"] for p in pending if p["kind"] == "capture")
+
+    deciding = make_watcher(vault, disabled=("capture", "archive_done"),
+                            drafter=fake_drafter)
+    summary = decide(deciding, pid, lock_wait=5)
+    assert summary["approved"] == 1
+    assert (vault / "Harness" / "Capture.md").read_text() == CAPTURE_SKELETON

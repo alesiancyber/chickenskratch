@@ -1,12 +1,10 @@
 """Structured diff view-models for proposal previews.
 
-The promoted asset of the owned-surfaces plan (0-B item 5): the opcode
-walk, word-level marks, and long-run collapsing, emitted as JSON-ready
-rows the UI server ships and the dashboard renders under its own design
-tokens. The Obsidian-shaped HTML emitter that used to live beside this
-(split_diff, né diffhtml) died with the `diff_style` knob — recycle
-contracts, state, and logic, never renderings. Degraded Review.md
-renders the classic unified ```diff (applier.preview) everywhere.
+The opcode walk, word-level marks, and long-run collapsing, emitted as
+JSON-ready rows the UI server ships and the dashboard renders under its
+own design tokens. This module emits data, never HTML — recycle
+contracts, state, and logic, never renderings. The plain-text fallback
+is the classic unified ```diff (applier.preview).
 """
 
 from __future__ import annotations
@@ -20,9 +18,8 @@ CONTEXT = 3  # visible lines on each side of a change; longer equal runs collaps
 
 # Past this many lines a note loses its preview instead of costing CPU:
 # SequenceMatcher is quadratic, and no diff is worth hanging a pass (or a
-# request) over. Lives here, with the diff machinery, because BOTH
-# renderers need the same ceiling — the markdown surface and the
-# dashboard had each written their own 4000.
+# request) over. Lives here, with the diff machinery, so every renderer
+# shares the one ceiling instead of hard-coding its own.
 MAX_PREVIEW_LINES = 4000
 
 

@@ -51,7 +51,7 @@ def score(case: dict, tasks: list[dict], subs: dict[str, str]) -> list[str]:
 
         def mismatches(t: dict, want: dict = want, pattern: str = pattern) -> list[str]:
             out = []
-            for field in ("due", "priority", "owed_by"):
+            for field in ("due", "scheduled", "priority", "owed_by"):
                 if field not in want:
                     continue  # absent key = unchecked; explicit null = must be null
                 want_val = fill(want[field], subs) if isinstance(want[field], str) else want[field]
@@ -124,9 +124,46 @@ def score_grouping(case: dict, reply: dict) -> list[str]:
     return failures
 
 
+def score_overlap(case: dict, reply: dict) -> list[str]:
+    """Structural check of one overlap reply. Every submitted pair must
+    be answered with a valid verdict; cases pin judgment with `expect`:
+    {a, b, verdict} rows (and optionally `keep`). Ids never invented."""
+    submitted = {frozenset((p["a"], p["b"])) for p in case["pairs"]}
+    failures: list[str] = []
+    answered: dict[frozenset, dict] = {}
+    for p in reply.get("pairs", []):
+        key = frozenset((str(p.get("a")), str(p.get("b"))))
+        if key not in submitted:
+            failures.append(f"invented or mangled pair: {sorted(key)}")
+            continue
+        answered[key] = p
+    for key in submitted - set(answered):
+        failures.append(f"unanswered pair: {sorted(key)}")
+    for want in case.get("expect", []):
+        key = frozenset((want["a"], want["b"]))
+        got = answered.get(key)
+        if got is None:
+            continue  # already reported as unanswered
+        if got.get("verdict") != want["verdict"]:
+            failures.append(f"{sorted(key)}: verdict={got.get('verdict')!r}, "
+                            f"expected {want['verdict']!r}")
+        if "keep" in want and got.get("keep") != want["keep"]:
+            failures.append(f"{sorted(key)}: keep={got.get('keep')!r}, "
+                            f"expected {want['keep']!r}")
+    return failures
+
+
 async def _run_worker_once(case: dict, subs: dict[str, str]) -> tuple[object, list[str]]:
     """Dispatch one call to the case's worker (default extract_tasks) and
     score its reply. Returns (reply, failures)."""
+    if case.get("worker") == "overlap":
+        lines = []
+        for n, p in enumerate(case["pairs"], 1):
+            lines.append(f"{n}. a: {p['a']} — \"{p['a_text']}\" (in {p.get('a_note', 'Tasks/Inbox.md')})\n"
+                         f"   b: {p['b']} — \"{p['b_text']}\" (in {p.get('b_note', 'Tasks/Inbox.md')})")
+        reply = await workers.run_worker(
+            workers.WORKERS["overlap"], pairs="\n".join(lines))
+        return reply, score_overlap(case, reply)
     if case.get("worker") == "grouping":
         reply = await workers.run_worker(
             workers.WORKERS["grouping"],

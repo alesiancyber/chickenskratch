@@ -14,7 +14,7 @@
 # Profiles in models.yaml can narrow this further with a `servers:` allowlist.
 
 servers:
-  obsidian:
+  vault:
     transport: stdio
     command: ["{python}", "-m", "tezcat_vault.server"]
     env:
@@ -29,7 +29,7 @@ servers:
     enabled: true
     # tools declare readOnlyHint themselves — never approval-gated.
     # LOCAL profiles only: every cloud profile in models.yaml allowlists
-    # this server away (`servers: [obsidian, ms-learn]`) — filesystem
+    # this server away (`servers: [vault, ms-learn]`) — filesystem
     # content must never ride into cloud context (I4's spirit; the vault
     # already excludes Private/ at its own layer).
 

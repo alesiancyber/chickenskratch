@@ -11,7 +11,7 @@ from tezcat.mcp_client import (
 )
 
 
-def _tool(client, name, server="obsidian", read_only=False):
+def _tool(client, name, server="vault", read_only=False):
     client.tools[name] = ToolInfo(qualified=name, server=server, original=name,
                                   description="", schema={}, read_only=read_only)
 

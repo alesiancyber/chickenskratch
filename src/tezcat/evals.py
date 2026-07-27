@@ -46,9 +46,13 @@ def date_subs() -> dict[str, str]:
     def day(n: int) -> str:
         return (today + dt.timedelta(days=n)).isoformat()
 
+    this_sunday = today + dt.timedelta(days=6 - today.weekday())
     return {
         "{today}": day(0), "{tomorrow}": day(1), "{yesterday}": day(-1),
         "{plus3}": day(3), "{plus5}": day(5), "{plus7}": day(7), "{plus14}": day(14),
+        # the ⏳ week anchors: "this week" plans stamp the week's Sunday
+        "{this_sunday}": this_sunday.isoformat(),
+        "{next_sunday}": (this_sunday + dt.timedelta(days=7)).isoformat(),
     }
 
 
@@ -187,7 +191,7 @@ async def run_case(case: dict, profile, subs: dict[str, str]) -> dict:
     vault = tmp / "vault"
     copy_fixture(EVALS / "vault", vault, subs)
 
-    servers = ["obsidian"] + (["ms-learn"] if "network" in case.get("tags", []) else [])
+    servers = ["vault"] + (["ms-learn"] if "network" in case.get("tags", []) else [])
     prof = dataclasses.replace(profile, servers=servers, confirm_writes=False)
     confirm = None
     if case.get("confirm") == "deny":
@@ -210,7 +214,7 @@ async def run_case(case: dict, profile, subs: dict[str, str]) -> dict:
                 # MCP sessions (anyio cancel scopes), and wait_for's
                 # cancellation escapes as a bare CancelledError that would
                 # kill the whole eval run instead of failing this case
-                # (same class as mcp_client's connect timeout, 2026-07-24).
+                # (same class as mcp_client's connect timeout).
                 with anyio.fail_after(case.get("timeout", DEFAULT_TIMEOUT)):
                     answer = await agent.run(fill(turn, subs))
     except TimeoutError:

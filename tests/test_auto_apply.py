@@ -4,6 +4,7 @@ verifier can't vouch for waits in the queue for a human verdict."""
 
 import asyncio
 import datetime as _dt
+from pathlib import Path
 
 import pytest
 
@@ -317,3 +318,129 @@ def test_stale_extraction_re_arms_instead_of_vanishing(vault, make_watcher):
     assert summary["stale"] >= 1
     (p2,) = proposals.pending(w.proposals_dir)
     assert p2["kind"] == "inbox_extract" and p2["id"] != p1["id"]  # re-drafted, not dropped
+
+
+# --------------- autonomy: full — the standing grant ---------------
+
+
+def _judgment_spec(needs_review=False):
+    """A verifier-less processor (the judgment shape: grouping, overlap,
+    plan_today) drafting one add_task step."""
+    from tezcat.processors import ProcessorSpec
+
+    def scan(w):
+        return [{"kind": "judgment", "note": "Home.md", "vault_sha": w._pass_sha,
+                 "content": (Path(w.vault_path) / "Home.md").read_text()}]
+
+    async def draft(w, item):
+        p = proposals.new_proposal(
+            kind="judgment", note=item["note"], vault_sha=item["vault_sha"],
+            note_content=item["content"], title="a judgment call", summary="s",
+            issues=["pick"], apply=[{"tool": "add_task", "args": {
+                "path": "Tasks/Inbox.md", "text": "judged task"}}])
+        if needs_review:
+            p["needs_review"] = True
+        return p
+
+    return ProcessorSpec("judgment", scan, draft, render_diff=False)
+
+
+def test_gated_autonomy_queues_verifier_less_processors(vault, make_watcher):
+    """The default posture: listing a judgment processor in auto_apply
+    does nothing without a verifier — it queues."""
+    (vault / "Harness/Spec.md").write_text(
+        "---\nauto_apply: [judgment]\n---\n\n# Vault Spec\n")
+    w = make_watcher(vault, registry=(_judgment_spec(),))
+    summary = run(w)
+    assert summary["drafted"] == 1 and summary["auto"] == 0
+    assert len(proposals.pending(w.proposals_dir)) == 1
+    assert "judged task" not in (vault / "Tasks/Inbox.md").read_text()
+
+
+def test_full_autonomy_applies_the_judgment_lanes(vault, make_watcher):
+    """`autonomy: full` is the standing grant: a verifier-less processor
+    in auto_apply applies without a checkbox — one revertible snapshot,
+    resolved `auto`, nothing pending."""
+    (vault / "Harness/Spec.md").write_text(
+        "---\nauto_apply: [judgment]\nautonomy: full\n---\n\n# Vault Spec\n")
+    w = make_watcher(vault, registry=(_judgment_spec(),))
+    summary = run(w)
+    assert summary["auto"] == 1
+    assert proposals.pending(w.proposals_dir) == []
+    assert "judged task" in (vault / "Tasks/Inbox.md").read_text()
+    from tezcat_vault.vault import Vault
+    assert any("add task" in c["subject"] for c in Vault(vault).history(5))
+
+
+def test_full_autonomy_still_respects_needs_review_and_the_trust_list(vault, make_watcher):
+    """The grant is not a bypass: a drafter-flagged proposal queues even
+    under full autonomy, and a processor NOT in auto_apply queues too."""
+    (vault / "Harness/Spec.md").write_text(
+        "---\nauto_apply: [judgment]\nautonomy: full\n---\n\n# Vault Spec\n")
+    w = make_watcher(vault, registry=(_judgment_spec(needs_review=True),))
+    assert run(w)["auto"] == 0
+    assert len(proposals.pending(w.proposals_dir)) == 1
+
+    (vault / "Harness/Spec.md").write_text(
+        "---\nauto_apply: []\nautonomy: full\n---\n\n# Vault Spec\n")
+    w2 = make_watcher(vault, registry=(_judgment_spec(),),
+                      proposals_dir=w.proposals_dir.parent / "p2",
+                      state_path=w.proposals_dir.parent / "s2.json")
+    (vault / "Home.md").write_text((vault / "Home.md").read_text() + "nudge\n")
+    assert run(w2)["auto"] == 0
+    assert len(proposals.pending(w2.proposals_dir)) == 1
+
+
+def test_full_autonomy_outranks_a_failing_verifier_and_records_it(vault, make_watcher):
+    """"Schema fixes just need to happen": under the standing grant a
+    failing verifier no longer queues — the fix applies with the
+    verifier's objections persisted on the resolved proposal, so the
+    audit trail names exactly what nobody vouched for."""
+    import json as _json
+
+    from tezcat import processors as procs
+
+    (vault / "Harness/Spec.md").write_text(
+        "---\nauto_apply: [capture]\nautonomy: full\n---\n\n# Vault Spec\n")
+    (vault / "Harness/Capture.md").write_text("# Capture\n\nrenew the domain\n")
+
+    async def inventing_extractor(text, today):
+        # fidelity verifier will object: "quarterly" is not the user's word
+        return [{"text": "renew the quarterly domain", "due": None,
+                 "scheduled": None, "priority": None, "owed_by": None}]
+
+    w = make_watcher(vault, registry=(procs.CAPTURE,),
+                     capture_extractor=inventing_extractor)
+    summary = run(w)
+    assert summary["auto"] == 1 and proposals.pending(w.proposals_dir) == []
+    assert "renew the quarterly domain" in (vault / "Tasks/Inbox.md").read_text()
+    (rec,) = [_json.loads(f.read_text()) for f in w.proposals_dir.glob("p-*.json")]
+    assert rec["status"] == "auto"
+    assert any("invented word" in x for x in rec["verifier_failures"])
+
+
+def test_auto_applies_record_their_own_undo(vault, make_watcher):
+    """The autonomy audit loop: an auto-applied proposal carries the
+    harness commits it made, and reverting them reverts the decision —
+    without hunting the git log. The manual-edit sweep commit (the
+    user's own work) is never in the list."""
+    import json as _json
+
+    from tezcat import processors as procs
+    from tezcat import service
+
+    (vault / "Harness/Spec.md").write_text(
+        "---\nauto_apply: [capture]\nautonomy: full\n---\n\n# Vault Spec\n")
+    (vault / "Harness/Capture.md").write_text("# Capture\n\nbuy a car\n")
+    w = make_watcher(vault, registry=(procs.CAPTURE,), capture_extractor=faithful)
+    assert run(w)["auto"] == 1
+    (rec,) = [_json.loads(f.read_text()) for f in w.proposals_dir.glob("p-*.json")]
+    assert rec["status"] == "auto" and rec["undo"]
+    from tezcat_vault.vault import Vault
+    subjects = {c["sha"]: c["subject"] for c in Vault(vault).history(10)}
+    assert all(subjects[sha].startswith("harness:") for sha in rec["undo"])
+
+    assert "buy a car ➕" in (vault / "Tasks/Inbox.md").read_text()  # the stamped apply
+    for sha in rec["undo"]:
+        service.revert(str(vault), sha)
+    assert "buy a car ➕" not in (vault / "Tasks/Inbox.md").read_text()

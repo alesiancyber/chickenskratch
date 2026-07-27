@@ -26,7 +26,9 @@ def client(vault, tmp_path, monkeypatch):
     pdir = tmp_path / "proposals"
     monkeypatch.setattr("tezcat.proposals.dir_for", lambda vp: pdir)
     monkeypatch.setattr("tezcat.watcher.STATE_PATH", tmp_path / "state.json")
-    return TestClient(ui.build_app(str(vault)))
+    # base_url matters: every route requires a local Host header (the
+    # DNS-rebinding gate), and TestClient's default is "testserver".
+    return TestClient(ui.build_app(str(vault)), base_url="http://127.0.0.1")
 
 
 def plant(vault, pdir) -> dict:
@@ -141,6 +143,18 @@ def test_consent_channel_refuses_forms_and_foreign_origins(client, vault):
                           headers={"Origin": "https://evil.example"})
     assert foreign.status_code == 403
     assert len(proposals.pending(proposals.dir_for(str(vault)))) == 1  # untouched
+
+
+def test_foreign_host_header_is_refused_on_reads_too(client, vault):
+    """DNS rebinding resolves an attacker's domain to 127.0.0.1 and reads
+    the vault through the victim's browser as same-origin GETs — the
+    origin check never fires on a GET, so the Host header is the gate,
+    and it guards EVERY route, not just the write verbs."""
+    for path in ("/api/today", "/api/tree", "/api/note?path=Home.md"):
+        r = client.get(path, headers={"Host": "evil.example"})
+        assert r.status_code == 400, path
+    r = client.post("/api/decide", json={}, headers={"Host": "evil.example"})
+    assert r.status_code == 400
 
 
 def test_pass_route_fires_and_forgets(client):
@@ -272,3 +286,58 @@ def test_a_busy_engine_409s_the_decision_instead_of_swallowing_it(client, vault,
     assert "busy" in r.json()["error"]
     # and the proposal is still there to decide once the engine frees up
     assert [x["id"] for x in proposals.pending(proposals.dir_for(str(vault)))] == [p["id"]]
+
+
+def test_task_due_route_reschedules_through_the_gated_verb(client, vault):
+    (vault / "Tasks/Inbox.md").write_text(
+        "## Tasks\n\n- [ ] move me 📅 2099-01-10 ^t-aaaaaaaaaaaa\n")
+    r = client.post("/api/task/due",
+                    json={"note": "Tasks/Inbox.md", "text": "move me", "due": "2099-01-05"})
+    assert r.status_code == 200 and r.json()["written"]
+    assert "📅 2099-01-05" in (vault / "Tasks/Inbox.md").read_text()
+    # a stale row (task gone) is a 409 — refetch, not a crash
+    missing = client.post("/api/task/due",
+                          json={"note": "Tasks/Inbox.md", "text": "ghost", "due": "2099-01-05"})
+    assert missing.status_code == 409
+
+
+def test_task_plan_route_and_plan_steps_in_review(client, vault):
+    """/api/task/plan moves ⏳ only, and a plan_today proposal ships
+    per-pick steps so partial approval renders."""
+    (vault / "Tasks/Inbox.md").write_text(
+        "## Tasks\n\n- [ ] pick me ^t-aaaaaaaaaaaa\n")
+    r = client.post("/api/task/plan",
+                    json={"note": "Tasks/Inbox.md", "text": "pick me", "when": "2099-01-05"})
+    assert r.status_code == 200 and r.json()["written"]
+    assert "⏳ 2099-01-05" in (vault / "Tasks/Inbox.md").read_text()
+
+    p = proposals.new_proposal(
+        kind="plan_today", note="Tasks/Inbox.md", vault_sha="",
+        note_content="x", title="Plan today: 1 task(s)", summary="s",
+        issues=["pick me — oldest"],
+        apply=[{"tool": "set_task_scheduled",
+                "args": {"path": "Tasks/Inbox.md", "task_text": "pick me",
+                         "scheduled": "2099-01-05"}}])
+    proposals.save(p, proposals.dir_for(str(vault)))
+    (row,) = [x for x in client.get("/api/review").json() if x["id"] == p["id"]]
+    assert row["steps"][0]["label"] == "pick me"
+    assert row["diff"] is None  # judgment payload is the issues list, not a diff
+
+
+def test_today_ships_the_autonomy_audit_rows(client, vault):
+    import datetime as _dt
+
+    p = proposals.new_proposal(
+        kind="schema_fix", note="Home.md", vault_sha="", note_content="x",
+        title="Fix Home autonomously", summary="s", issues=[],
+        apply=[{"tool": "update_frontmatter",
+                "args": {"path": "Home.md", "key": "status", "value": "x"}}])
+    p["undo"] = ["a" * 40]
+    p["verifier_failures"] = ["frontmatter 'status' changed"]
+    p["status"] = "auto"
+    p["resolved"] = {"ts": _dt.datetime.now().isoformat(timespec="seconds"),
+                     "decision": "auto"}
+    proposals.save(p, proposals.dir_for(str(vault)))
+    (row,) = client.get("/api/today").json()["recent_auto"]
+    assert row["title"] == "Fix Home autonomously"
+    assert row["undo"] == ["a" * 40] and row["unvouched"] is True

@@ -119,9 +119,21 @@ inside our UI.
   channel or a terminal). A processor in Spec.md's `auto_apply` may skip
   the gate **only** when its deterministic verifier passes and its
   drafter raised no `needs_review` flag; verification failure degrades
-  to the queue, never blocks. Spec.md still rejects tool writes (one
-  exception: its `folders` map — typing, not trust), so no model can
-  widen its own trust list.
+  to the queue, never blocks. **Amendment (2026-07-26, `autonomy:
+  full`):** a vault may declare `autonomy: full` in its Spec.md — a
+  standing, human-written grant under which EVERYTHING in auto_apply
+  applies: verifier-less judgment lanes included, and a failing
+  verifier no longer queues — it applies with its failures recorded on
+  the proposal (`verifier_failures`), so the audit trail names what
+  nobody vouched for. Consent moves from per-proposal to per-vault; it
+  is still consent, written by the human in a file no model can write.
+  `needs_review` still queues, staleness still guards, poison plans
+  still fail themselves, every apply remains one revertible snapshot —
+  and reverts become the negative labels the autonomous mode is
+  measured by. Spec.md still
+  rejects tool writes (one exception: its `folders` map — typing, not
+  trust), so no model can widen its own trust list or flip its own
+  autonomy.
 - **I3 — A typed `//command` is consent, scoped to the exact line it
   was typed on.** It executes in place (Enter terminates the line; a
   final line with no newline is still being typed), outranks pending
@@ -182,7 +194,10 @@ approve/reject/revert buttons and `run_pass`, every verb through
 `service.py`, resolving in one `_act` under one pass lock, so no two
 front doors can double-apply.
 The UI's write channel is consent-hardened: JSON-only (forces CORS
-preflight) from a local origin, on the localhost-only bind. The canvas
+preflight) from a local origin, on the localhost-only bind — and every
+route, reads included, requires a local Host header, because DNS
+rebinding reads a localhost server through the victim's browser and
+the Host header is the one thing a rebound request cannot fake. The canvas
 (#canvas) is built: a dump splits on the command grammar — //command
 lines execute instantly (I3), the rest rides `ingest()` into the
 capture pipeline, and results settle back as blocks (callouts, inline
@@ -190,9 +205,15 @@ approve/reject — including partial approval of a capture's steps, a
 queue-file trim that keeps the trimmed proposal as the consent
 record), or the quiet auto-filed line. The escape-hatch pane (⌘J) is
 built per principle 7's contract, and the dashboard's task rows carry
-the check-off verb (`complete_task`, the one deliberate widening of
-the write list — the same gated `set_task_status` tool the MCP server
-always exposed).
+the human task verbs — check off (`set_task_status`), reschedule
+(`set_task_due`), and plan (`set_task_scheduled`) — each a deliberate
+widening of the write list through a gated semantic tool, each one
+revertible snapshot. 📅 due and ⏳ scheduled are distinct on purpose:
+due is a hard external fact the harness never fabricates; scheduled is
+the judgment field the promote/defer verbs move, and every move is
+corpus-recorded as a scheduling label (the training stream for the
+plan_today worker, whose picks always queue — judgment has no
+verifier, so it can never auto-apply).
 Every phase of `research/owned-surfaces-plan.md` is now shipped. The
 file explorer (⌘B, 2026-07-26) is the manual-navigation rail beside
 them: a read-only view-model (`/api/tree` — `iter_notes`, so the
@@ -221,7 +242,7 @@ parser and its render guard, the mid-pass late-decision sweep, the
 per-pass worker-reachability probe and git-log walk that existed to draw
 Changes.md, the full vault walk that existed to draw Today.md, and
 tezcatd's `--fast-file` lane (which now *rejects* the flag rather than
-ignoring it, so a stale plist fails loudly). `tezcat today`, `harness
+ignoring it, so a stale plist fails loudly). `tezcat today`, `tezcat
 changes`, and `tezcat decide <id> approve|reject` keep every retired
 view and the consent verb reachable with no UI process running.
 
