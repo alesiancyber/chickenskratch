@@ -124,6 +124,7 @@ def _recent_auto(vault_path: str, cap: int = 8) -> list[dict]:
         rows.append({
             "id": p["id"], "kind": p["kind"], "title": p["title"], "ts": ts,
             "note": p["drafted_against"]["note"],
+            "summary": p.get("summary", ""),
             "undo": p.get("undo", []),
             "unvouched": bool(p.get("verifier_failures")),
         })
@@ -349,7 +350,7 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
             else:
                 rest.append(line)
         out = {"commands": cmd_results, "summary": {}, "queued": [],
-               "applied": [], "deferred": False}
+               "applied": [], "deferred": False, "worker_errors": []}
         if "\n".join(rest).strip():
             # Engine thread: ingest runs a FULL pass (scan + draft + render).
             out.update(await engine.run(service.ingest(vault_path, "\n".join(rest))))
@@ -452,11 +453,19 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
     chat = pane.ChatSession(vault_path, agent_factory=chat_agent_factory)
 
     async def cancel_route(request):
-        """The stop button. Cooperative (cancel.py): this marks the job
-        and returns immediately — the worker unwinds at its next safe
-        checkpoint, and the UI shows "stopping…" until the job's own
-        completion event lands. A write verb, so it takes the same
-        consent-channel gate as the rest."""
+        """The stop button. A write verb, so it takes the same
+        consent-channel gate as the rest. Two jobs, two shapes:
+
+        - pass: cooperative (cancel.py) — marked, returns immediately,
+          unwinds at its next safe checkpoint; the UI shows "stopping…"
+          until the pass's own completion event lands.
+        - chat: kill-and-replace — a fresh session takes over NOW, and
+          the old one is stopped and torn down in the background.
+          Waiting out the old turn's unwind is what used to wedge the
+          pane on "stopping…" with no way to type; "reset" on the old
+          stream tells clients to drop the transcript and reconnect
+          (transcripts are scratch — the vault is the archive)."""
+        nonlocal chat
         body, err = await guard_write(request)
         if err:
             return err
@@ -465,7 +474,12 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
             return JSONResponse(
                 {"error": f"what must be one of {list(cancel.JOBS)}"}, status_code=400)
         if what == cancel.CHAT:
-            chat.stop()  # also denies any gate the turn is parked on
+            old, chat = chat, pane.ChatSession(vault_path, agent_factory=chat_agent_factory)
+            old.stop()  # marks it dead; denies any gate the turn is parked on
+            old.events.publish({"type": "reset"})
+            t = asyncio.create_task(old.close())  # teardown off the request path
+            chat_tasks.add(t)
+            t.add_done_callback(chat_tasks.discard)
         else:
             cancel.request(what)
         events.emit(vault_path, "cancel_requested", {"what": what})
@@ -582,7 +596,7 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         await chat.close()
         engine.shutdown()
 
-    return Starlette(routes=routes, lifespan=lifespan, middleware=[
+    app = Starlette(routes=routes, lifespan=lifespan, middleware=[
         # The rebinding gate, on EVERY route: guard_write covers the
         # write verbs, but a DNS-rebound page reads /api/note and
         # /api/tree as same-origin GETs — the localhost bind alone
@@ -591,6 +605,10 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         Middleware(TrustedHostMiddleware,
                    allowed_hosts=["127.0.0.1", "localhost", "::1"]),
     ])
+    # A getter, because cancel(chat) rebinds the session: tests need the
+    # CURRENT one to prove the swap happened.
+    app.state.chat = lambda: chat
+    return app
 
 
 def main() -> None:

@@ -83,7 +83,14 @@ inside our UI.
    `tezcat-worker-eval`); the worker suite's scorers are the
    production verifiers, so a passing case means "would have
    auto-applied". Paraphrase clusters guard against a model passing on
-   phrasing luck.
+   phrasing luck. Worker prompts are written for a capable model — the
+   loose reading is the baseline; small-model strictness is the adapt
+   layer (a profile's `worker_adapt: small` splices each spec's hedge
+   rules in), because hedging by capability tier beats deciding, rule
+   by rule, which strictness a given model has outgrown. The reply
+   *schema* is never tiered: it is the API, not a hedge. Eval reports
+   carry the tier — hedged and loose runs of one model are different
+   animals.
 7. **Chat is a frozen escape hatch.** It handles what no processor or
    command covers yet, and it gains no features — a prompt you issue
    twice is a processor or command candidate. It has two homes with one
@@ -185,7 +192,19 @@ inside our UI.
 Every trigger — daemon, `tezcat-watch`, cron, the UI server — invokes
 the same engine; the pass lock makes concurrent triggers safe. Spec.md
 is re-read every pass: worker model, n_max, disabled processors are
-note edits, no restart. The owned surfaces are a second renderer over
+note edits, no restart.
+
+The vault memo (the fingerprint that lets an unchanged tree skip the
+scan) is an optimization with one invariant: **only a pass that
+finished its work may memoize it.** A cancelled pass, or one whose
+worker died mid-draft, memoizes nothing — otherwise the memo asserts
+"this tree is handled" over text nothing ever drafted, and the input
+sits unprocessed until an unrelated edit happens to move the
+fingerprint. `tezcat-watch --rescan` forgets the memo (never the
+seen-hashes) as the recovery lever. The same rule at the surface: a
+worker that never answered is reported as such (`worker_errors`), never
+as "nothing extractable" — a failure the user reads as an empty dump is
+the one failure they cannot act on. The owned surfaces are a second renderer over
 the same state through the same gated paths — they add no state, no
 trust class, and no write that bypasses I1–I6. Built so far
 (2026-07-25): the live dashboard (`tezcat-ui`, 127.0.0.1-only — JSON

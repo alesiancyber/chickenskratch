@@ -119,6 +119,20 @@ def test_waiting_age_and_stranded_meeting_actions(vault, make_watcher):
     assert text.count("chase the SOW redlines") == 1
 
 
+def test_planned_meeting_actions_are_dispositioned_not_stranded(vault, make_watcher):
+    """Promote-to-today sets ⏳ — that IS the disposition a stranded row
+    asks for, so a planned item must leave the stranded list instead of
+    rowing there and in the time model at once."""
+    (vault / "Meetings" / f"{day(-10)} Vendor Sync.md").write_text(
+        "# Vendor Sync\n\n## Action items\n\n"
+        f"- [ ] chase the SOW redlines ⏳ {day(0)}\n")
+    w = make_watcher(vault, registry=())
+    run(w)
+    text = view(vault)
+    assert "chase the SOW redlines — 10d old" not in text  # not stranded
+    assert text.count("chase the SOW redlines") == 1       # planned-today's row now
+
+
 def test_impossible_dates_report_instead_of_crashing_the_pass(vault, make_watcher):
     """A hand-typed 📅 2026-02-30 has the right shape but is not a date.
     The dashboard must flag it — and the engine pass must survive it."""

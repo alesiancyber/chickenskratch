@@ -55,3 +55,36 @@ def test_api_key_env_resolves_at_use_not_load(tmp_path, monkeypatch):
         config.profile("cloud-model")
     monkeypatch.setenv("GEMINI_API_KEY", "k-123")
     assert config.profile("cloud-model").api_key == "k-123"
+
+
+def test_worker_adapt_defaults_loose_and_rides_the_env(tmp_path, monkeypatch):
+    """The adapt layer's plumbing: capability is the norm a profile opts
+    OUT of (default "none"), a small profile declares "small", and
+    resolve_worker_env carries the tier on WORKER_ADAPT like the rest of
+    the worker config — explicit env still wins."""
+    from tezcat import bootstrap
+
+    path = tmp_path / "models.yaml"
+    path.write_text(MINIMAL_YAML + "    worker_adapt: small\nworker: local-model\n",
+                    encoding="utf-8")
+    config = load_config(path)
+    assert config.profile("local-model").worker_adapt == "small"
+
+    for key in ("WORKER_BASE_URL", "WORKER_MODEL", "WORKER_API_KEY", "WORKER_ADAPT"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(bootstrap, "_config_filled", set())
+    bootstrap.resolve_worker_env(config)
+    import os
+    assert os.environ["WORKER_ADAPT"] == "small"
+
+    # a user's explicit tier survives the profile fill
+    monkeypatch.setenv("WORKER_ADAPT", "none")
+    monkeypatch.setattr(bootstrap, "_config_filled", set())
+    bootstrap.resolve_worker_env(config)
+    assert os.environ["WORKER_ADAPT"] == "none"
+
+
+def test_undeclared_worker_adapt_reads_none(tmp_path):
+    path = tmp_path / "models.yaml"
+    path.write_text(MINIMAL_YAML, encoding="utf-8")
+    assert load_config(path).profile("local-model").worker_adapt == "none"

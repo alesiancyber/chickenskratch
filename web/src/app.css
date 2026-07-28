@@ -275,6 +275,20 @@ body.resizing * { pointer-events: none; }
   outline: none; background: var(--hover);
   box-shadow: inset 2px 0 0 var(--accent);
 }
+/* click-select: the clicked row stays lit while the editor marks its
+   line — both sides of the same click (same look as keyboard focus,
+   one selection idiom). Esc or a second click releases it. */
+.noterow.sel {
+  background: var(--hover);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+/* focus mode (the toggleable nav switch): with a row selected, every
+   OTHER task row dims past readability — one task, no neighbors pulling
+   the eye. Opacity alone still whispers, so a slight blur finishes the
+   job; hovering a dimmed row lifts it enough to find the next click. */
+.shell.focus .noterow { transition: opacity 0.18s ease, filter 0.18s ease; }
+.shell.focus .noterow:not(.sel) { opacity: 0.14; filter: blur(1.5px); }
+.shell.focus .noterow:not(.sel):hover { opacity: 0.5; filter: none; }
 /* ---- activity: the small model, working ---- */
 
 .activity { display: inline-flex; align-items: center; gap: var(--s2); }
@@ -546,11 +560,6 @@ section { margin-bottom: var(--s5); }
   padding-top: var(--s3);
   animation: fade-in var(--fade);
 }
-.dump-text {
-  white-space: pre-wrap; word-break: break-word;
-  color: var(--ink-2);
-  margin-bottom: var(--s2);
-}
 
 /* command results: callout blocks, mirroring their vault rendering */
 .callout {
@@ -565,18 +574,18 @@ section { margin-bottom: var(--s5); }
 .doc-link { text-decoration: underline; text-underline-offset: 2px; }
 .doc-link:hover { color: var(--accent); }
 
-.canvas-proposal {
-  background: var(--accent-soft);
+.applied { color: var(--ok); }
+
+/* the draft worker is down: a standing condition, not a transient toast
+   — it stays until dismissed or the next pass proves otherwise */
+.worker-down {
+  border-left: 2px solid var(--accent);
+  background: var(--hover);
   border-radius: var(--radius);
   padding: var(--s2) var(--s3);
-  margin: var(--s2) 0;
-  transition: opacity var(--fade), background var(--fade);
+  margin-bottom: var(--s4);
 }
-.canvas-proposal.decided { opacity: 0.55; background: var(--hover); }
-.canvas-proposal .row:hover { background: none; }
-
-.filed { margin-top: var(--s1); }
-.applied { color: var(--ok); }
+.worker-down .linklike { margin-top: var(--s1); }
 
 /* ---- task checkboxes (the prototype's .box, wired for real) ---- */
 

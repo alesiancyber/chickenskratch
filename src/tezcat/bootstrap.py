@@ -75,6 +75,9 @@ def resolve_worker_env(config: Config) -> None:
     prof = config.profile(config.worker)  # fail-loud: a declared worker needs its key
     _fill_worker_env("WORKER_BASE_URL", prof.base_url)
     _fill_worker_env("WORKER_MODEL", prof.model)
+    _fill_worker_env("WORKER_ADAPT", prof.worker_adapt)
+    if prof.worker_max_tokens:
+        _fill_worker_env("WORKER_MAX_TOKENS", str(prof.worker_max_tokens))
     if prof.api_key and prof.api_key != "ollama":
         _fill_worker_env("WORKER_API_KEY", prof.api_key)
 
@@ -94,11 +97,15 @@ def apply_worker_profile(name: str, config: Config | None = None) -> bool:
         print(f"Spec.md worker {name!r} unusable, keeping current worker: {e}")
         return False
     changed = False
-    for key, value in (
+    pairs = [
         ("WORKER_BASE_URL", prof.base_url),
         ("WORKER_MODEL", prof.model),
         ("WORKER_API_KEY", prof.api_key),
-    ):
+        ("WORKER_ADAPT", prof.worker_adapt),
+    ]
+    if prof.worker_max_tokens:
+        pairs.append(("WORKER_MAX_TOKENS", str(prof.worker_max_tokens)))
+    for key, value in pairs:
         if key in os.environ and key not in _config_filled:
             continue  # user-set: env always wins
         if os.environ.get(key) != value:

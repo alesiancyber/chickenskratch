@@ -219,16 +219,19 @@ async def run_all(cases: list[dict], repeat: int) -> list[dict]:
     return results
 
 
-def write_report(model: str, results: list[dict], repeat: int):
+def write_report(model: str, results: list[dict], repeat: int, adapt: str = ""):
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     # seconds in the stamp: two runs in the same minute (quick -k spot
     # checks) must never overwrite each other's reports
     stamp = dt.datetime.now().strftime("%Y-%m-%d-%H%M%S")
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", model)
+    # adapt tier in the name and title: hedged and loose runs of the same
+    # model are different animals and must never read as one series
+    label = f"{model} (adapt={adapt})" if adapt else model
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", f"{model}-{adapt}" if adapt else model)
     strict = sum(r["passed"] for r in results)
     clean = sum(r["clean_runs"] for r in results)
     lines = [
-        f"# Worker eval — {model} — {stamp}",
+        f"# Worker eval — {label} — {stamp}",
         "",
         f"**{strict}/{len(results)} cases passed all {repeat} runs** "
         f"— {clean}/{repeat * len(results)} runs clean",
@@ -277,10 +280,12 @@ def main() -> None:
         raise SystemExit("no cases matched")
 
     model = workers.worker_model()
-    print(f"worker eval: {len(cases)} cases × {args.repeat} runs against {model}")
+    adapt = workers.worker_adapt()
+    print(f"worker eval: {len(cases)} cases × {args.repeat} runs "
+          f"against {model} (adapt={adapt})")
     results = asyncio.run(run_all(cases, args.repeat))
     strict = sum(r["passed"] for r in results)
-    report = write_report(model, results, args.repeat)
+    report = write_report(model, results, args.repeat, adapt=adapt)
     print(f"\n{strict}/{len(results)} cases fully clean — report: {report.relative_to(ROOT)}")
     sys.exit(0 if strict == len(results) else 1)
 

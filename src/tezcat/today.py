@@ -234,7 +234,10 @@ def _waiting_rows(v: Vault, waiting_inbox: str, today: dt.date) -> list[dict]:
 def _stranded_meeting_actions(v: Vault, meetings_dir: str, today: dt.date,
                               max_age_days: int = 7) -> list[dict]:
     """Open, UNDATED action items in old meeting notes — invisible to the
-    Due section, rotting quietly. Dated ones already surface in Due."""
+    Due section, rotting quietly. Dated ones already surface in Due, and
+    ⏳-planned ones are dispositioned (the stranded row's whole ask), so
+    promoting a stranded row to today retires it here and files it in
+    the time model."""
     try:
         notes = list(v.iter_notes(meetings_dir, recursive=False))
     except VaultError:
@@ -248,7 +251,7 @@ def _stranded_meeting_actions(v: Vault, meetings_dir: str, today: dt.date,
         if (today - met).days < max_age_days:
             continue
         for t in tk.iter_tasks(read_lossy(p)):
-            if not t.done and not t.due:
+            if not t.done and not t.due and not t.scheduled:
                 rows.append({"text": t.text, "age_days": (today - met).days, "note": v.rel(p)})
     return rows
 

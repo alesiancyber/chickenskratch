@@ -19,6 +19,12 @@ const NoteEditor = lazy(() => import("./NoteEditor.jsx"));
    context rather than being threaded through five components. */
 const OpenNote = createContext(() => {});
 
+/* Click-select: the row you clicked stays lit while the editor marks its
+   line — both sides of the same click. Focus mode reads this selection:
+   with it on, every unselected task row dims past readability. A context
+   for the same reason as OpenNote: every NoteRow participates. */
+const SelectRow = createContext({ key: null, set: () => {} });
+
 /* The owned attention/decision surface. Four regions, one question
    each, one verb each — do (today), start (lands soon), nudge (stalled
    on someone else), decide (captured, not yet dispositioned) — and
@@ -87,9 +93,14 @@ function Splitter({ onDrag }) {
    marks it instead of dropping you at the top to go hunting. */
 function NoteRow({ note, target = "", className = "", children }) {
   const open = useContext(OpenNote);
-  const go = () => open(note, target);
+  const { key: selKey, set: setSel } = useContext(SelectRow);
+  const myKey = note + "\u0000" + target;
+  const go = () => {
+    open(note, target);
+    setSel(myKey === selKey ? null : myKey);   // second click releases it
+  };
   return (
-    <div className={"row noterow " + className}
+    <div className={"row noterow " + className + (selKey === myKey ? " sel" : "")}
          role="button" tabIndex={0}
          onClick={go}
          onKeyDown={(e) => {
@@ -247,7 +258,12 @@ function WeekPane({ today, onDone, doneKeys, moved, onMove }) {
           <Rows items={today.next_week} render={(r, i) => (
             <TaskRow key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
                      right={<>{whenChip(r)}
-                            {mover(r, due.this_sunday, "→ this week")}</>} />
+                            {moved.has(doneKey(r))
+                              ? <span className="chip verdict-approve">moved</span>
+                              : <>
+                                  {mover(r, due.this_sunday, "→ this week")}
+                                  {mover(r, today.date, "→ today")}
+                                </>}</>} />
           )} />
         </Section>
       )}
@@ -258,7 +274,12 @@ function WeekPane({ today, onDone, doneKeys, moved, onMove }) {
                      right={<>
                        <span className="small ghost">{r.kind === "due"
                          ? `due ${r.when}` : `planned ${r.when}`}</span>
-                       {mover(r, due.this_sunday, "→ this week")}
+                       {moved.has(doneKey(r))
+                         ? <span className="chip verdict-approve">moved</span>
+                         : <>
+                             {mover(r, due.this_sunday, "→ this week")}
+                             {mover(r, today.date, "→ today")}
+                           </>}
                      </>} />
           )} />
         </Section>
@@ -372,6 +393,48 @@ function Proposal({ p, health, selected, actedVerdict, onDecide, innerRef }) {
   );
 }
 
+/* One autonomous decision under "What changed without you?", expandable
+   to its receipt — the detail the canvas used to keep in its own scroll-
+   back: what changed, where it landed (opens our editor), and the revert
+   that doubles as the negative label. One history, one place. */
+function AutoRow({ a, reverted, onRevert }) {
+  const openNote = useContext(OpenNote);
+  const [open, setOpen] = useState(false);
+  return (
+    <Collapsible.Root open={open} onOpenChange={setOpen} asChild>
+      <div className="proposal" data-state={open ? "open" : "closed"}>
+        <Collapsible.Trigger asChild>
+          <button className="row">
+            <span className="caret">▸</span>
+            <span className="grow">
+              {a.title}
+              {a.unvouched && <span className="chip attention">unvouched</span>}
+            </span>
+            <span className="small ghost">{a.ts.slice(5, 16).replace("T", " ")}</span>
+            {reverted
+              ? <span className="chip verdict-reject">reverted</span>
+              : a.undo.length > 0 && (
+                  <button className="affordance linklike"
+                          onClick={(e) => { e.stopPropagation(); onRevert(a); }}>
+                    revert ↺
+                  </button>
+                )}
+          </button>
+        </Collapsible.Trigger>
+        <Collapsible.Content className="proposal-body">
+          {a.summary && <div className="meta small">{a.summary}</div>}
+          <div className="small" style={{ marginTop: "var(--s2)" }}>
+            <span className="chip">{a.kind}</span>{" "}
+            <button className="linklike doc-link" onClick={() => openNote(a.note)}>
+              → {a.note.replace(/\.md$/, "")}
+            </button>
+          </div>
+        </Collapsible.Content>
+      </div>
+    </Collapsible.Root>
+  );
+}
+
 /* Both columns are always mounted now, so "go to X" means scroll it
    into view rather than swap the page. */
 function scrollToCol(which) {
@@ -394,7 +457,7 @@ function usePassTicker(lastPassAt) {
 }
 
 function Palette({ open, setOpen, today, changes, health, tree, refetch, runPass,
-                   togglePane, toggleExplorer, azurePrefill, revertLast }) {
+                   togglePane, toggleExplorer, toggleFocus, azurePrefill, revertLast }) {
   /* The notes today points at: the hot set, first, because they're what
      you're most likely typing at. */
   const notes = useMemo(() => {
@@ -449,6 +512,10 @@ function Palette({ open, setOpen, today, changes, health, tree, refetch, runPass
           <Command.Item onSelect={go(toggleExplorer)}>
             <span>Toggle file explorer</span><span className="ghost small">⌘B</span>
           </Command.Item>
+          <Command.Item onSelect={go(toggleFocus)}>
+            <span>Toggle focus mode</span>
+            <span className="ghost small">click a task, the rest dims</span>
+          </Command.Item>
           <Command.Item onSelect={go(runPass)}>
             <span>Run an engine pass now</span><span className="ghost small">engine</span>
           </Command.Item>
@@ -494,8 +561,8 @@ function Palette({ open, setOpen, today, changes, health, tree, refetch, runPass
 }
 
 export default function App() {
-  const { today, review, changes, health, tree, error, live, lastPassAt, activity, refetch }
-    = useDashboard();
+  const { today, review, changes, health, tree, error, live, lastPassAt, activity,
+          workerError, clearWorkerError, refetch } = useDashboard();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paneOpen, setPaneOpen] = useState(false);
   // Closed unless you've said otherwise: the dashboard is the surface,
@@ -507,14 +574,13 @@ export default function App() {
   const [acted, setActed] = useState({});          // pid -> "approve" | "reject"
   const [toast, setToast] = useState(null);        // {label, undo: [shas]}
   const [selectedPid, setSelectedPid] = useState(null);
-  // Proposals whose accept box is live in the canvas right now: decide
-  // them where you dumped them — the dashboard must not ask the same
-  // question twice on one screen. A reload clears the canvas history,
-  // and the ids fall through to the decision region so consent is never
-  // trapped in a scratch surface.
-  const [inlinePids, setInlinePids] = useState(() => new Set());
+  // The clicked task row (note + text key). Feeds the row highlight and,
+  // when focus mode is on, the dimming of everything else. Esc clears.
+  const [selKey, setSelKey] = useState(null);
+  const [focusMode, setFocusMode] = useState(
+    () => localStorage.getItem("tezcat.focus") === "1");
   const [view, setView] = useState("today");       // "today" | "week"
-  const [movedKeys, setMovedKeys] = useState(() => new Set()); // optimistic week→today
+  const [movedKeys, setMovedKeys] = useState(() => new Set()); // optimistic ⏳ moves (promote/defer, any tab)
   const [doneKeys, setDoneKeys] = useState(new Set());
   const [canvasSeed, setCanvasSeed] = useState("");
   // Which note is open, and which of the two the right column is showing.
@@ -527,14 +593,36 @@ export default function App() {
     setOpenNote((prev) => ({ path, target, seq: (prev?.seq ?? 0) + 1 }));
     setTab("note");
   }, []);
-  const closeNote = useCallback(() => { setOpenNote(null); setTab("canvas"); }, []);
+  // Closing the note takes the selection with it: the editor half of the
+  // highlight just vanished, and a lit row pointing at nothing is a lie.
+  const closeNote = useCallback(() => {
+    setOpenNote(null);
+    setTab("canvas");
+    setSelKey(null);
+  }, []);
   const rowRefs = useRef({});
   const toastTimer = useRef(null);
   const ticker = usePassTicker(lastPassAt);
 
-  const visible = useMemo(
-    () => (review ?? []).filter((p) => !inlinePids.has(p.id)),
-    [review, inlinePids]);
+  // The decision region owns every pending proposal now — the canvas
+  // keeps no inline decide boxes, so nothing needs de-duplicating.
+  const visible = useMemo(() => review ?? [], [review]);
+  /* Releasing the selection releases BOTH sides: the editor's line mark
+     reads the open note's target, so blank it along with the row key —
+     the highlight over the canvas column must never outlive (or die
+     before) the lit row that put it there. */
+  const releaseSel = useCallback(() => {
+    setSelKey(null);
+    setOpenNote((prev) => (prev?.target ? { ...prev, target: "" } : prev));
+  }, []);
+  const selCtx = useMemo(() => ({
+    key: selKey,
+    set: (k) => (k === null ? releaseSel() : setSelKey(k)),
+  }), [selKey, releaseSel]);
+  const toggleFocus = useCallback(() => setFocusMode((v) => {
+    localStorage.setItem("tezcat.focus", v ? "0" : "1");
+    return !v;
+  }), []);
 
   const showToast = useCallback((label, undo = []) => {
     setToast({ label, undo });
@@ -639,6 +727,18 @@ export default function App() {
       ? today?.due?.this_sunday : today?.due?.next_sunday;
     return planTask(r, when, "Pushed to later this week");
   }, [planTask, today]);
+  /* "→ today" from every row a task lives on — soon, stranded, the week
+     lanes, the backlog — not just the Week tab. Same gated ⏳ verb
+     (plan, never deadline), same corpus row, wherever it's clicked. */
+  const promoteBtn = useCallback((r) => movedKeys.has(doneKey(r))
+    ? <span className="chip verdict-approve">moved</span>
+    : <button className="affordance linklike"
+              onClick={(e) => {
+                e.stopPropagation();
+                planTask(r, today?.date, "Promoted to today");
+              }}>
+        → today
+      </button>, [movedKeys, planTask, today]);
 
   const runPass = useCallback(() => { postJSON("/api/pass").catch(() => {}); }, []);
   const stopPass = useCallback(() => { cancelJob("pass").catch(() => {}); }, []);
@@ -681,6 +781,9 @@ export default function App() {
         return;
       }
       if (paletteOpen || e.metaKey || e.ctrlKey || e.altKey) return;
+      // esc releases the clicked row (and focus mode's dim) everywhere,
+      // editor mark included
+      if (e.key === "Escape") releaseSel();
       // the review shortcuts belong to the today view's decision region
       if (view !== "today") return;
       // the canvas textarea is always mounted now: never steal its keys
@@ -711,7 +814,7 @@ export default function App() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [paletteOpen, view, visible, acted, selectedPid, decide, undo, openNoteAt,
-      togglePane, toggleExplorer]);
+      togglePane, toggleExplorer, releaseSel]);
 
   /* refetch reconciles: decided proposals leave the queue, done rows
      leave the model; drop the optimistic marks so state never rots */
@@ -758,12 +861,18 @@ export default function App() {
 
   return (
     <OpenNote.Provider value={openNoteAt}>
-    <div className="shell">
+    <SelectRow.Provider value={selCtx}>
+    <div className={"shell" + (focusMode && selKey ? " focus" : "")}>
       <nav className="topnav small">
         <span className="brand">tezcat</span>
         <span className="nav-spacer" />
         <Activity activity={activity} onStop={stopPass} />
         <span className="ghost">{live ? ticker : "reconnecting"}</span>
+        <button className={"navlink" + (focusMode ? " current" : "")}
+                onClick={toggleFocus}
+                title="Focus mode: click a task and the rest dims — esc releases">
+          Focus
+        </button>
         <button className="navlink" onClick={toggleExplorer}>Files ⌘B</button>
         <button className="navlink" onClick={togglePane}>Chat ⌘J</button>
       </nav>
@@ -801,7 +910,25 @@ export default function App() {
         )}
       </header>
 
-      {nothing && <div className="empty-state title">Nothing needs you.</div>}
+      {/* A draft worker that never answered. Above the empty state on
+          purpose: "Nothing needs you" is only the success condition when
+          the harness actually looked — with extraction down we don't know
+          what's in the vault, and saying nothing would be the same lie the
+          canvas used to tell ("nothing extractable"). Dumps are safe on
+          Capture.md and re-arm; this is a delay with a cause. */}
+      {workerError && (
+        <div className="worker-down small" role="status">
+          <span className="attention">extraction is down</span>
+          <span className="ghost">
+            {" "}— {workerError.processor} couldn’t draft; captures stay on
+            Capture.md and retry each pass
+          </span>
+          <div className="ghost">{workerError.error}</div>
+          <button className="linklike" onClick={clearWorkerError}>dismiss</button>
+        </div>
+      )}
+
+      {nothing && !workerError && <div className="empty-state title">Nothing needs you.</div>}
 
       <DoToday due={today.due} planned={today.planned ?? []}
                meetings={today.meetings} onDone={taskDone} doneKeys={doneKeys}
@@ -811,7 +938,10 @@ export default function App() {
         <Section id="soon" label="What lands soon?" verb="start">
           <Rows items={today.due.soon} render={(r, i) => (
             <TaskRow key={i} r={r} onDone={taskDone} done={doneKeys.has(doneKey(r))}
-                     right={<span className="small meta">in {r.days}d</span>} />
+                     right={<>
+                       <span className="small meta">in {r.days}d</span>
+                       {promoteBtn(r)}
+                     </>} />
           )} />
         </Section>
       )}
@@ -854,6 +984,7 @@ export default function App() {
             <NoteRow note={r.note} target={r.text} key={i}>
               <span className="grow">{r.text}</span>
               <span className="small ghost">{r.age_days}d old · undated</span>
+              {promoteBtn(r)}
             </NoteRow>
           )} />
         </Section>
@@ -862,25 +993,16 @@ export default function App() {
       {/* The autonomy audit: under the standing grant, "what did it
           change without asking?" is a real question with a real action
           — revert, which is also the training label. One row per
-          autonomous decision, revertible as a decision (its own
+          autonomous decision, expandable to its receipt (summary, kind,
+          the note it landed on), revertible as a decision (its own
           commits), "unvouched" marking applies the verifier objected
-          to. Absent entirely when the harness has been quiet. */}
+          to. This is where canvas dumps land too — the one history.
+          Absent entirely when the harness has been quiet. */}
       {(today.recent_auto ?? []).length > 0 && (
         <Section id="auto" label="What changed without you?" verb="audit">
           {today.recent_auto.map((a) => (
-            <div className="row" key={a.id}>
-              <span className="grow">
-                {a.title}
-                {a.unvouched && <span className="chip attention">unvouched</span>}
-              </span>
-              <span className="small ghost">{a.ts.slice(5, 16).replace("T", " ")}</span>
-              {revertedAuto.has(a.id)
-                ? <span className="chip verdict-reject">reverted</span>
-                : a.undo.length > 0 && (
-                    <button className="affordance linklike"
-                            onClick={() => revertAuto(a)}>revert ↺</button>
-                  )}
-            </div>
+            <AutoRow key={a.id} a={a}
+                     reverted={revertedAuto.has(a.id)} onRevert={revertAuto} />
           ))}
         </Section>
       )}
@@ -968,9 +1090,9 @@ export default function App() {
               nothing lands without you.
             </div>
           </header>
-          <Canvas seed={canvasSeed} onOpenNote={openNoteAt}
+          <Canvas seed={canvasSeed}
                   onSeedConsumed={() => setCanvasSeed("")}
-                  onInlinePids={setInlinePids} />
+                  onIngested={() => refetch(["today", "review", "changes"])} />
         </div>
 
         {openNote && (
@@ -1012,9 +1134,10 @@ export default function App() {
       <Palette open={paletteOpen} setOpen={setPaletteOpen}
                today={today} changes={changes} health={health} tree={tree}
                refetch={refetch} runPass={runPass} togglePane={togglePane}
-               toggleExplorer={toggleExplorer}
+               toggleExplorer={toggleExplorer} toggleFocus={toggleFocus}
                azurePrefill={azurePrefill} revertLast={revertLast} />
     </div>
+    </SelectRow.Provider>
     </OpenNote.Provider>
   );
 }

@@ -10,6 +10,13 @@ read-only: they return structured suggestions; the caller acts on them
 through the normal write-gated tools, so the harness's write guarantees
 stay exactly where they already live.
 
+Prompts are written for a CAPABLE model — the loose reading is the
+out-of-the-box behavior. Small-model hedging is the adapt layer: each
+spec may carry a `hedges` block of extra conservative rules, applied
+only when WORKER_ADAPT says the configured model needs them. Hedging
+by capability tier beats trying to decide, rule by rule, which
+strictness a given model has outgrown.
+
 Config via env, mirroring TEZCAT_VAULT_PATH:
   WORKER_BASE_URL  - OpenAI-compatible endpoint (default: the mlx-worker
                      backend from models.yaml, port 8081)
@@ -17,6 +24,12 @@ Config via env, mirroring TEZCAT_VAULT_PATH:
                      worker-eval winner — see evals/reports/workers/;
                      needs thinking disabled, see the mlx-worker
                      backend command)
+  WORKER_ADAPT     - "small" appends each spec's hedge rules; "none"
+                     runs the loose base prompt. Default "small": it
+                     pairs with the built-in 4B default above, and an
+                     unhedged small model is worse than a hedged big
+                     one. Filled from the worker profile's
+                     `worker_adapt:` by bootstrap, like the rest.
   WORKER_TIMEOUT_S - per-call timeout override (default: the spec's own;
                      the OpenAI client default of 600s turns a slow or
                      thinking-mode model into an apparent hang)
@@ -52,6 +65,13 @@ def worker_model() -> str:
     return os.environ.get("WORKER_MODEL", DEFAULT_MODEL)
 
 
+def worker_adapt() -> str:
+    """The capability tier the prompts adapt to. "small" (the default —
+    it pairs with the built-in 4B DEFAULT_MODEL) appends each spec's
+    hedge rules; anything else runs the loose base prompt."""
+    return os.environ.get("WORKER_ADAPT", "small")
+
+
 def _worker_client() -> AsyncOpenAI:
     global _client
     if _client is None:
@@ -80,6 +100,11 @@ class WorkerSpec:
     timeout_s: float = 60.0
     temperature: float = 0.1
     max_tokens: int = 2000   # bound runaway generation
+    # The adapt layer: extra conservative rules spliced into the prompt's
+    # {hedges} slot when WORKER_ADAPT is "small". The base prompt is the
+    # capable-model reading; hedges narrow it for models that wander.
+    # The reply SCHEMA is never tiered — it is the API, not a hedge.
+    hedges: str = ""
 
 
 async def run_worker(spec: WorkerSpec, **inputs) -> dict:
@@ -87,7 +112,10 @@ async def run_worker(spec: WorkerSpec, **inputs) -> dict:
     against the spec's schema. One retry on junk output; every failure is
     a VaultError so the MCP tool layer surfaces a clean message."""
     client = _worker_client()
-    prompt = spec.prompt.format(**inputs)
+    # Hedges splice in BEFORE the one format pass, so a hedge rule may use
+    # the same placeholders as the base prompt ({today}, {this_sunday}, …).
+    block = spec.hedges.rstrip() + "\n" if spec.hedges and worker_adapt() == "small" else ""
+    prompt = spec.prompt.replace("{hedges}\n", block).format(**inputs)
     # Env parses degrade to the spec default on garbage ("60s", ""): a
     # ValueError here is outside run_worker's VaultError contract, and an
     # .env typo must never become a crash of every engine pass.
@@ -136,7 +164,7 @@ async def run_worker(spec: WorkerSpec, **inputs) -> dict:
 
 
 _EXTRACT_TASKS_PROMPT = """\
-Extract every actionable task from the text below. A task is something a \
+Extract every actionable item from the text below. A task is something a \
 person needs to do — not a decision already made, not a general topic, not \
 something that already happened.
 
@@ -145,28 +173,49 @@ Return ONLY a JSON object of this shape, nothing else:
 
 Rules:
 - due is a HARD deadline: a specific date only when the text states or
-  clearly implies a real commitment ("by Friday", "due the 30th").
+  clearly implies a real commitment ("by Friday", "due the 30th" — and
+  urgency demands: "urgent — do it today" -> due {today}).
   Today is {today}.
 - scheduled is a PLAN, not a deadline — when the text says when the
   person intends to work on it: "this week" -> {this_sunday},
-  "next week" -> {next_sunday}, "today"/"tonight" -> {today}. Never
-  invent one, and never set both due and scheduled from the same phrase:
-  deadline words go to due, plan words go to scheduled.
+  "next week" -> {next_sunday}, stated intent like "I'll look at it
+  today"/"tonight" -> {today}. Never invent one, and never set both due
+  and scheduled from the same phrase: deadline and urgency words go to
+  due, plan words go to scheduled.
 - priority: only if stated or strongly implied (e.g. "urgent" -> highest). Otherwise null.
-- owed_by: when someone ELSE committed to doing or providing something \
-("Nadia will send X", "Marcus said he'll get me Y"), extract it too — it is \
-a follow-up, with owed_by set to that person's name and text describing what \
-they owe. The reader's own actions (including "we" or "someone on our side") \
-have owed_by null.
+- owed_by: set when another person or team owes the reader something —
+  a commitment they made ("Nadia will send X"), or a dependency the
+  reader is waiting on ("the SOC is blocking the rollout" -> the SOC
+  owes the unblock). text describes what they owe. The reader's own
+  actions (including "we" or "someone on our side") have owed_by null.
+- A dependency is usually TWO items: the reader's own move (ask, chase,
+  inform — owed_by null) and the thing the other party owes (owed_by set
+  to that party). Split compound statements into their independently
+  actionable parts instead of flattening them into one task — but never
+  decompose a single action into its steps.
 - text: the task itself, imperative mood, without repeating the date or priority word.
 - A decision already made, or a plan someone reviewed or approved, is NOT a \
 task unless the text asks someone to carry it out. But a suggestion for future \
 work ("we should...", "someday...") IS a task, with due and priority null \
 unless stated.
 - No tasks found -> {{"tasks": []}}.
-
+{hedges}
 Text:
 {text}
+"""
+
+# The small-model hedges for extract_tasks (WORKER_ADAPT=small). The rules
+# above are the capable-model reading; these narrow the judgment calls a
+# small model gets wrong more often than right — misattributed owed_by,
+# invented decompositions, paraphrase drift. Conservative beats clever
+# when the model is 4B: a missed split costs a re-dump, a fabricated
+# waiting-on row costs trust.
+_EXTRACT_TASKS_HEDGES = """\
+- Set owed_by ONLY when the text names who owes it; when unsure, use null.
+- Split a sentence into at most two items, and only when both halves are
+  clearly actionable; never manufacture extra tasks.
+- Stay close to the text's own wording; when unsure about due, scheduled,
+  or priority, use null.
 """
 
 _SCHEMA_FIX_PROMPT = """\
@@ -292,6 +341,7 @@ WORKERS: dict[str, WorkerSpec] = {
     "extract_tasks": WorkerSpec(
         name="extract_tasks",
         prompt=_EXTRACT_TASKS_PROMPT,
+        hedges=_EXTRACT_TASKS_HEDGES,
         schema={
             "type": "object",
             "required": ["tasks"],

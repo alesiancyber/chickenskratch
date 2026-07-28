@@ -357,6 +357,21 @@ class Watcher:
         }
         atomic_write_text(self.state_path, json.dumps(state))
 
+    def forget_vault_memo(self) -> None:
+        """Force the next pass to scan every note (`tezcat-watch --rescan`).
+
+        The recovery lever for a memo that wrongly says "this tree is
+        handled" — the state a draft-time worker failure used to leave
+        behind, stranding undrafted text until an unrelated edit moved the
+        fingerprint. Only the fingerprint goes: it is a pure optimization,
+        so dropping it costs one full scan. The seen-hashes are RELOADED
+        from disk first and written back untouched — they are real dedup
+        state, and this method runs on a fresh Watcher whose in-memory
+        `seen` is still empty (only run_once populates it), so writing
+        that would re-draft every surface's last text."""
+        self.seen = self._seen_from_state(self._load_state())
+        self._save_state({})
+
     # ---- stage 2: execute typed //commands ----
 
     async def _run_commands(self, summary: dict) -> None:
@@ -410,11 +425,25 @@ class Watcher:
                         {"processor": proc.name, "note": item["note"]})
             try:
                 p = await proc.draft(self, item)
-            except VaultError:
+            except VaultError as e:
                 # This processor's worker is down/misbehaving. Others keep
                 # drafting — a dead LLM worker must never starve the
                 # model-free processors (//commands) behind it in line.
+                # RECORDED, never swallowed: a dead worker and a note with
+                # nothing in it produce the same zero drafts, and reporting
+                # the second when the first happened tells the user their
+                # dump was empty. It wasn't — it re-arms (the seen-hash is
+                # only stamped past a successful draft) and the next pass
+                # retries it, which is what the surfaces must say.
                 failed.add(proc.name)
+                summary.setdefault("worker_errors", []).append(
+                    {"processor": proc.name, "error": str(e)})
+                # Also on the stream: typing straight into Capture.md is a
+                # first-class input, and that path has no request to answer
+                # — without this, a dead worker is invisible on every
+                # surface until you notice tasks never appearing.
+                events.emit(self.vault_path, "worker_error",
+                            {"processor": proc.name, "error": str(e)})
                 continue
             if p is None:
                 continue
@@ -608,8 +637,12 @@ class Watcher:
         silently discard a human's decision."""
         summary = {
             "commands": 0, "drafted": 0, "auto": 0, "approved": 0, "rejected": 0,
-            "stale": 0, "failed": 0, "scanned": False, "locked": False,
-            "cancelled": False,
+            # `failed` counts applies that threw; `worker_errors` carries the
+            # DRAFT-side failures (a down or rate-limited LLM worker), because
+            # "drafted 0" alone can't tell "nothing to extract" from "the
+            # worker never answered" — and the surfaces must not guess.
+            "stale": 0, "failed": 0, "worker_errors": [], "scanned": False,
+            "locked": False, "cancelled": False,
         }
         lock_file = await self._acquire_pass_lock(lock_wait)
         if lock_file is None:
@@ -712,10 +745,18 @@ class Watcher:
             # rescans it. That costs one echo pass after a pass that wrote;
             # re-fingerprinting at pass end instead would memoize mid-pass
             # edits as scanned when no scan ever saw them, and a //command
-            # typed during a slow draft would never fire. A cancelled pass
-            # memoizes nothing: it stopped before finishing the scan a memo
-            # would vouch for.
-            self._save_state({} if summary["cancelled"] else fingerprint)
+            # typed during a slow draft would never fire.
+            #
+            # A cancelled pass memoizes nothing: it stopped before finishing
+            # the scan a memo would vouch for. A pass whose WORKER died is
+            # the same case and was missing it — the memo said "this tree is
+            # handled" when a processor never got an answer, so the next
+            # pass skipped the scan and the undrafted text sat on the
+            # capture surface forever (until an unrelated edit happened to
+            # move the fingerprint). Forgetting the memo is what makes
+            # "the engine retries it" true.
+            incomplete = summary["cancelled"] or bool(summary["worker_errors"])
+            self._save_state({} if incomplete else fingerprint)
             proposals.prune(self.proposals_dir)
             self._emit_pass(summary)
             return summary
@@ -749,13 +790,18 @@ def main() -> None:
         + ", ".join(p.name for p in processors.REGISTRY)
         + ", inline_command (the //commands phase)",
     )
+    parser.add_argument(
+        "--rescan", action="store_true",
+        help="forget the vault memo and scan every note, even if nothing "
+        "changed — the recovery lever for a tree the memo wrongly calls "
+        "handled (the seen-hashes are kept, so it is not a re-extract-all)")
     args = parser.parse_args()
     _config, vault, _servers = load_runtime(vault=args.vault)
-    summary = asyncio.run(
-        Watcher(vault, n_max=args.n_max,
+    w = Watcher(vault, n_max=args.n_max,
                 disabled=tuple(args.disable) if args.disable else None)
-        .run_once()
-    )
+    if args.rescan:
+        w.forget_vault_memo()
+    summary = asyncio.run(w.run_once())
     if summary["locked"]:
         print("watch pass: skipped — another pass is already running")
         return
@@ -766,6 +812,8 @@ def main() -> None:
         + (f", FAILED {summary['failed']}" if summary.get("failed") else "")
         + ("" if summary["scanned"] else " (vault unchanged — scan skipped)")
     )
+    for err in summary.get("worker_errors", []):
+        print(f"  ⚠ {err['processor']}: {err['error']} — retries next pass")
 
 
 if __name__ == "__main__":

@@ -30,7 +30,6 @@ import uuid
 
 from tezcat_vault import ids
 
-from . import cancel
 from .corpus import record_confirm
 from .fanout import Fanout
 
@@ -51,6 +50,11 @@ class ChatSession:
         # the whole turn instead of stealing half of it. See fanout.py.
         self.events = Fanout(QUEUE_MAX)
         self.pending: dict[str, asyncio.Future] = {}
+        # Session-local, not the process-global cancel module: stop() ends
+        # THIS session, and the server replaces it immediately — a shared
+        # flag would let the replacement's first turn clear a stop the old
+        # session's still-unwinding turn depends on.
+        self.stopped = False
         self.agent = None
         self._factory = agent_factory or self._default_agent
         # Every Agent/MCP interaction happens inside ONE long-lived worker
@@ -104,12 +108,14 @@ class ChatSession:
         return True
 
     def stop(self) -> None:
-        """The pane's stop button. Cooperative: the agent loop notices at
-        its next checkpoint (see cancel.py), so an in-flight model call
-        still has to return — bounded by the profile's own timeouts. Any
-        unanswered write gate is denied now, since that IS a checkpoint
-        the turn is currently parked on."""
-        cancel.request(cancel.CHAT)
+        """The pane's stop button: this session is over. Marks the session
+        dead (the agent loop unwinds at its next checkpoint — the in-flight
+        model call still has to return, bounded by the profile's timeouts)
+        and denies any unanswered write gate, since that IS a checkpoint
+        the turn is currently parked on. The server does not wait for the
+        unwind: it replaces the session immediately (ui.cancel_route), so
+        the user gets a fresh chat now, not when the old turn finishes."""
+        self.stopped = True
         for fut in self.pending.values():
             if not fut.done():
                 fut.set_result(False)
@@ -117,8 +123,11 @@ class ChatSession:
 
     async def send(self, text: str) -> None:
         """One chat turn; every observable lands on the event queue.
-        Resolves when the turn finishes (the route fire-and-forgets it)."""
-        cancel.clear(cancel.CHAT)  # a stale stop must not kill this turn
+        Resolves when the turn finishes (the route fire-and-forgets it).
+        A stopped session ignores sends — it's already being replaced,
+        and its turn would cancel on the first checkpoint anyway."""
+        if self.stopped:
+            return
         self._ensure_worker()
         done: asyncio.Future = asyncio.get_running_loop().create_future()
         await self._inbox.put((text, done))
@@ -199,7 +208,7 @@ class ChatSession:
         # source opens there — never in another app.
         agent = Agent(profile, servers, log=self._log, confirm=self._confirm,
                       skills=load_skills(), vault=vault, log_result=self._log_result,
-                      should_cancel=cancel.token(cancel.CHAT),
+                      should_cancel=lambda: self.stopped,
                       note_link=app_note_link)
         await agent.__aenter__()
         return agent

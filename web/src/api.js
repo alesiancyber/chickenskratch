@@ -40,6 +40,10 @@ export function useDashboard() {
   const [live, setLive] = useState(false);
   const [lastPassAt, setLastPassAt] = useState(null); // Date of last pass
   const [activity, setActivity] = useState(IDLE);
+  // The last draft-side worker failure (down, rate-limited). Its own
+  // signal because a pass that drafted nothing looks identical to a quiet
+  // vault — and a dump that never got extracted must not read as one.
+  const [workerError, setWorkerError] = useState(null);
   const alive = useRef(true);
   /* Refetches overlap: pass_complete and vault_changed can land together,
      and each fires four parallel requests. Without a sequence number the
@@ -104,6 +108,9 @@ export function useDashboard() {
       if (JSON.parse(e.data).what === "pass")
         setActivity((a) => (a.running ? { ...a, stopping: true } : a));
     });
+    es.addEventListener("worker_error", (e) => {
+      try { setWorkerError(JSON.parse(e.data)); } catch { /* malformed: ignore */ }
+    });
     es.addEventListener("pass_complete", () => {
       setActivity(IDLE);
       setLastPassAt(new Date());
@@ -123,7 +130,8 @@ export function useDashboard() {
     return () => { alive.current = false; es.close(); };
   }, [refetch]);
 
-  return { ...state, live, lastPassAt, activity, refetch };
+  return { ...state, live, lastPassAt, activity, workerError,
+           clearWorkerError: () => setWorkerError(null), refetch };
 }
 
 /* Note references open OUR editor. There is deliberately no

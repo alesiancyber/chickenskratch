@@ -245,10 +245,10 @@ def test_cancel_route_marks_the_job_and_takes_the_consent_gate(client):
 
 def test_cancelling_chat_denies_the_gate_it_is_parked_on(client):
     """A turn stopped while waiting on Allow/Deny must not hang on a
-    future nobody will ever resolve — stopping settles it as a deny."""
+    future nobody will ever resolve — stopping settles it as a deny and
+    marks the session dead (session-local: the replacement session must
+    not be able to clear a stop the old turn depends on)."""
     import asyncio
-
-    from tezcat import cancel
 
     async def scenario():
         session = ui.pane.ChatSession("/tmp/x")
@@ -256,10 +256,27 @@ def test_cancelling_chat_denies_the_gate_it_is_parked_on(client):
         session.pending["c1"] = fut
         session.stop()
         assert fut.done() and fut.result() is False
-        assert cancel.is_requested(cancel.CHAT) is True
-        cancel.clear(cancel.CHAT)
+        assert session.stopped is True
+        # a dead session ignores sends — it is already being replaced
+        await session.send("hello?")
+        assert session.agent is None
 
     asyncio.run(scenario())
+
+
+def test_cancelling_chat_replaces_the_session_immediately(client):
+    """Stop = kill-and-replace, never a wedged pane: the route swaps in a
+    fresh session before returning, tells the old stream to reset, and
+    tears the old session down off the request path."""
+    before = client.app.state.chat()
+    r = client.post("/api/cancel", json={"what": "chat"})
+    assert r.status_code == 202 and r.json() == {"cancelling": "chat"}
+    after = client.app.state.chat()
+    assert after is not before and after.stopped is False
+    assert before.stopped is True
+    # a second stop keeps working against the new session
+    assert client.post("/api/cancel", json={"what": "chat"}).status_code == 202
+    assert client.app.state.chat() is not after
 
 
 def test_a_busy_engine_409s_the_decision_instead_of_swallowing_it(client, vault, monkeypatch):

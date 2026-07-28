@@ -1,0 +1,1577 @@
+[
+  {
+    "name": "urgent-priority-mapping",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "'(?i)cert': due=None, expected '2026-07-27'"
+    ],
+    "seconds": 50.2,
+    "last_reply": [
+      {
+        "text": "Renew the cert on the mail server",
+        "due": null,
+        "scheduled": "2026-07-27",
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "someday-item-kept",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 29.0,
+    "last_reply": [
+      {
+        "text": "Redesign the pricing page",
+        "due": null,
+        "scheduled": null,
+        "priority": "lowest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "relative-date-two-weeks",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 27.5,
+    "last_reply": [
+      {
+        "text": "Send the vendor contract",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Nadia"
+      },
+      {
+        "text": "Review the vendor contract",
+        "due": "2026-08-10",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "owed-commitment-followup",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 16.6,
+    "last_reply": [
+      {
+        "text": "Provide the firewall logs",
+        "due": "2026-07-28",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Marcus"
+      },
+      {
+        "text": "Draft the Sigma detection rule",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "completed-item-excluded",
+    "passed": false,
+    "clean_runs": 1,
+    "runs": 3,
+    "failures": [
+      "'(?i)postmortem': due=None, expected '2026-07-28'"
+    ],
+    "seconds": 77.9,
+    "last_reply": [
+      {
+        "text": "Schedule the postmortem",
+        "due": "2026-07-28",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "no-tasks-pure-status",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 20.3,
+    "last_reply": []
+  },
+  {
+    "name": "decision-is-not-a-task",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 23.9,
+    "last_reply": []
+  },
+  {
+    "name": "multiple-tasks-mixed",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "'(?i)api key|rotate': due=None, expected '2026-07-27'"
+    ],
+    "seconds": 33.3,
+    "last_reply": [
+      {
+        "text": "File the quarterly taxes",
+        "due": "2026-08-01",
+        "scheduled": null,
+        "priority": "high",
+        "owed_by": "Sam"
+      },
+      {
+        "text": "Update the onboarding doc",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Rotate the leaked API key",
+        "due": null,
+        "scheduled": "2026-07-27",
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "date-not-repeated-in-text",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 15.7,
+    "last_reply": [
+      {
+        "text": "Submit the expense report",
+        "due": "2026-07-28",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "cancelled-plan-is-not-a-task",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 13.8,
+    "last_reply": []
+  },
+  {
+    "name": "negated-instruction-not-inverted",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "failures": [
+      "'(?i)legal review|schedule.*review': due=None, expected '2026-07-30'"
+    ],
+    "seconds": 37.8,
+    "last_reply": [
+      {
+        "text": "Hold deployment of the new detection pack until legal review is complete",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Schedule the legal review",
+        "due": null,
+        "scheduled": "2026-07-30",
+        "priority": null,
+        "owed_by": "Sam"
+      }
+    ]
+  },
+  {
+    "name": "two-people-owe-things",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 24.2,
+    "last_reply": [
+      {
+        "text": "Send over the IR runbook draft",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Dana"
+      },
+      {
+        "text": "Provide VPN access",
+        "due": "2026-08-01",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Marcus"
+      },
+      {
+        "text": "Review the IR runbook draft and VPN access once they land",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "delegated-by-me-is-owed",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 30.5,
+    "last_reply": [
+      {
+        "text": "Update the on-call rotation doc",
+        "due": "2026-07-31",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Priya"
+      },
+      {
+        "text": "Take the pager",
+        "due": null,
+        "scheduled": "2026-08-02",
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "waiting-on-phrasing",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 21.0,
+    "last_reply": [
+      {
+        "text": "Deliver the Q2 detection coverage report",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Northwind"
+      },
+      {
+        "text": "Map our log sources against MITRE",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "critical-severity-mapping",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "'(?i)patch|gateway': due=None, expected '2026-07-27'"
+    ],
+    "seconds": 33.8,
+    "last_reply": [
+      {
+        "text": "Patch the edge gateway",
+        "due": null,
+        "scheduled": "2026-07-27",
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "low-priority-phrasing",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 20.9,
+    "last_reply": [
+      {
+        "text": "Tidy up the tags in the research notes",
+        "due": null,
+        "scheduled": null,
+        "priority": "lowest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "numbers-are-not-dates",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "expected exactly 1 task(s), got 2; extra: ['Put the replacement YubiKeys in lockbox 7']"
+    ],
+    "seconds": 21.8,
+    "last_reply": [
+      {
+        "text": "Order 3 replacement YubiKeys for the new hires",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Put the replacement YubiKeys in lockbox 7",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "in-a-week-relative-date",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 16.0,
+    "last_reply": [
+      {
+        "text": "Decide whether we're buying Obsidian Sync",
+        "due": "2026-08-03",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "eod-tomorrow",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 17.6,
+    "last_reply": [
+      {
+        "text": "Provide the reconciled invoice list to Finance",
+        "due": "2026-07-28",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "duplicate-mention-extracted-once",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 32.7,
+    "last_reply": [
+      {
+        "text": "Renew the wildcard cert",
+        "due": "2026-08-02",
+        "scheduled": null,
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "reference-material-is-not-a-task",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 28.2,
+    "last_reply": []
+  },
+  {
+    "name": "task-buried-mid-paragraph",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 16.1,
+    "last_reply": [
+      {
+        "text": "Regenerate the firewall rule export",
+        "due": "2026-08-03",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "braindump-fragments",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 22.1,
+    "last_reply": [
+      {
+        "text": "Replace laptop battery",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Ask Alex regarding SSO timeline",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Look into gym membership",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "forwarded-email-style",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 16.3,
+    "last_reply": [
+      {
+        "text": "Re-enroll two MFA devices",
+        "due": "2026-08-10",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "past-recap-plus-single-action",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: extract_tasks worker (gemini-3.1-pro-preview) returned non-JSON output: '{\\n  \"tasks\": [\\n    {\\n      \"text\": \"Write the retro doc\",\\n      \"due\": null,\\n      \"scheduled\": null,\\n      \"priority\": null,\\n      \"owed_by\": null\\n    }\\n  ]'"
+    ],
+    "seconds": 22.9,
+    "last_reply": null
+  },
+  {
+    "name": "suggestion-we-should-is-a-task",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: extract_tasks worker (gemini-3.1-pro-preview) returned non-JSON output: '{\\n  \"tasks\": [\\n    {\\n      \"text\": \"Add canary tokens to the file shares\",\\n      \"due\": null,\\n      \"scheduled\": null,\\n      \"priority\": \"low\",\\n      \"owed_by\": null\\n    }\\n  ]'"
+    ],
+    "seconds": 27.3,
+    "last_reply": [
+      {
+        "text": "Add canary tokens to the file shares",
+        "due": null,
+        "scheduled": null,
+        "priority": "low",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "date-and-priority-both-stated",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 17.1,
+    "last_reply": [
+      {
+        "text": "Submit the SOC 2 evidence bundle",
+        "due": "2026-08-01",
+        "scheduled": null,
+        "priority": "high",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "negation-hold-off-variant",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "forbidden pattern '(?i)^email the customer list' in task text 'Email the customer list after Dana signs off'"
+    ],
+    "seconds": 31.0,
+    "last_reply": [
+      {
+        "text": "Email the customer list once Dana signs off",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Provide sign-off for the customer list email",
+        "due": "2026-07-28",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Dana"
+      }
+    ]
+  },
+  {
+    "name": "cancellation-scrapped-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 18.8,
+    "last_reply": [
+      {
+        "text": "Cancel the venue deposit",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "already-handled-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 15.8,
+    "last_reply": [
+      {
+        "text": "Publish the findings internally",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "promised-phrasing-variant",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: extract_tasks worker (gemini-3.1-pro-preview) returned non-JSON output: '{\\n  \"tasks\": [\\n    {\\n      \"text\": \"Send the pentest report\",\\n      \"due\": \"2026-07-30\",\\n      \"scheduled\": null,\\n      \"priority\": null,\\n      \"owed_by\": \"Alex\"\\n    },\\n    {\\n      \"text\": \"Summarize '"
+    ],
+    "seconds": 31.0,
+    "last_reply": [
+      {
+        "text": "Send the pentest report",
+        "due": "2026-07-30",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Alex"
+      },
+      {
+        "text": "Summarize the pentest report for leadership",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "going-to-send-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 21.9,
+    "last_reply": [
+      {
+        "text": "Send over the corrected budget numbers",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Camille"
+      },
+      {
+        "text": "Load the corrected budget numbers into the tracker",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "drop-everything-priority-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 17.0,
+    "last_reply": [
+      {
+        "text": "Rerun the customer database backup",
+        "due": null,
+        "scheduled": "2026-07-27",
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "weekly-wrap-no-tasks-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 11.9,
+    "last_reply": []
+  },
+  {
+    "name": "signoff-not-a-task-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 12.6,
+    "last_reply": []
+  },
+  {
+    "name": "ought-to-someday-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 16.1,
+    "last_reply": [
+      {
+        "text": "Consolidate the three logging pipelines into one",
+        "due": null,
+        "scheduled": null,
+        "priority": "lowest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "in-five-days-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 18.5,
+    "last_reply": [
+      {
+        "text": "Review the draft SOW",
+        "due": "2026-08-01",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "buried-task-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 16.7,
+    "last_reply": [
+      {
+        "text": "Swap the failing disk in the NAS",
+        "due": "2026-08-01",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "dedupe-reworded-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 24.9,
+    "last_reply": [
+      {
+        "text": "Rotate the admin API keys before the audit",
+        "due": null,
+        "scheduled": null,
+        "priority": "high",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "extract-week-plans-vs-deadlines",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 21.0,
+    "last_reply": [
+      {
+        "text": "Sort out the vendor contract",
+        "due": null,
+        "scheduled": "2026-08-02",
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Start the budget review",
+        "due": null,
+        "scheduled": "2026-08-09",
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Send the SOW to legal",
+        "due": "2026-07-28",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "blocker-splits-into-task-and-owed",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "failures": [
+      "expected exactly 2 task(s), got 3; extra: ['Give a heads up once the sentinel rollout is clear']"
+    ],
+    "seconds": 23.4,
+    "last_reply": [
+      {
+        "text": "Let SOC know about the change freeze",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Unblock the sentinel rollout and give a heads up once clear",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "SOC"
+      }
+    ]
+  },
+  {
+    "name": "grouping-thematic-split",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 19.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Pricing Page",
+          "member_ids": [
+            "t-aaaaaaaaaaa1",
+            "t-aaaaaaaaaaa2"
+          ]
+        },
+        {
+          "name": "Mail Server",
+          "member_ids": [
+            "t-aaaaaaaaaaa3",
+            "t-aaaaaaaaaaa4"
+          ]
+        },
+        {
+          "name": "Ungrouped",
+          "member_ids": [
+            "t-aaaaaaaaaaa5"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-customer-boundary",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 28.2,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Acme Corp",
+          "member_ids": [
+            "t-acme00000001",
+            "t-acme00000002"
+          ]
+        },
+        {
+          "name": "Globex",
+          "member_ids": [
+            "t-glbx00000001",
+            "t-glbx00000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-three-way-split",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 24.7,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Threat Detection",
+          "member_ids": [
+            "t-det000000001",
+            "t-det000000002"
+          ]
+        },
+        {
+          "name": "Infrastructure Maintenance",
+          "member_ids": [
+            "t-inf000000001",
+            "t-inf000000002"
+          ]
+        },
+        {
+          "name": "Administration",
+          "member_ids": [
+            "t-adm000000001",
+            "t-adm000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-misfit-stays-out",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: grouping worker (gemini-3.1-pro-preview) returned non-JSON output: '{\\n  \"groups\": [\\n    {\\n      \"name\": \"Website Maintenance\",\\n      \"member_ids\": [\\n        \"t-web000000001\",\\n        \"t-web000000002\",\\n        \"t-web000000003\",\\n        \"t-web000000004\"\\n      ]\\n    },\\n '"
+    ],
+    "seconds": 31.9,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Website Maintenance",
+          "member_ids": [
+            "t-web000000001",
+            "t-web000000002",
+            "t-web000000003",
+            "t-web000000004"
+          ]
+        },
+        {
+          "name": "Ungrouped",
+          "member_ids": [
+            "t-mis000000001"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-same-verb-different-systems",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 19.9,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Documentation",
+          "member_ids": [
+            "t-doc000000001",
+            "t-doc000000002"
+          ]
+        },
+        {
+          "name": "Network Security",
+          "member_ids": [
+            "t-fwl000000001",
+            "t-fwl000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-three-client-boundary",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 27.5,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Acme",
+          "member_ids": [
+            "t-acm000000001",
+            "t-acm000000002"
+          ]
+        },
+        {
+          "name": "Globex",
+          "member_ids": [
+            "t-glx000000001",
+            "t-glx000000002"
+          ]
+        },
+        {
+          "name": "Initech",
+          "member_ids": [
+            "t-ini000000001",
+            "t-ini000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-personal-vs-work",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 22.2,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Personal Tasks",
+          "member_ids": [
+            "t-per000000001",
+            "t-per000000002"
+          ]
+        },
+        {
+          "name": "Work Tasks",
+          "member_ids": [
+            "t-wrk000000001",
+            "t-wrk000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-research-and-build-same-topic",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 22.6,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "LLM Infrastructure",
+          "member_ids": [
+            "t-llm000000001",
+            "t-llm000000002",
+            "t-llm000000003"
+          ]
+        },
+        {
+          "name": "Home Maintenance",
+          "member_ids": [
+            "t-hme000000001",
+            "t-hme000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-prod-incident-vs-feature-work",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: grouping worker (gemini-3.1-pro-preview) returned non-JSON output: '{\\n  \"groups\": [\\n    {\\n      \"name\": \"Incidents\",\\n      \"member_ids\": [\\n        \"t-inc000000001\",\\n        \"t-inc000000002\"\\n      ]\\n    },\\n    {\\n      \"name\": \"Features\",\\n      \"member_ids\": [\\n        \"'"
+    ],
+    "seconds": 28.9,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Incident Management",
+          "member_ids": [
+            "t-inc000000001",
+            "t-inc000000002"
+          ]
+        },
+        {
+          "name": "Feature Development",
+          "member_ids": [
+            "t-fea000000001",
+            "t-fea000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-two-misfits-dont-force-merge",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: grouping worker (gemini-3.1-pro-preview) returned non-JSON output: '{\\n  \"groups\": [\\n    {\\n      \"name\": \"Security\",\\n      \"member_ids\": [\\n        \"t-sec000000001\",\\n        \"t-sec000000002\",\\n        \"t-sec000000003\"\\n      ]\\n    },\\n    {\\n      \"name\": \"Ungrouped\",\\n     '"
+    ],
+    "seconds": 36.1,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "IT Security",
+          "member_ids": [
+            "t-sec000000001",
+            "t-sec000000002",
+            "t-sec000000003"
+          ]
+        },
+        {
+          "name": "Ungrouped",
+          "member_ids": [
+            "t-tax000000001",
+            "t-dog000000001"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-ten-tasks-three-themes",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: grouping worker (gemini-3.1-pro-preview) returned non-JSON output: '{\\n  \"groups\": [\\n    {\\n      \"name\": \"KQL Development\",\\n      \"member_ids\": [\\n        \"t-kql000000001\",\\n        \"t-kql000000002\",\\n        \"t-kql000000003\"\\n      ]\\n    },\\n    {\\n      \"name\": \"Network In'"
+    ],
+    "seconds": 40.2,
+    "last_reply": null
+  },
+  {
+    "name": "grouping-vendor-vs-internal-same-product",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 25.8,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Microsoft Vendor Management",
+          "member_ids": [
+            "t-ven000000001",
+            "t-ven000000002"
+          ]
+        },
+        {
+          "name": "Internal Sentinel Engineering",
+          "member_ids": [
+            "t-int000000001",
+            "t-int000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-client-possessive-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 30.6,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Acme Operations",
+          "member_ids": [
+            "t-acp000000001",
+            "t-acp000000002"
+          ]
+        },
+        {
+          "name": "Globex Operations",
+          "member_ids": [
+            "t-glp000000001",
+            "t-glp000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-client-ticket-prefix-variant",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: grouping worker (gemini-3.1-pro-preview) returned non-JSON output: '{\\n  \"groups\": [\\n    {\\n      \"name\": \"ACME Project\",\\n      \"member_ids\": [\\n        \"t-tka000000001\",\\n        \"t-tka000000002\"\\n      ]\\n    },\\n    {\\n      \"name\": \"GLBX Project\",\\n      \"member_ids\": [\\n  '"
+    ],
+    "seconds": 29.9,
+    "last_reply": null
+  },
+  {
+    "name": "grouping-misfit-different-domain-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 25.8,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Power Infrastructure",
+          "member_ids": [
+            "t-ifr000000001",
+            "t-ifr000000002",
+            "t-ifr000000003"
+          ]
+        },
+        {
+          "name": "Ungrouped",
+          "member_ids": [
+            "t-rcp000000001"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-plain-duplicate",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 13.6,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-aaaaaaaaaaa1",
+          "b": "t-aaaaaaaaaaa2",
+          "verdict": "duplicate",
+          "keep": "t-aaaaaaaaaaa1"
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-related-not-duplicate",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 9.8,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-bbbbbbbbbbb1",
+          "b": "t-bbbbbbbbbbb2",
+          "verdict": "related",
+          "keep": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-client-boundary",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 10.2,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-acme0000001x",
+          "b": "t-glbx0000001x",
+          "verdict": "distinct",
+          "keep": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-mixed-batch",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: overlap worker (gemini-3.1-pro-preview) returned non-JSON output: '{\\n  \"pairs\": [\\n    {\\n      \"a\": \"t-ccccccccccc1\",\\n      \"b\": \"t-ccccccccccc2\",\\n      \"verdict\": \"duplicate\",\\n      \"keep\": \"t-ccccccccccc2\"\\n    },\\n    {\\n      \"a\": \"t-ddddddddddd1\",\\n      \"b\": \"t-dddd'"
+    ],
+    "seconds": 28.9,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-ccccccccccc1",
+          "b": "t-ccccccccccc2",
+          "verdict": "duplicate",
+          "keep": "t-ccccccccccc2"
+        },
+        {
+          "a": "t-ddddddddddd1",
+          "b": "t-ddddddddddd2",
+          "verdict": "distinct",
+          "keep": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-meeting-missing-id",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 20.2,
+    "last_reply": {
+      "title": "Add missing id to meeting note",
+      "summary": "Added the required 'id' property to the frontmatter.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-15 Sprint Sync.md",
+            "key": "id",
+            "value": "m-0123456789ab"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-meeting-date-from-filename",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 18.4,
+    "last_reply": {
+      "title": "Fix meeting schema issues",
+      "summary": "Add missing id and date to frontmatter.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-15 Incident Retro.md",
+            "key": "id",
+            "value": "m-00aa11bb22cc"
+          }
+        },
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-15 Incident Retro.md",
+            "key": "date",
+            "value": "2026-07-15"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-meeting-prose-untouched",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: schema_fix worker (gemini-3.1-pro-preview) returned non-JSON output: '{\\n  \"title\": \"Add missing id to frontmatter\",\\n  \"summary\": \"Added the required \\'id\\' property to the meeting note\\'s frontmatter.\",\\n  \"apply\": [\\n    {\\n      \"tool\": \"update_frontmatter\",\\n      \"args\": {'"
+    ],
+    "seconds": 28.2,
+    "last_reply": {
+      "title": "Add missing id to meeting note",
+      "summary": "Added the required 'id' property to the frontmatter.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-10 Vendor Call.md",
+            "key": "id",
+            "value": "m-feedbeefcafe"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-research-missing-sources",
+    "passed": false,
+    "clean_runs": 1,
+    "runs": 3,
+    "failures": [
+      "plan not simulable — cannot vouch for its effect"
+    ],
+    "seconds": 44.6,
+    "last_reply": {
+      "title": "Add Sources section",
+      "summary": "Appended the missing Sources section to the research note.",
+      "apply": [
+        {
+          "tool": "append_to_note",
+          "args": {
+            "path": "Tasks/EDR Vendor Comparison.md",
+            "content": "\n## Sources\n",
+            "section": null
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-research-id-and-sources",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: schema_fix worker (gemini-3.1-pro-preview) returned non-JSON output: '{\\n  \"title\": \"Fix Sigma Rule Packs note\",\\n  \"summary\": \"Add missing id to frontmatter and append Sources section.\",\\n  \"apply\": [\\n    {\\n      \"tool\": \"update_frontmatter\",\\n      \"args\": {\\n        \"path'"
+    ],
+    "seconds": 47.6,
+    "last_reply": {
+      "title": "Fix Sigma Rule Packs schema",
+      "summary": "Add missing ID to frontmatter and append Sources section.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Tasks/Sigma Rule Packs.md",
+            "key": "id",
+            "value": "r-123abc456def"
+          }
+        },
+        {
+          "tool": "append_to_note",
+          "args": {
+            "path": "Tasks/Sigma Rule Packs.md",
+            "content": "\n## Sources\n",
+            "section": null
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-research-missing-status",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "fix leaves the note nonconforming — would re-draft every pass"
+    ],
+    "seconds": 33.2,
+    "last_reply": {
+      "title": "Fix missing status and update id",
+      "summary": "Add the required 'status' property to the frontmatter and update the id.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Tasks/Vault Encryption Options.md",
+            "key": "status",
+            "value": "draft"
+          }
+        },
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Tasks/Vault Encryption Options.md",
+            "key": "id",
+            "value": "r-aaaabbbbcccc"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-tasks-stamp-two-in-order",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: schema_fix worker (gemini-3.1-pro-preview) returned non-JSON output: '{\\n  \"title\": \"Add missing task IDs\",\\n  \"summary\": \"Appended block reference IDs to tasks in the Backlog section.\",\\n  \"apply\": [\\n    {\\n      \"tool\": \"replace_section\",\\n      \"args\": {\\n        \"path\": \"'"
+    ],
+    "seconds": 52.2,
+    "last_reply": {
+      "title": "Add task IDs",
+      "summary": "Append block reference IDs to tasks in the Backlog section.",
+      "apply": [
+        {
+          "tool": "replace_section",
+          "args": {
+            "path": "Tasks/Backlog.md",
+            "heading": "Backlog",
+            "content": "\n- [ ] buy replacement UPS batteries ^t-aaaaaaaaaaa1\n- [ ] call the vendor about renewal ^t-aaaaaaaaaaa2\n"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-tasks-stamp-preserves-metadata",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 31.1,
+    "last_reply": {
+      "title": "Fix missing task ID",
+      "summary": "Appended missing block reference ID to a task.",
+      "apply": [
+        {
+          "tool": "replace_section",
+          "args": {
+            "path": "Tasks/Ops.md",
+            "heading": "Ops",
+            "content": "\n- [ ] rotate the DKIM keys ⏫ 📅 2026-08-01 ^t-bbbbbbbbbbb1\n- [ ] archive old logs ^t-ccccccccccc9"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-typo-is-not-ours-to-fix",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: schema_fix worker (gemini-3.1-pro-preview) returned non-JSON output: '{\\n  \"title\": \"Fix missing task ID\",\\n  \"summary\": \"Appended a block reference ID to the task missing one.\",\\n  \"apply\": [\\n    {\\n      \"tool\": \"replace_section\",\\n      \"args\": {\\n        \"path\": \"Tasks/Ch'"
+    ],
+    "seconds": 33.8,
+    "last_reply": null
+  },
+  {
+    "name": "schema-done-task-stamped-without-reopening",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: schema_fix worker (gemini-3.1-pro-preview) returned non-JSON output: '{\\n  \"title\": \"Add missing task ID\",\\n  \"summary\": \"Append block reference ID to the task in the Done section.\",\\n  \"apply\": [\\n    {\\n      \"tool\": \"replace_section\",\\n      \"args\": {\\n        \"path\": \"Task'"
+    ],
+    "seconds": 45.4,
+    "last_reply": null
+  },
+  {
+    "name": "schema-meeting-with-action-items",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 34.8,
+    "last_reply": {
+      "title": "Fix meeting schema issues",
+      "summary": "Add missing meeting ID to frontmatter and block references to tasks.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-17 Team Weekly.md",
+            "key": "id",
+            "value": "m-4455667788aa"
+          }
+        },
+        {
+          "tool": "replace_section",
+          "args": {
+            "path": "Meetings/2026-07-17 Team Weekly.md",
+            "heading": "Action items",
+            "content": "\n- [ ] send the onboarding checklist to Priya ^t-ffffffffff01\n- [ ] book the Q3 planning room 📅 2026-07-25 ^t-ffffffffff02\n"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-unlisted-issues-left-alone",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "failures": [],
+    "seconds": 27.2,
+    "last_reply": {
+      "title": "Add missing id to meeting note",
+      "summary": "Added the required 'id' property to the frontmatter.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-18 One on One.md",
+            "key": "id",
+            "value": "m-abcdefabcdef"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-typo-in-prose-variant",
+    "passed": false,
+    "clean_runs": 1,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: schema_fix worker (gemini-3.1-pro-preview) unavailable: Error code: 429 - [{'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_requests_per_model_per_day, limit: 250, model: gemini-3.1-pro\\nPlease retry in 5h57m41.693243322s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_requests_per_model_per_day', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel', 'quotaDimensions': {'location': 'global', 'model': 'gemini-3.1-pro'}, 'quotaValue': '250'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '21461s'}]}}]"
+    ],
+    "seconds": 20.8,
+    "last_reply": null
+  },
+  {
+    "name": "schema-typo-in-task-with-metadata-variant",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: schema_fix worker (gemini-3.1-pro-preview) unavailable: Error code: 429 - [{'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_requests_per_model_per_day, limit: 250, model: gemini-3.1-pro\\nPlease retry in 5h57m38.64382084s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_requests_per_model_per_day', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel', 'quotaDimensions': {'location': 'global', 'model': 'gemini-3.1-pro'}, 'quotaValue': '250'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '21458s'}]}}]"
+    ],
+    "seconds": 4.6,
+    "last_reply": null
+  },
+  {
+    "name": "schema-empty-tags-not-populated-variant",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "failures": [
+      "run error: VaultError: schema_fix worker (gemini-3.1-pro-preview) unavailable: Error code: 429 - [{'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_requests_per_model_per_day, limit: 250, model: gemini-3.1-pro\\nPlease retry in 5h57m34.186465552s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_requests_per_model_per_day', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel', 'quotaDimensions': {'model': 'gemini-3.1-pro', 'location': 'global'}, 'quotaValue': '250'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '21454s'}]}}]"
+    ],
+    "seconds": 4.5,
+    "last_reply": null
+  }
+]

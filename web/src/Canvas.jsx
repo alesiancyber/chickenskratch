@@ -3,11 +3,14 @@ import { postJSON } from "./api.js";
 import { linkifyBlock } from "./text.jsx";
 
 /* The canvas: dump anything in. One beautifully typographed input
-   (V1 uses NO editor engine — nothing fights us inside a text buffer);
-   submitted dumps settle into history blocks below with their results
-   attached. //command lines execute instantly (I3 trust), everything
-   else rides the capture pipeline. History is scratch — the vault is
-   the archive (the dump itself is snapshot-committed on Capture.md). */
+   (V1 uses NO editor engine — nothing fights us inside a text buffer).
+   The canvas keeps NO history of its own — one dump, one receipt, and
+   the results live on Today: auto-applies under "What changed without
+   you", queued proposals under "What needs a decision?". The dashboard
+   is the one history there is (plus git, the archive) — a second
+   scrollback here was a second place to look for the same events.
+   //command lines still execute instantly (I3 trust) and their results
+   render here, because an answer belongs next to the question. */
 
 function stamp() {
   const d = new Date();
@@ -25,105 +28,48 @@ function Callout({ command, args, result }) {
   );
 }
 
-function QueuedProposal({ p, verdict, error, onDecide }) {
-  /* per-task ✓/✗ — partial approval, the prototype-parity amendment.
-     Steps map 1:1 to the capture proposal's apply entries. */
-  const stepLabels = p.issues.slice(0, p.apply.length);
-  const [checked, setChecked] = useState(() => new Set(stepLabels.map((_, i) => i)));
-  const partial = checked.size < stepLabels.length;
-
-  const toggle = (i) => setChecked((c) => {
-    const n = new Set(c);
-    n.has(i) ? n.delete(i) : n.add(i);
-    return n;
-  });
-
-  if (verdict)
-    return (
-      <div className="canvas-proposal decided">
-        <div className="row" style={{ margin: 0 }}>
-          <span className="grow">{p.title}</span>
-          <span className={`chip verdict-${verdict}`}>
-            {verdict === "approve" ? "approved" : "rejected"}
-          </span>
-        </div>
-      </div>
-    );
-
-  return (
-    <div className="canvas-proposal">
-      <div className="row" style={{ margin: 0 }}>
-        <span className="grow">{p.title}</span>
-        <span className="decide-buttons" style={{ opacity: 1 }}>
-          <button className="decide reject" onClick={() => onDecide(p.id, "reject")}>
-            reject all
-          </button>
-        </span>
-      </div>
-      <div className="steps">
-        {stepLabels.map((label, i) => (
-          <button className="row step" key={i} onClick={() => toggle(i)}>
-            <span className={"box" + (checked.has(i) ? " on" : "")} />
-            <span className="grow" style={{ textAlign: "left" }}>{label}</span>
-          </button>
-        ))}
-      </div>
-      <button className="decide approve approve-all"
-              disabled={checked.size === 0}
-              onClick={() => onDecide(p.id, "approve",
-                partial ? [...checked].sort((a, b) => a - b) : undefined)}>
-        {partial ? `Approve selected (${checked.size})` : "Approve all"}
-      </button>
-      {error && <div className="ghost small">{error}</div>}
-    </div>
-  );
-}
-
-function DumpBlock({ entry, acted, errors, onDecide, onOpenNote, undone, onRevert }) {
-  const auto = entry.summary?.auto || 0;
-  const applied = entry.applied ?? [];
-  const quiet = !entry.error && !entry.deferred && auto === 0
-    && entry.queued.length === 0 && entry.commands.length === 0;
+/* The latest dump's receipt: where each result went, not the result
+   itself. The rows it points at are live on the dashboard column
+   beside this one. */
+function Receipt({ last }) {
+  const stalled = last.workerErrors.length > 0;
+  const quiet = !last.error && !last.deferred && !stalled && last.applied === 0
+    && last.queued === 0 && last.commands.length === 0;
   return (
     <div className="dump">
-      <div className="dump-meta small ghost">
-        {entry.when}
-        {/* "filed → Inbox" opens the Inbox in our editor — a receipt
-            for work WE just did must never launch another app. Shown
-            bare only when the apply predates per-decision receipts. */}
-        {auto > 0 && applied.length === 0 && <span className="applied"> · ✓ filed → <button
-          className="linklike doc-link"
-          onClick={() => onOpenNote("Tasks/Inbox.md")}>Inbox</button></span>}
-      </div>
-      <div className="dump-text">{entry.text}</div>
-      {/* The autonomous receipt: what THIS dump changed, revertible at
-          the point of action — a canvas revert is the same negative
-          label as any other. */}
-      {applied.map((a) => (
-        <div className="dump-meta small" key={a.id}>
-          <span className="applied">✓ {a.title} → <button
-            className="linklike doc-link"
-            onClick={() => onOpenNote(a.note)}>{a.note.replace(/\.md$/, "")}</button></span>
-          {a.unvouched && <span className="chip attention">unvouched</span>}
-          {undone[a.id]
-            ? <span className="chip verdict-reject">reverted</span>
-            : a.undo?.length > 0 && (
-                <button className="affordance linklike"
-                        onClick={() => onRevert(a)}>revert ↺</button>
-              )}
-          {errors[a.id] && <span className="ghost"> {errors[a.id]}</span>}
+      <div className="dump-meta small ghost">{last.when}</div>
+      {last.commands.map((c, i) => <Callout key={i} {...c} />)}
+      {last.applied > 0 && (
+        <div className="small">
+          <span className="applied">✓ {last.applied} filed</span>
+          <span className="ghost"> — receipts under “What changed without you”</span>
         </div>
-      ))}
-      {entry.commands.map((c, i) => <Callout key={i} {...c} />)}
-      {entry.queued.map((p) => (
-        <QueuedProposal key={p.id} p={p} verdict={acted[p.id]}
-                        error={errors[p.id]} onDecide={onDecide} />
-      ))}
-      {entry.error && <div className="ghost small">{entry.error}</div>}
+      )}
+      {last.queued > 0 && (
+        <div className="small meta">
+          {last.queued} proposal{last.queued > 1 ? "s" : ""} queued — decide
+          under “What needs a decision?”
+        </div>
+      )}
+      {last.error && <div className="ghost small">{last.error}</div>}
+      {/* The worker never answered (down, rate-limited, misconfigured).
+          The dump is already committed to Capture.md and re-arms, so this
+          is a delay with a cause — never "nothing extractable", which
+          would tell you your text was empty when it wasn't. */}
+      {stalled && (
+        <div className="small">
+          <span className="attention">extraction didn’t run</span>
+          <span className="ghost"> — saved to Capture.md; the engine retries
+            on its next pass</span>
+          {last.workerErrors.map((w, i) => (
+            <div className="ghost small" key={i}>{w.error}</div>
+          ))}
+        </div>
+      )}
       {/* The engine was mid-pass, so extraction hasn't run yet. The dump
           itself is already committed to Capture.md, so this is a delay,
           not a loss — saying so beats an empty "nothing extractable". */}
-      {entry.deferred && (
+      {last.deferred && (
         <div className="ghost small">
           saved to Capture.md — the engine was busy; it extracts on its next pass
         </div>
@@ -133,27 +79,11 @@ function DumpBlock({ entry, acted, errors, onDecide, onOpenNote, undone, onRever
   );
 }
 
-export default function Canvas({ seed, onSeedConsumed, onOpenNote, onInlinePids }) {
+export default function Canvas({ seed, onSeedConsumed, onIngested }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [history, setHistory] = useState([]);
-  const [acted, setActed] = useState({});
-  const [errors, setErrors] = useState({});   // pid -> why the decide/revert failed
-  const [undone, setUndone] = useState({});   // pid -> true once its applies reverted
+  const [last, setLast] = useState(null);
   const taRef = useRef(null);
-
-  /* Tell the dashboard which proposals have a live accept box here, so
-     it doesn't ask the same question twice on one screen. Undecided ids
-     only — once acted (or after a reload clears this history), they are
-     the dashboard's again. */
-  useEffect(() => {
-    if (!onInlinePids) return;
-    const ids = new Set();
-    for (const e of history)
-      for (const p of e.queued ?? [])
-        if (!acted[p.id]) ids.add(p.id);
-    onInlinePids(ids);
-  }, [history, acted, onInlinePids]);
 
   useEffect(() => {
     if (seed) {
@@ -172,49 +102,25 @@ export default function Canvas({ seed, onSeedConsumed, onOpenNote, onInlinePids 
     setBusy(true);
     try {
       const res = await postJSON("/api/ingest", { text: t });
-      setHistory((h) => [{ id: Date.now(), text: t, when: stamp(),
-        commands: res.commands ?? [], queued: res.queued ?? [],
-        applied: res.applied ?? [],
-        deferred: Boolean(res.deferred),
-        summary: res.summary ?? {} }, ...h]);
+      setLast({ when: stamp(), commands: res.commands ?? [],
+        applied: (res.applied ?? []).length,
+        queued: (res.queued ?? []).length,
+        workerErrors: res.worker_errors ?? [],
+        deferred: Boolean(res.deferred), error: null });
+      // the receipts render on Today, so freshen it now
+      onIngested?.();
       setText("");
       if (taRef.current) taRef.current.style.height = "auto";
     } catch (e) {
-      setHistory((h) => [{ id: Date.now(), text: t, when: stamp(),
-        commands: [], queued: [], summary: {}, error: String(e.message || e) }, ...h]);
+      setLast({ when: stamp(), commands: [], applied: 0, queued: 0,
+        workerErrors: [], deferred: false, error: String(e.message || e) });
     }
     setBusy(false);
     taRef.current?.focus();
-  }, [text, busy]);
+  }, [text, busy, onIngested]);
 
-  const revertApplied = useCallback(async (a) => {
-    setUndone((u) => ({ ...u, [a.id]: true }));   // optimistic, instantly
-    setErrors((e) => { const { [a.id]: _gone, ...rest } = e; return rest; });
-    try {
-      for (const sha of a.undo) await postJSON("/api/revert", { sha });
-    } catch (e) {
-      setUndone((u) => { const { [a.id]: _gone, ...rest } = u; return rest; });
-      setErrors((es) => ({ ...es, [a.id]: String(e.message || e) }));
-    }
-  }, []);
-
-  const decide = useCallback(async (pid, verdict, steps) => {
-    setActed((a) => ({ ...a, [pid]: verdict }));
-    setErrors((e) => { const { [pid]: _gone, ...rest } = e; return rest; });
-    try {
-      await postJSON("/api/decide", { pid, verdict, ...(steps ? { steps } : {}) });
-    } catch (e) {
-      // Restore the buttons AND say why — a 409 (the engine was mid-pass)
-      // means nothing was applied, and a silently reverted click reads as
-      // the UI ignoring you.
-      setActed((a) => { const { [pid]: _gone, ...rest } = a; return rest; });
-      setErrors((es) => ({ ...es, [pid]: String(e.message || e) }));
-    }
-  }, []);
-
-  /* Compose stays put; only the history scrolls. The input is the point
-     of this surface — burying it under a long result would mean scrolling
-     back up to dump the next thing. */
+  /* Compose stays put; only the receipt area scrolls (a long //command
+     answer can still run). The input is the point of this surface. */
   return (
     <div className="canvas">
       <div className="canvas-compose">
@@ -228,7 +134,7 @@ export default function Canvas({ seed, onSeedConsumed, onOpenNote, onInlinePids 
           onInput={(e) => {
             e.target.style.height = "auto";
             // capped: a long dump grows the box, but never past the point
-            // where it would swallow the history underneath
+            // where it would swallow the receipt underneath
             e.target.style.height = Math.min(e.target.scrollHeight, 260) + "px";
           }}
           onKeyDown={(e) => {
@@ -243,11 +149,7 @@ export default function Canvas({ seed, onSeedConsumed, onOpenNote, onInlinePids 
         </div>
       </div>
       <div className="dump-history">
-        {history.map((entry) => (
-          <DumpBlock key={entry.id} entry={entry} acted={acted} errors={errors}
-                     onDecide={decide} onOpenNote={onOpenNote}
-                     undone={undone} onRevert={revertApplied} />
-        ))}
+        {last && <Receipt last={last} />}
       </div>
     </div>
   );

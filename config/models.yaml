@@ -8,6 +8,10 @@
 
 default: gemini-3.1-pro   # cloud is the deliberate default; local profiles below still work via -m
 worker: gemini-3.1-pro    # profile the background workers run on (WORKER_* env still overrides)
+# Worker prompts are written for a capable model; `worker_adapt: small`
+# on a profile splices in the conservative hedge rules when THAT profile
+# runs the workers. With no worker profile at all, the built-in 4B
+# fallback is hedged by default (WORKER_ADAPT in workers.py).
 vault: ../testvault   # relative to this config file
 
 # Local model servers, started/stopped with `tezcat-backends`.
@@ -49,6 +53,7 @@ models:
     max_iterations: 15
     max_tool_result_chars: 6000
     confirm_writes: true       # gate mutations on approval (spurious-write guard)
+    worker_adapt: small        # hedged worker prompts; re-eval before dropping
 
   qwen3.5-4b:
     model: qwen3.5:4b-q4_K_M
@@ -58,6 +63,7 @@ models:
     max_tool_result_chars: 4000
     confirm_writes: true
     servers: [vault]        # 4b gets the minimal tool surface
+    worker_adapt: small     # hedged worker prompts; re-eval before dropping
 
   # Cloud profiles. The cloud switch is deliberately ON: gemini-3.1-pro
   # is the default chat profile, reached DIRECTLY at the Google endpoint
@@ -82,6 +88,10 @@ models:
     max_iterations: 25         # frontier model: allow longer agentic runs
     max_tool_result_chars: 24000
     confirm_writes: true       # capability doesn't waive the write gate
+    # Reasoning model: hidden thought spends the reply budget before the
+    # JSON. 8000 still truncated the long grouping/schema_fix replies
+    # intermittently (worker eval 2026-07-27); 16000 buys headroom.
+    worker_max_tokens: 16000
     # Cloud sees the vault (minus Private/) and docs search — NEVER the
     # filesystem server. I4's spirit: what leaves the machine is the
     # vault's non-private content, nothing else. Filesystem search stays
@@ -98,6 +108,7 @@ models:
     max_tool_result_chars: 24000
     confirm_writes: true
     servers: [vault, ms-learn]   # cloud never sees the filesystem server
+    worker_max_tokens: 16000     # reasoning headroom, same as the pro tier
 
   # Cheapest non-deprecated tier; kept for cost-sensitive one-offs.
   gemini-3.5-flash-lite:

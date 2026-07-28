@@ -191,8 +191,13 @@ async def ingest(vault_path: str, text: str, **watcher_kw) -> dict:
         "undo": p.get("undo", []),
         "unvouched": bool(p.get("verifier_failures")),
     } for p in fresh if p["status"] == "auto"]
+    # A worker that never answered (down, rate-limited) drafts nothing —
+    # exactly like a dump with nothing in it. Say which happened: the text
+    # is already durable on the capture surface and re-arms, so this is a
+    # retry, not a loss, and "nothing extractable" would be a lie.
     return {"summary": summary, "queued": queued, "applied": applied,
-            "deferred": False}
+            "deferred": False,
+            "worker_errors": summary.get("worker_errors", [])}
 
 
 def read_note(vault_path: str, rel: str) -> dict:

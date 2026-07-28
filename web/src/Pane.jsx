@@ -59,6 +59,10 @@ export default function Pane({ open, onClose, onOpenNote }) {
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [min, setMin] = useState(false);
+  // Bumped when the server swaps sessions under us (stop = kill-and-
+  // replace): the old SSE stream belongs to a dead session, so tear it
+  // down and subscribe to the fresh one.
+  const [gen, setGen] = useState(0);
   const scroller = useRef(null);
   const inputRef = useRef(null);
 
@@ -73,8 +77,18 @@ export default function Pane({ open, onClose, onOpenNote }) {
       setBusy(false);
       setStopping(false);
     });
-    // the server acknowledging the stop; the turn still has to unwind
+    // the server acknowledging the stop; "reset" follows immediately
     es.addEventListener("stopping", () => setStopping(true));
+    // stop = kill-and-replace: the session this stream watches is dead
+    // and a fresh one is already live. Transcripts are scratch, so drop
+    // everything, free the input, and reconnect to the new session —
+    // the pane must never sit dead on "stopping…".
+    es.addEventListener("reset", () => {
+      setItems([{ kind: "info", text: "stopped — fresh chat" }]);
+      setBusy(false);
+      setStopping(false);
+      setGen((g) => g + 1);
+    });
     // "chat_error": server-side chat failures ("error" is reserved by
     // EventSource for connection drops, which it retries itself)
     es.addEventListener("chat_error", (e) => {
@@ -106,7 +120,7 @@ export default function Pane({ open, onClose, onOpenNote }) {
         x.kind === "gate" && x.id === d.id ? { ...x, resolved: d.approved } : x));
     });
     return () => es.close();
-  }, []);
+  }, [gen]);
 
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = 1e6;
@@ -129,10 +143,19 @@ export default function Pane({ open, onClose, onOpenNote }) {
     }
   }, [text, busy]);
 
+  /* Stop kills the chat and a fresh one opens instantly — the server
+     swaps sessions before answering, so the 202 itself means "the new
+     session is live": clear the pane right here rather than trusting
+     the "reset" event to arrive on a stream that may be mid-reconnect.
+     The reset handler stays for other tabs. "stopping…" only flashes. */
   const stop = useCallback(async () => {
     setStopping(true);
     try {
       await cancelJob("chat");
+      setItems([{ kind: "info", text: "stopped — fresh chat" }]);
+      setBusy(false);
+      setStopping(false);
+      setGen((g) => g + 1);
     } catch {
       setStopping(false);
     }
@@ -184,7 +207,8 @@ export default function Pane({ open, onClose, onOpenNote }) {
             <span className="pulse" />
             <span className="ghost">{stopping ? "stopping…" : "thinking"}</span>
             {!stopping && (
-              <button className="stop-btn" onClick={stop} title="Stop this turn">
+              <button className="stop-btn" onClick={stop}
+                      title="Kill this chat — a fresh one opens instantly">
                 stop
               </button>
             )}
@@ -209,7 +233,7 @@ export default function Pane({ open, onClose, onOpenNote }) {
           }}
         />
         <span className="ghost" style={{ fontSize: "11px" }}>
-          ⏎ send · esc stops · write tools always ask first
+          ⏎ send · esc stops (fresh chat) · write tools always ask first
         </span>
       </div>
     </aside>

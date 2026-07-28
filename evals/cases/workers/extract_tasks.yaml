@@ -434,3 +434,22 @@
     - match: "(?i)SOW"
       due: "{tomorrow}"
       scheduled: null
+
+# The dependency rule (base prompt, loose tier): "X is blocking me" is
+# at least TWO items — the reader's own move (owed_by null) and what the
+# blocker owes (owed_by set; teams count, not just names). Regression:
+# "SOC is a blocker" came back as one bare task and no waiting-on row.
+# Deliberately NOT exact: splitting the SOC side into unblock + heads-up
+# is finer judgment, not a failure (gemini does it 1 run in 3). Under
+# WORKER_ADAPT=small the hedges soften the split rule on purpose — this
+# case grades the loose tier.
+- name: blocker-splits-into-task-and-owed
+  text: |
+    SOC is a blocker on the sentinel rollout. I need to let them know
+    about the change freeze, and then they need to unblock us and give
+    me a heads up once it's clear.
+  expect:
+    - match: "(?i)let .*know|inform|notify|tell"
+      owed_by: null
+    - match: "(?i)unblock|heads.?up|clear"
+      owed_by: "SOC"

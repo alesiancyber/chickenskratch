@@ -2,10 +2,12 @@ import { RangeSet, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 
 /* Arriving from the dashboard: the row you clicked gets marked so you
-   land on it instead of re-finding it. Transient by design — it says
-   "here", not "this is selected", so it fades on its own. The caret is
-   deliberately NOT moved: moving it would reveal that line's raw
-   markdown, and you came here to read the thing, not edit its syntax. */
+   land on it instead of re-finding it. This IS the selection, editor
+   side — the dashboard row stays lit, this line stays marked, and both
+   release together (esc, a second click, closing the note); it never
+   fades on its own. The caret is deliberately NOT moved: moving it
+   would reveal that line's raw markdown, and you came here to read the
+   thing, not edit its syntax. */
 export const setTarget = StateEffect.define();
 
 export const targetField = StateField.define({

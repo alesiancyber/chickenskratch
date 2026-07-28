@@ -108,3 +108,47 @@ def test_impossible_due_dates_are_dropped(monkeypatch):
     assert tasks[0]["dropped_due"] == "2026-13-01"  # surfaced so drafters force a checkbox
     assert tasks[1]["due"] == "2026-07-24"
     assert "dropped_due" not in tasks[1]
+
+
+def capture_prompt(monkeypatch):
+    """A fake client that records the one prompt it was sent."""
+    captured = {}
+
+    async def create(**kwargs):
+        captured["prompt"] = kwargs["messages"][0]["content"]
+        msg = SimpleNamespace(content='{"tasks": []}')
+        return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(workers, "_worker_client", lambda: client)
+    return captured
+
+
+def test_adapt_default_is_hedged_for_the_builtin_worker(monkeypatch):
+    # WORKER_ADAPT unset pairs with the built-in 4B default: hedges apply.
+    monkeypatch.delenv("WORKER_ADAPT", raising=False)
+    captured = capture_prompt(monkeypatch)
+    asyncio.run(workers.extract_tasks("x", "2026-07-20"))
+    assert "owed_by ONLY when the text names who owes it" in captured["prompt"]
+    assert "{hedges}" not in captured["prompt"]
+
+
+def test_adapt_none_runs_the_loose_base_prompt(monkeypatch):
+    monkeypatch.setenv("WORKER_ADAPT", "none")
+    captured = capture_prompt(monkeypatch)
+    asyncio.run(workers.extract_tasks("x", "2026-07-20"))
+    # no hedge rules, no leftover slot — and the capable-model rules stand
+    assert "owed_by ONLY when the text names who owes it" not in captured["prompt"]
+    assert "{hedges}" not in captured["prompt"]
+    assert "dependency is usually TWO items" in captured["prompt"]
+
+
+def test_hedges_are_extra_rules_not_a_different_contract(monkeypatch):
+    # Hedged and loose tiers share the base rules and the reply schema —
+    # the adapt layer narrows judgment, it never forks the API.
+    monkeypatch.setenv("WORKER_ADAPT", "small")
+    captured = capture_prompt(monkeypatch)
+    asyncio.run(workers.extract_tasks("x", "2026-07-20"))
+    hedged = captured["prompt"]
+    assert "dependency is usually TWO items" in hedged  # base rule still there
+    assert workers.WORKERS["extract_tasks"].schema is not None

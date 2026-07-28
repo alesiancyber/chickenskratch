@@ -6,8 +6,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { postJSON } from "./api.js";
 import { livePreview, setTarget, targetField, vaultTheme } from "./livepreview.js";
 
-const TARGET_FADE_MS = 2600;
-
 /* The owned note editor. CodeMirror 6, because the vault is portable
    markdown and the document model here IS the text — no parse, no
    serialize, so a save is byte-identical to what you typed. That is
@@ -35,7 +33,6 @@ export default function NoteEditor({ path, target, seq, visible = true, onClose 
   const view = useRef(null);
   const baseHash = useRef("");
   const saveRef = useRef(() => {});
-  const fadeTimer = useRef(null);
   const [state, setState] = useState("loading");   // loading|clean|dirty|saving|error|conflict
   const [ephemeral, setEphemeral] = useState(false);
   const [error, setError] = useState("");
@@ -60,22 +57,28 @@ export default function NoteEditor({ path, target, seq, visible = true, onClose 
   }, [path]);
   saveRef.current = save;
 
-  /* Scroll the target into view and mark it briefly. Two kinds arrive:
-     a dashboard row passes its task text (a substring of the raw line
+  /* Scroll the target into view and mark it. Two kinds arrive: a
+     dashboard row passes its task text (a substring of the raw line
      "- [ ] Sam: … ^t-abc", so no re-parsing needed), and a chat citation
-     passes the line number it drew from. */
+     passes the line number it drew from. The mark is the editor half of
+     the clicked row's selection — it HOLDS until the selection releases
+     (target goes blank: esc, a second click, closing the note) or moves
+     to another row, so both sides stay lit together. A target that can't
+     be found clears instead of leaving a stale mark from the last note. */
   const reveal = useCallback(() => {
     const v = view.current;
-    if (!v || !target) return;
+    if (!v) return;
+    const clear = () => v.dispatch({ effects: setTarget.of(null) });
+    if (!target) return clear();
     const doc = v.state.doc;
     let at;
     if (/^\d+$/.test(target)) {
       const n = Number(target);
-      if (n < 1 || n > doc.lines) return;
+      if (n < 1 || n > doc.lines) return clear();
       at = doc.line(n).from;
     } else {
       at = doc.toString().indexOf(target);
-      if (at < 0) return;
+      if (at < 0) return clear();
     }
     const line = doc.lineAt(at);
     v.dispatch({
@@ -84,10 +87,6 @@ export default function NoteEditor({ path, target, seq, visible = true, onClose 
         EditorView.scrollIntoView(line.from, { y: "center" }),
       ],
     });
-    clearTimeout(fadeTimer.current);
-    fadeTimer.current = setTimeout(() => {
-      view.current?.dispatch({ effects: setTarget.of(null) });
-    }, TARGET_FADE_MS);
   }, [target]);
   const revealRef = useRef(reveal);
   revealRef.current = reveal;
@@ -144,9 +143,10 @@ export default function NoteEditor({ path, target, seq, visible = true, onClose 
   useEffect(() => { if (path) reload(); }, [path, reload]);
 
   /* Re-reveal when the dashboard points at a different row of the SAME
-     note (`seq` also changes on a repeat click of the same row, so the
-     mark comes back rather than appearing to do nothing). */
-  useEffect(() => { if (target) revealRef.current(); }, [target, seq]);
+     note (`seq` also changes on a repeat click of the same row). Runs on
+     a blanked target too — that's the selection releasing, and reveal
+     clears the mark so the two sides let go together. */
+  useEffect(() => { revealRef.current(); }, [target, seq]);
 
   /* The editor stays mounted while the canvas is showing — switching
      tabs must not discard unsaved edits — but CodeMirror measures itself
@@ -154,8 +154,6 @@ export default function NoteEditor({ path, target, seq, visible = true, onClose 
   useEffect(() => {
     if (visible) view.current?.requestMeasure();
   }, [visible]);
-
-  useEffect(() => () => clearTimeout(fadeTimer.current), []);
 
   const dirty = state === "dirty";
 

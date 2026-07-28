@@ -18,6 +18,12 @@ bound — the UI can report "stopping…" and mean it.
 Process-global, like the vault singleton: one UI server process owns at
 most one pass and one chat turn, and the pass flock enforces the first
 half of that.
+
+The chat job is the exception: its flag lives on the ChatSession
+(session-local `stopped`), because stopping a chat REPLACES the session
+immediately — a process-global flag would let the replacement's first
+turn clear a stop the old session's still-unwinding turn depends on.
+CHAT stays here as the cancel route's vocabulary only.
 """
 
 from __future__ import annotations
