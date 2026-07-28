@@ -1,9 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-async function getJSON(path) {
+/* One reader for every JSON GET. Status is checked BEFORE parsing, and a
+   body that isn't JSON gets said so plainly — a bare JSON.parse failure
+   surfaces as "The string did not match the expected pattern", which
+   names neither the route nor the cause. */
+export async function getJSON(path) {
   const r = await fetch(path);
-  if (!r.ok) throw new Error(`${path}: ${r.status}`);
-  return r.json();
+  if (!r.ok) {
+    // The server's own message when it sent one — it knows why better
+    // than we do (stale note hash, vault locked, bad path).
+    const said = await r.json().then((d) => d.error).catch(() => "");
+    if (said) throw new Error(said);
+    // A 404 on /api/* is nearly always a page newer than the server it is
+    // talking to: StaticFiles answers whatever the routes don't, so a
+    // route added since the process started returns plain-text Not Found.
+    const hint = r.status === 404 && path.startsWith("/api/")
+      ? " — no such route; restart tezcat-ui to pick up a newer build"
+      : "";
+    throw new Error(`${path}: ${r.status}${hint}`);
+  }
+  try {
+    return await r.json();
+  } catch {
+    throw new Error(`${path}: server did not return JSON`);
+  }
 }
 
 /* Write verbs (decide/revert/pass/cancel). application/json is

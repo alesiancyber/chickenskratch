@@ -3,7 +3,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { postJSON } from "./api.js";
+import { getJSON, postJSON } from "./api.js";
 import {
   livePreview, planDatesField, setPlanDates, setTarget, targetField, vaultTheme,
 } from "./livepreview.js";
@@ -98,9 +98,7 @@ export default function NoteEditor({ path, target, seq, planDates, visible = tru
     setState("loading");
     setError("");
     try {
-      const r = await fetch(`/api/note?path=${encodeURIComponent(path)}`);
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || `${r.status}`);
+      const data = await getJSON(`/api/note?path=${encodeURIComponent(path)}`);
       baseHash.current = data.hash;
       const v = view.current;
       if (v)

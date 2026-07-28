@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { postJSON } from "./api.js";
+import { getJSON, postJSON } from "./api.js";
 
 /* The management console (⌘,). Everything the harness treats as
    configuration, in one place, with the split that decides how a change
@@ -351,10 +351,7 @@ export default function Console({ open, onClose }) {
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch("/api/console");
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || r.status);
-      setData(d);
+      setData(await getJSON("/api/console"));
       setError("");
     } catch (e) { setError(String(e.message || e)); }
   }, []);
@@ -396,7 +393,11 @@ export default function Console({ open, onClose }) {
         {note && <div className="cfg-note small applied">{note}</div>}
         {error && <div className="cfg-note small attention">{error}</div>}
 
-        {!data ? <div className="cfg-body ghost">loading…</div>
+        {/* A failed load is not a slow one. Showing "loading…" underneath
+            the error it already returned reads as a hang. */}
+        {!data ? <div className="cfg-body ghost">
+                   {error ? "Nothing to show — see above." : "loading…"}
+                 </div>
           : tab === "vault"
             ? <VaultTab data={{ ...data.vault,
                                 profiles: data.models.profiles.map((p) => p.name) }}
