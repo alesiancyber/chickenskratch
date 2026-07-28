@@ -62,37 +62,39 @@ function Field({ label, help, declared, children }) {
 function CheckList({ items, value, onChange, showVerifier = false, gated = false }) {
   const set = new Set(value);
   const order = items.map((it) => it.name);
+  // Said once, at the end, naming them. Repeating the same paragraph under
+  // every affected row buries the list it is talking about.
+  const inert = showVerifier && gated
+    ? items.filter((it) => !it.verified && set.has(it.name)) : [];
   return (
     <div className="cfg-checklist">
-      {items.map((it) => {
-        const inert = showVerifier && gated && !it.verified && set.has(it.name);
-        return (
-          <div className="cfg-item" key={it.name}>
-            <label className="cfg-check">
-              <input type="checkbox" checked={set.has(it.name)}
-                     onChange={(e) => {
-                       const next = new Set(set);
-                       if (e.target.checked) next.add(it.name); else next.delete(it.name);
-                       onChange(order.filter((x) => next.has(x)));
-                     }} />
-              <span className="cfg-item-name">{it.title}</span>
-              <span className="mono ghost small">{it.name}</span>
-              {showVerifier && !it.verified && (
-                <span className="chip" title="No deterministic check can vouch for this one">
-                  always asks
-                </span>
-              )}
-              <Info text={it.blurb} label={it.title} />
-            </label>
-            {inert && (
-              <div className="ghost small cfg-inert">
-                Ticked, but inert under gated autonomy — nothing can vouch for
-                this one, so it still queues. Switch autonomy to full to let it apply.
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {items.map((it) => (
+        <label className="cfg-check" key={it.name}>
+          <input type="checkbox" checked={set.has(it.name)}
+                 onChange={(e) => {
+                   const next = new Set(set);
+                   if (e.target.checked) next.add(it.name); else next.delete(it.name);
+                   onChange(order.filter((x) => next.has(x)));
+                 }} />
+          <span className="cfg-item-name">{it.title}</span>
+          <span className="mono ghost small">{it.name}</span>
+          {showVerifier && !it.verified && (
+            <span className="chip" title="No deterministic check can vouch for this one">
+              always asks
+            </span>
+          )}
+          <Info text={it.blurb} label={it.title} />
+        </label>
+      ))}
+      {inert.length > 0 && (
+        <div className="small cfg-inert">
+          <strong>{inert.map((it) => it.title).join(", ")}</strong>{" "}
+          {inert.length === 1 ? "is ticked but inert" : "are ticked but inert"} while
+          autonomy is <em>gated</em>: nothing can vouch for {inert.length === 1 ? "it" : "them"},
+          so {inert.length === 1 ? "it" : "they"} still queue for you. Switch autonomy
+          to <em>full</em> to let {inert.length === 1 ? "it" : "them"} apply.
+        </div>
+      )}
     </div>
   );
 }

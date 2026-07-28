@@ -821,21 +821,35 @@ section { margin-bottom: var(--s5); }
   border-radius: var(--radius);
   padding: 6px 8px;
 }
-.cfg-field input, .cfg-field select { min-width: 15rem; }
+/* Text-ish controls want a usable width; a checkbox emphatically does
+   not — `.cfg-field input` also matched those and pushed every label
+   15rem to the right of its own tickbox. */
+.cfg-field input:not([type="checkbox"]), .cfg-field select { min-width: 15rem; }
+.cfg-field input[type="checkbox"] { flex: none; margin: 0; }
 .cfg-field textarea, .cfg-raw { width: 100%; resize: vertical; }
 .cfg-raw { font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
 .cfg-field .ghost { display: block; margin-top: 4px; }
 
-.cfg-checklist { display: flex; flex-direction: column; gap: 2px; }
-.cfg-item { padding: 2px 0; }
+.cfg-checklist { display: flex; flex-direction: column; gap: 1px; }
 .cfg-check, .cfg-inline { display: flex; align-items: center; gap: var(--s2); }
+/* a whole row is the target, not the 13px box */
+.cfg-check {
+  padding: 3px var(--s2) 3px 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.cfg-check:hover { background: var(--hover); }
 /* the readable name leads; the identifier trails for anyone reading
    Spec.md by hand, and must never be the thing you have to decode */
 .cfg-item-name { font-weight: 500; }
 .cfg-inert {
-  margin: 2px 0 var(--s2) 22px;
-  border-left: 2px solid var(--attention, var(--accent));
-  padding-left: var(--s2);
+  margin-top: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-left: 2px solid var(--accent);
+  background: var(--hover);
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  max-width: 62ch;
 }
 
 /* The (i): a quiet affordance until you want it, then a real explanation
