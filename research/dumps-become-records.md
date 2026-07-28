@@ -356,3 +356,99 @@ it means the attention engine is not a nicety layered on top: it is the
 *only* thing standing between you and a vault full of quietly rotting
 checkboxes. Phase 3 is not optional, and phase 1 should not ship without
 at least the generalised age surfacing.
+
+---
+
+# Revision 2 — the query layer, and why it comes first
+
+*2026-07-28. Natural-language search over the vault. This reorders the
+phases above: the query layer subsumes the attention engine, so it
+should be built before it, not after.*
+
+## Compile the query; don't retrieve with the model
+
+The two motivating asks are different animals:
+
+- *"show me my oldest tasks"* — a structured sort on `➕ created`.
+  Embeddings have no notion of "oldest" and answer it badly.
+- *"show me all tasks about detections"* — semantic.
+
+One mechanism serves both if the model's job is **translating the
+sentence into a filter**, not finding the answer. The task grammar is
+about eight fields, so this is a small, reliable generation job rather
+than a retrieval problem:
+
+```json
+{"sort": "created_asc", "limit": 10, "where": {"due": null}, "about": null}
+{"about": "detections", "where": {"done": false}}
+```
+
+Deterministic code executes that against the walk every other section
+already uses; only `about` touches embeddings. Three properties fall
+out, and each maps to a rule this project already holds:
+
+- **"oldest" is exact**, not approximate.
+- **The filter is showable** — "10 oldest open tasks, no deadline". Same
+  reasons-not-scores rule as the attention model: a ranking you can read
+  is a ranking you can disagree with.
+- **It degrades.** No embedding backend, and `about` falls back to
+  `search_vault()`, which already exists.
+
+## What the substrate already gives us
+
+Measured, not assumed (2026-07-28): the embedding cache holds **34
+vectors, 768-dim, keyed by task block-id** — Ollama is up on 11434 and
+`nomic-embed-text` is answering. So tasks are already embedded; notes
+are not.
+
+- `today._walk()` — every open task, fully structured. The data layer is
+  done.
+- `Index` — content-hash cached, JSONL, working.
+- `embed()` takes arbitrary text, so embedding a query is one call.
+- `run_worker` — schema validation, retry, timeouts, already built.
+- The dashboard is a pure function, so **a new view model is the
+  cheapest change in this codebase.**
+
+## What is missing
+
+**Small.** `Index.nearest()` requires a key already *in* the index; a
+query string isn't one, so it needs a vector-in variant (~10 lines).
+Embedding coverage is only what `overlap` happened to consider, so the
+full task pool needs one batch — cheap, hash-cached. Then the query
+worker, the filter executor, and a results region.
+
+**Genuinely hard, and out of scope.** Semantic search over notes and
+records rather than tasks: that needs chunking, which `embeddings.py`
+explicitly defers as "a later, separately-evaluated layer". Threshold
+tuning is the other fuzzy part. Neither blocks the two motivating asks.
+
+## Why this reorders the phases
+
+**Search and the attention engine are the same machinery.** "Show me my
+oldest tasks" *is* the attention model, invoked by hand. Build the query
+layer and the attention engine becomes a **default saved query** rather
+than separate code — which retires most of what phase 3 was going to be.
+
+So: query layer before attention engine. It is the more general thing,
+and building the specific case first would mean writing surfacing rules
+twice.
+
+## Read-only is the payoff, not the constraint
+
+> *if today is read only.... we should be able to dynamically return
+> info to it?*
+
+Yes — and it is better than "possible". Because Today writes nothing,
+a search result is *the same type of row* as every other row, so it
+carries the same verbs. Find the four detection tasks, push three to
+next week and promote one, without leaving the results. Search stops
+being a list you read and becomes somewhere you work.
+
+## The caveat to design for now
+
+The index only refreshes when `overlap` runs. Search over a stale pool
+would return confidently wrong results with no indication they are
+stale — precisely the class of lie this project keeps removing (see the
+memo, the dead worker, "nothing extractable"). Either freshen the pool
+on query, or on every pass, and **say so when results are known
+partial.** Never present a stale answer as a complete one.
