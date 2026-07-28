@@ -188,6 +188,7 @@ function VaultTab({ data, onSaved, onError }) {
       {[["capture_inbox", "Extracted tasks go to"],
         ["waiting_inbox", "Things others owe you go to"],
         ["done_archive", "Completed tasks are archived to"],
+        ["capture_archive", "Processed dumps are filed to"],
         ["daily_dir", "Daily notes folder"],
         ["meetings_dir", "Meeting notes folder"]].map(([k, label]) => (
           <Field key={k} label={label} help={help[k]} declared={declared.has(k)}>

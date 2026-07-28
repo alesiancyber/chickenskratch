@@ -324,3 +324,79 @@ def test_state_carries_only_what_it_has_to(vault, make_watcher):
     w = make_watcher(vault, capture_extractor=fake_extractor, disabled=OTHERS)
     asyncio.run(w.run_once())
     assert set(json.loads(w.state_path.read_text())) == {"seen", "draft_attempts"}
+
+
+def test_approving_a_capture_files_the_dump_instead_of_deleting_it(vault, make_watcher):
+    """The dump is a record, not just a source of tasks. Approving used to
+    blank the whole surface, destroying the narrative around the tasks —
+    it survived only in git and the proposal file, which is to say
+    nowhere the user reads. The dump is filed, whole, then cleared.
+
+    Deliberately not line surgery: a dump's dates and owners leave the
+    text for structured fields, so no measure of "which lines were used"
+    separates a consumed line from a prose one. Nothing is deleted."""
+    async def one_task(text, today):
+        return [{"text": "call the vendor about DNS", "due": None,
+                 "priority": None, "owed_by": None}]
+
+    (vault / "Harness/Capture.md").write_text(
+        CAPTURE_SKELETON
+        + "\ncall the vendor about DNS\n"
+        + "\nthe pipeline can't be resolved without outsourcing - Alex thinks\n"
+        + "a baseline push first, and the customer wants custom identity detection\n")
+    w = make_watcher(vault, capture_extractor=one_task, disabled=OTHERS)
+    asyncio.run(w.run_once())
+    (p,) = capture_rows(w)
+    assert "files the dump to Captures/" in p["summary"]   # said before approving
+
+    asyncio.run(w.run_once(decisions=[(p["id"], "approve")], lock_wait=5))
+
+    import datetime as dt
+    filed = (vault / "Captures" / f"{dt.date.today().isoformat()}.md").read_text()
+    assert "outsourcing" in filed and "custom identity detection" in filed
+    assert "call the vendor about DNS" in filed        # the whole dump, not a remainder
+    # …and the surface is clear for the next one
+    assert (vault / "Harness/Capture.md").read_text() == CAPTURE_SKELETON
+    assert "Review" not in filed
+
+
+def test_a_second_dump_appends_to_the_same_day(vault, make_watcher):
+    """One note per day, not one per dump — the day is the record."""
+    async def one_task(text, today):
+        return [{"text": "call the vendor", "due": None, "priority": None, "owed_by": None}]
+
+    import datetime as dt
+    note = vault / "Captures" / f"{dt.date.today().isoformat()}.md"
+    for text in ("call the vendor, pipeline needs outsourcing",
+                 "call the vendor, baseline push first"):
+        (vault / "Harness/Capture.md").write_text(CAPTURE_SKELETON + "\n" + text + "\n")
+        w = make_watcher(vault, capture_extractor=one_task, disabled=OTHERS)
+        asyncio.run(w.run_once())
+        (p,) = capture_rows(w)
+        asyncio.run(w.run_once(decisions=[(p["id"], "approve")], lock_wait=5))
+
+    filed = note.read_text()
+    assert "outsourcing" in filed and "baseline push" in filed
+    assert filed.count("## ") == 2          # one timestamped block per dump
+
+
+def test_a_partial_approval_still_leaves_the_dump_alone(vault, make_watcher):
+    """Nothing is filed or cleared while some of the dump's steps were
+    declined — the text behind them is still the only copy."""
+    from tezcat import service
+
+    kw = dict(capture_extractor=fake_extractor, disabled=OTHERS)
+    w = make_watcher(vault, **kw)
+    (vault / "Harness/Capture.md").write_text(
+        CAPTURE_SKELETON + "\nmigrate dns and revisit pricing\n")
+    asyncio.run(w.run_once())
+    (p,) = capture_rows(w)
+
+    # only the first of two extracted tasks
+    asyncio.run(service.decide(str(vault), p["id"], "approve", steps=[0],
+                               proposals_dir=w.proposals_dir,
+                               state_path=w.state_path, **kw))
+
+    assert "migrate dns" in (vault / "Harness/Capture.md").read_text()
+    import datetime as dt
+    assert not (vault / "Captures" / f"{dt.date.today().isoformat()}.md").exists()

@@ -88,6 +88,26 @@ def reset_capture(w: Watcher) -> None:
                     action="reset_capture_surface")
 
 
+def capture_archive_note(w: Watcher, today: dt.date | None = None) -> str:
+    """Where a processed dump is filed — one note per day, appended to.
+
+    Not a heuristic about which LINES were used. Measuring that was tried
+    and abandoned: a dump's dates, owners and priorities leave the text
+    for STRUCTURED FIELDS, so "nadia will send the contract; review it in
+    two weeks" scores lower on textual overlap with its own two tasks
+    than a line that is half prose. There is no threshold that separates
+    them, and every wrong guess in that direction deletes someone's
+    writing.
+
+    So nothing is deleted. The dump moves, whole, and the surface clears.
+    """
+    cfg = get_config(w.vault_path)
+    folder = (cfg.capture_archive or "").strip("/ ")
+    if not folder:
+        return ""
+    return f"{folder}/{(today or dt.date.today()).isoformat()}.md"
+
+
 def scan_capture(w: Watcher) -> list[dict]:
     if not w.capture_rel:
         return []
@@ -114,6 +134,7 @@ async def draft_capture(w: Watcher, item: dict) -> dict | None:
     w.seen["capture"] = content_hash(item["text"])
     if not tasks:
         return None
+    archive = capture_archive_note(w)
     own, owed = _split_owed(tasks)
     parts = ([f"{len(own)} captured task(s) to {w.capture_inbox}"] if own else []) + (
         [f"{len(owed)} waiting-on item(s) to {w.waiting_inbox}"] if owed else []
@@ -130,23 +151,49 @@ async def draft_capture(w: Watcher, item: dict) -> dict | None:
         # the same way for capture proposals.
         note_content=item["text"],
         title="Add " + " + ".join(parts),
-        summary=f"Extracted from {item['note']}; approving adds them and clears the surface.",
+        summary=(f"Extracted from {item['note']}; approving adds them, "
+                 + (f"files the dump to {archive}, and clears the surface."
+                    if archive else "and clears the surface.")),
         issues=_extraction_issues(tasks),
         apply=[
             _add_task_step(w.waiting_inbox if t.get("owed_by") else w.capture_inbox, t)
             for t in tasks
         ],
     )
+    p["dump"] = item["text"]
+    p["archive"] = archive
     return _flag_dropped_dates(p, tasks)
 
 
 def _capture_applied(w: Watcher, p: dict) -> None:
-    # A PARTIAL approval leaves the dump in place: clearing the surface
-    # would discard the user's text behind the steps they did NOT
-    # approve. The seen-hash keeps the remaining text from re-drafting;
-    # editing the surface re-arms extraction.
-    if w.capture_rel and not p.get("partial"):
-        reset_capture(w)
+    """File the dump, then clear the surface.
+
+    A PARTIAL approval leaves everything in place: clearing would discard
+    the text behind the steps that were NOT approved.
+
+    Otherwise the whole dump is appended to its dated capture note before
+    the surface is blanked. Blanking alone is what used to destroy the
+    narrative around a dump — the decisions, the reasoning, the context
+    that made the tasks mean anything — leaving it only in git and the
+    proposal file, which is to say nowhere the user reads.
+
+    Archiving and clearing are one step on purpose: they must never be
+    separately deselectable, because "clear without filing" is exactly
+    the data loss this exists to stop.
+    """
+    if not w.capture_rel or p.get("partial"):
+        return
+    dump, archive = (p.get("dump") or "").strip(), p.get("archive") or ""
+    if dump and archive:
+        stamp = dt.datetime.now().strftime("%H:%M")
+        try:
+            existing = w.vault.read(archive)
+        except VaultError:
+            existing = f"---\ntype: capture\ndate: {dt.date.today().isoformat()}\n---\n\n"
+        w.write_surface(archive, f"{existing.rstrip()}\n\n## {stamp}\n\n{dump}\n",
+                        f"file the capture dump into {archive}",
+                        action="archive_capture")
+    reset_capture(w)
 
 
 # ---- shared extraction shaping (capture and inbox_extract) ----

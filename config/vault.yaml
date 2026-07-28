@@ -21,6 +21,7 @@ folders:
   Projects: project
   Daily: daily
   Scripts: script
+  Captures: capture   # processed dumps, filed one note per day
 
 # Entity schema files live in config/schemas/<type>.yaml (relative to
 # this file's directory).

@@ -45,10 +45,11 @@ from .config_store import ConfigError
 
 MODELS_YAML = Path(DEFAULT_MODELS)
 
-# Spec.md keys the console owns, with how to check them. Everything here
-# is a note edit the engine picks up next pass — no restart, no process
-# state. Keys NOT listed (surfaces, schemas_dir) are machine concerns
-# that live repo-side by design; the console does not pretend otherwise.
+# The Spec.md keys the console owns. Everything here is a note edit the
+# engine picks up next pass — no restart, no process state. Keys NOT
+# listed (surfaces, schemas_dir) are machine concerns that live repo-side
+# by design; the console does not pretend otherwise.
+#
 # What each setting actually changes, in the console's own words. Here
 # rather than in the UI because these describe engine behaviour, and the
 # engine is what has to keep being true — a description of `autonomy`
@@ -100,6 +101,12 @@ FIELD_HELP = {
     "done_archive": (
         "Where completed tasks are moved out of the working inboxes. Leave "
         "empty to switch archiving off and let done tasks pile up in place."),
+    "capture_archive": (
+        "Where a processed dump is filed, one note per day, before the "
+        "capture surface is cleared. A dump is a record, not just a "
+        "source of tasks \u2014 this is what keeps the narrative around the "
+        "work.\n\nLeave empty and approving an extraction discards "
+        "everything the tasks didn't become."),
     "daily_dir": "The folder your daily notes live in.",
     "meetings_dir": (
         "The folder your meeting notes live in. Today's meetings and the "
@@ -115,7 +122,8 @@ FIELD_HELP = {
 }
 
 CHOICES = {"autonomy": ("gated", "full"), "fidelity": ("strict", "close")}
-PATHS = ("capture_inbox", "waiting_inbox", "done_archive", "daily_dir", "meetings_dir")
+PATHS = ("capture_inbox", "waiting_inbox", "done_archive", "capture_archive",
+         "daily_dir", "meetings_dir")
 LISTS = ("auto_apply", "disabled_processors", "exclude")
 
 # Fields the Models tab edits as controls. Deliberately only scalars the

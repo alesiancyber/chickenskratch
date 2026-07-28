@@ -80,7 +80,15 @@ function Receipt({ last }) {
           saved to Capture.md — the engine was busy; it extracts on its next pass
         </div>
       )}
-      {quiet && <div className="ghost small">nothing extractable — kept on Capture.md</div>}
+      {/* "Nothing extractable" reads as "your text was worthless". What
+          actually happened is narrower and worth saying exactly: the
+          extractor found no TASKS. The words are still on the surface,
+          and prose is not a failed task. */}
+      {quiet && (
+        <div className="ghost small">
+          No tasks in that — your text is still on Capture.md.
+        </div>
+      )}
     </div>
   );
 }

@@ -35,6 +35,12 @@ class VaultConfig:
     # Where completed tasks get filed out of the working inboxes (the
     # archive_done processor). Empty string disables archiving.
     done_archive: str = "Tasks/Archive.md"
+    # Folder holding one dated note per day of processed capture dumps.
+    # A dump is a RECORD, not just a source of tasks: approving its
+    # extraction files the text here before clearing the surface, so the
+    # narrative around the work survives somewhere the user reads.
+    # Empty string disables filing — and then approving discards it.
+    capture_archive: str = "Captures"
     # Processors trusted to apply without a human verdict — ONLY honored
     # for processors that ship a deterministic verifier, and only when it
     # passes; anything else falls back to the review queue. The trust
@@ -97,7 +103,7 @@ def load_config(path: str | Path | None = None) -> VaultConfig:
         )
     raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     known = {"folders", "exclude", "surfaces", "schemas_dir",
-             "capture_inbox", "waiting_inbox", "done_archive"}
+             "capture_inbox", "waiting_inbox", "done_archive", "capture_archive"}
     ignored = sorted(set(raw) - known)
     if ignored:
         # Keys like auto_apply/fidelity/n_max are Spec.md-only; silence
@@ -113,6 +119,7 @@ def load_config(path: str | Path | None = None) -> VaultConfig:
         capture_inbox=str(raw.get("capture_inbox") or "Tasks/Inbox.md"),
         waiting_inbox=str(raw.get("waiting_inbox") or "Tasks/Waiting.md"),
         done_archive=str(raw.get("done_archive", "Tasks/Archive.md") or ""),
+        capture_archive=str(raw.get("capture_archive", "Captures") or ""),
     )
 
 
@@ -130,6 +137,8 @@ def _spec_overrides(base: VaultConfig, fm: dict) -> VaultConfig:
         out = replace(out, waiting_inbox=fm["waiting_inbox"])
     if isinstance(fm.get("done_archive"), str):  # empty string = archiving off
         out = replace(out, done_archive=fm["done_archive"].strip())
+    if isinstance(fm.get("capture_archive"), str):  # empty string = no filing
+        out = replace(out, capture_archive=fm["capture_archive"].strip())
     if isinstance(fm.get("auto_apply"), list):  # empty list = all queued
         out = replace(out, auto_apply=tuple(str(n) for n in fm["auto_apply"]))
     if fm.get("fidelity") in ("strict", "close"):
