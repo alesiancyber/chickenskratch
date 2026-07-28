@@ -727,18 +727,40 @@ export default function App() {
       ? today?.due?.this_sunday : today?.due?.next_sunday;
     return planTask(r, when, "Pushed to later this week");
   }, [planTask, today]);
-  /* "→ today" from every row a task lives on — soon, stranded, the week
-     lanes, the backlog — not just the Week tab. Same gated ⏳ verb
-     (plan, never deadline), same corpus row, wherever it's clicked. */
-  const promoteBtn = useCallback((r) => movedKeys.has(doneKey(r))
-    ? <span className="chip verdict-approve">moved</span>
-    : <button className="affordance linklike"
-              onClick={(e) => {
-                e.stopPropagation();
-                planTask(r, today?.date, "Promoted to today");
-              }}>
-        → today
-      </button>, [movedKeys, planTask, today]);
+  /* "→ today" and "→ this week" from every row a task lives on — soon,
+     stranded, the week lanes, the backlog — not just the Week tab. Same
+     gated ⏳ verb (plan, never deadline), same corpus row, wherever it's
+     clicked. Both verbs travel together: deciding a task isn't for today
+     is the same moment as deciding when it IS for, and sending the user
+     to another tab to say so is how things end up undated. */
+  const planBtns = useCallback((r) => {
+    if (movedKeys.has(doneKey(r)))
+      return <span className="chip verdict-approve">moved</span>;
+    const plan = (when, label) => (e) => { e.stopPropagation(); planTask(r, when, label); };
+    return (
+      <>
+        <button className="affordance linklike"
+                onClick={plan(today?.date, "Promoted to today")}>
+          → today
+        </button>
+        {/* On a Sunday the week anchor IS today; one button, not two
+            spellings of it. */}
+        {today?.due?.this_sunday !== today?.date && (
+          <button className="affordance linklike"
+                  onClick={plan(today?.due?.this_sunday, "Planned for this week")}>
+            → this week
+          </button>
+        )}
+      </>
+    );
+  }, [movedKeys, planTask, today]);
+
+  /* The chips inside the note editor plan against the SAME anchors the
+     rows do — derived once here, never recomputed from a Date() down
+     there, so the two surfaces can't disagree about which Sunday it is. */
+  const planDates = useMemo(
+    () => ({ today: today?.date ?? "", week: today?.due?.this_sunday ?? "" }),
+    [today?.date, today?.due?.this_sunday]);
 
   const runPass = useCallback(() => { postJSON("/api/pass").catch(() => {}); }, []);
   const stopPass = useCallback(() => { cancelJob("pass").catch(() => {}); }, []);
@@ -942,7 +964,7 @@ export default function App() {
             <TaskRow key={i} r={r} onDone={taskDone} done={doneKeys.has(doneKey(r))}
                      right={<>
                        <span className="small meta">in {r.days}d</span>
-                       {promoteBtn(r)}
+                       {planBtns(r)}
                      </>} />
           )} />
         </Section>
@@ -986,7 +1008,7 @@ export default function App() {
             <NoteRow note={r.note} target={r.text} key={i}>
               <span className="grow">{r.text}</span>
               <span className="small ghost">{r.age_days}d old · undated</span>
-              {promoteBtn(r)}
+              {planBtns(r)}
             </NoteRow>
           )} />
         </Section>
@@ -1102,7 +1124,7 @@ export default function App() {
             <Suspense fallback={<div className="ghost small">opening…</div>}>
               <NoteEditor path={openNote.path} target={openNote.target}
                           seq={openNote.seq} visible={tab === "note"}
-                          onClose={closeNote} />
+                          planDates={planDates} onClose={closeNote} />
             </Suspense>
           </div>
         )}

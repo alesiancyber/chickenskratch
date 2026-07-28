@@ -1,5 +1,6 @@
 import { RangeSet, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
+import { BLOCK_REF_RE, SCHEDULED_RE, setLineScheduled } from "./taskline.js";
 
 /* Arriving from the dashboard: the row you clicked gets marked so you
    land on it instead of re-finding it. This IS the selection, editor
@@ -42,8 +43,8 @@ export const targetField = StateField.define({
 
 const TASK_RE = /^(\s*)([-*]) \[(.)\]\s+/;
 const BULLET_RE = /^(\s*)([-*+]) (?!\[.\] )/;
-const BLOCK_REF_RE = /\s+\^([A-Za-z0-9][A-Za-z0-9_-]*)\s*$/;
-const DATE_RE = /(📅|✅|➕)\s*(\d{4}-\d{2}-\d{2})/g;
+// ⌛ parses, ⏳ is what we write — same pair tasks.py accepts.
+const DATE_RE = /(📅|✅|➕|⏳|⌛)\s*(\d{4}-\d{2}-\d{2})/g;
 const PRIORITY_RE = /[🔺⏫🔼🔽⏬]/g;
 const WIKILINK_RE = /\[\[([^\]]+)\]\]/g;
 const BOLD_RE = /\*\*([^*]+)\*\*/g;
@@ -76,6 +77,71 @@ class TaskBox extends WidgetType {
       });
     };
     return box;
+  }
+  ignoreEvent() {
+    return false;   // the click is ours, not the editor's
+  }
+}
+
+/* The two dates the plan chips write, pushed in from the dashboard
+   (which already computes them for its own rows) rather than derived
+   here — "this week" means the week's Sunday anchor, and two surfaces
+   disagreeing about which Sunday that is would be a real bug. Carried
+   as an effect, like setTarget, because the editor is built once and
+   these change with the calendar. */
+export const setPlanDates = StateEffect.define();
+
+export const planDatesField = StateField.define({
+  create: () => ({ today: "", week: "" }),
+  update(dates, tr) {
+    for (const e of tr.effects) if (e.is(setPlanDates)) return e.value;
+    return dates;
+  },
+});
+
+/* Plan chips on an open task: the same ⏳ verb the dashboard's rows
+   offer, on the surface where you're actually reading the task. Like
+   the checkbox, this edits the DOCUMENT — it does not call
+   /api/task/plan. That is deliberate: the API writes the file on the
+   server, which would stale the buffer you have open and force a
+   reload that discards unsaved edits. The text is the file; ⌘S is
+   still the write, and it goes through the same gated /api/note path
+   as any other edit here. */
+class PlanChips extends WidgetType {
+  constructor(lineFrom, planned, dates) {
+    super();
+    this.lineFrom = lineFrom;
+    this.planned = planned;      // the ⏳ date already on the line, or ""
+    this.dates = dates;
+  }
+  eq(other) {
+    return other.lineFrom === this.lineFrom && other.planned === this.planned
+      && other.dates.today === this.dates.today && other.dates.week === this.dates.week;
+  }
+  toDOM(view) {
+    const wrap = document.createElement("span");
+    wrap.className = "cm-plan";
+    const chip = (label, when) => {
+      const on = Boolean(when) && this.planned === when;
+      const b = document.createElement("button");
+      b.className = "cm-plan-btn" + (on ? " on" : "");
+      b.textContent = label;
+      b.title = on ? `Planned ${when} — click to clear` : `Plan for ${when} (⏳)`;
+      b.onmousedown = (e) => {
+        e.preventDefault();          // never steal the caret from the line
+        const line = view.state.doc.lineAt(this.lineFrom);
+        const next = setLineScheduled(line.text, on ? null : when);
+        if (next !== line.text)
+          view.dispatch({ changes: { from: line.from, to: line.to, insert: next } });
+      };
+      wrap.appendChild(b);
+    };
+    chip("→ today", this.dates.today);
+    // On a Sunday the week anchor IS today, and two chips doing the
+    // identical thing is just noise.
+    if (this.dates.week && this.dates.week !== this.dates.today)
+      chip("→ this week", this.dates.week);
+    return wrap;
   }
   ignoreEvent() {
     return false;   // the click is ours, not the editor's
@@ -118,6 +184,7 @@ function build(view) {
   const { state } = view;
   const active = activeLines(state);
   const fmEnd = frontmatterEnd(state.doc);
+  const dates = state.field(planDatesField, false) || { today: "", week: "" };
   const marks = [];
   const add = (from, to, deco) => marks.push(deco.range(from, to));
   const hide = (from, to) => add(from, to, Decoration.replace({}));
@@ -171,6 +238,13 @@ function build(view) {
           if (trimmed > bodyStart)
             add(bodyStart, trimmed, Decoration.mark({ class: "cm-struck" }));
         }
+        /* Open tasks get the plan chips. side: 1 keeps them past the
+           hidden block ref, which replaces the run up TO line.to. */
+        if (!checked && dates.today)
+          add(line.to, line.to, Decoration.widget({
+            widget: new PlanChips(line.from, (SCHEDULED_RE.exec(text) || [])[1] || "", dates),
+            side: 1,
+          }));
       }
 
       const bullet = !task && BULLET_RE.exec(text);
@@ -200,7 +274,9 @@ function build(view) {
          hidden off-line and the date is styled instead. ➕ (created) goes
          entirely: it's provenance, not something you read a note for. */
       scan(DATE_RE, (m, at) => {
-        const kind = m[1] === "✅" ? "done" : m[1] === "➕" ? "created" : "due";
+        const kind = m[1] === "✅" ? "done"
+          : m[1] === "➕" ? "created"
+          : (m[1] === "⏳" || m[1] === "⌛") ? "planned" : "due";
         if (!live && kind === "created") {
           hide(at, at + m[0].length);
           return;
@@ -314,6 +390,23 @@ export const vaultTheme = EditorView.theme({
   },
   ".cm-date.done": { color: "var(--ok)", backgroundColor: "var(--diff-add-row)" },
   ".cm-date.created": { color: "var(--ink-3)", backgroundColor: "transparent", padding: "0" },
+  // a plan is not a deadline: ⏳ reads quieter than 📅 on purpose
+  ".cm-date.planned": { color: "var(--accent)", backgroundColor: "var(--accent-soft)" },
+
+  /* Same bargain as the dashboard's .affordance: present on the row you
+     are pointing at, invisible otherwise. A note is for reading, and two
+     chips on every open task would make it a control panel. */
+  ".cm-plan": {
+    opacity: "0", transition: "opacity 120ms ease",
+    marginLeft: "8px", whiteSpace: "nowrap", verticalAlign: "1px",
+  },
+  ".cm-task:hover .cm-plan, .cm-target .cm-plan, .cm-plan:focus-within": { opacity: "1" },
+  ".cm-plan-btn": {
+    font: "inherit", fontSize: "var(--text-small)", color: "var(--ink-3)",
+    background: "none", border: "0", padding: "0 4px", cursor: "pointer",
+  },
+  ".cm-plan-btn:hover": { color: "var(--accent)", textDecoration: "underline" },
+  ".cm-plan-btn.on": { color: "var(--accent)" },
   ".cm-prio": { color: "var(--accent)" },
   ".cm-wikilink": { color: "var(--accent)", cursor: "pointer" },
   ".cm-strong": { fontWeight: "600" },

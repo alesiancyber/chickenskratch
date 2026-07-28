@@ -4,7 +4,9 @@ import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { postJSON } from "./api.js";
-import { livePreview, setTarget, targetField, vaultTheme } from "./livepreview.js";
+import {
+  livePreview, planDatesField, setPlanDates, setTarget, targetField, vaultTheme,
+} from "./livepreview.js";
 
 /* The owned note editor. CodeMirror 6, because the vault is portable
    markdown and the document model here IS the text — no parse, no
@@ -28,7 +30,8 @@ function statusLine(state, ephemeral) {
   return "saved";
 }
 
-export default function NoteEditor({ path, target, seq, visible = true, onClose }) {
+export default function NoteEditor({ path, target, seq, planDates, visible = true,
+                                     onClose }) {
   const host = useRef(null);
   const view = useRef(null);
   const baseHash = useRef("");
@@ -127,6 +130,7 @@ export default function NoteEditor({ path, target, seq, visible = true, onClose 
           markdown(),
           livePreview,
           targetField,
+          planDatesField,
           vaultTheme,
           EditorView.lineWrapping,
           placeholder("Empty note."),
@@ -141,6 +145,13 @@ export default function NoteEditor({ path, target, seq, visible = true, onClose 
   }, []);
 
   useEffect(() => { if (path) reload(); }, [path, reload]);
+
+  /* The plan chips need today's date and the week's Sunday anchor. They
+     come from the dashboard's model rather than a Date() here, so the
+     two surfaces can never disagree about which Sunday "this week" is. */
+  useEffect(() => {
+    if (planDates) view.current?.dispatch({ effects: setPlanDates.of(planDates) });
+  }, [planDates]);
 
   /* Re-reveal when the dashboard points at a different row of the SAME
      note (`seq` also changes on a repeat click of the same row). Runs on
