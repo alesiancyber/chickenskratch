@@ -8,6 +8,7 @@ import { cancelJob, noteName, postJSON, useDashboard, useSplit } from "./api.js"
 import Canvas from "./Canvas.jsx";
 import Diff from "./Diff.jsx";
 import Explorer from "./Explorer.jsx";
+import Console from "./Console.jsx";
 import Pane from "./Pane.jsx";
 
 /* CodeMirror triples the bundle, and the dashboard is what you see
@@ -457,7 +458,8 @@ function usePassTicker(lastPassAt) {
 }
 
 function Palette({ open, setOpen, today, changes, health, tree, refetch, runPass,
-                   togglePane, toggleExplorer, toggleFocus, azurePrefill, revertLast }) {
+                   togglePane, toggleExplorer, toggleFocus, openConsole,
+                   azurePrefill, revertLast }) {
   /* The notes today points at: the hot set, first, because they're what
      you're most likely typing at. */
   const notes = useMemo(() => {
@@ -516,6 +518,9 @@ function Palette({ open, setOpen, today, changes, health, tree, refetch, runPass
             <span>Toggle focus mode</span>
             <span className="ghost small">click a task, the rest dims</span>
           </Command.Item>
+          <Command.Item onSelect={go(openConsole)}>
+            <span>Open the console</span><span className="ghost small">⌘,</span>
+          </Command.Item>
           <Command.Item onSelect={go(runPass)}>
             <span>Run an engine pass now</span><span className="ghost small">engine</span>
           </Command.Item>
@@ -564,6 +569,7 @@ export default function App() {
   const { today, review, changes, health, tree, error, live, lastPassAt, activity,
           workerError, clearWorkerError, refetch } = useDashboard();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [consoleOpen, setConsoleOpen] = useState(false);
   const [paneOpen, setPaneOpen] = useState(false);
   // Closed unless you've said otherwise: the dashboard is the surface,
   // the rail is the escape hatch for "I know where that note lives".
@@ -802,6 +808,14 @@ export default function App() {
         toggleExplorer();
         return;
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        setConsoleOpen((v) => !v);
+        return;
+      }
+      // The console owns the whole screen while it is up: its own fields
+      // take the keyboard, and esc there closes it, not the row selection.
+      if (consoleOpen) return;
       if (paletteOpen || e.metaKey || e.ctrlKey || e.altKey) return;
       // esc releases the clicked row (and focus mode's dim) everywhere,
       // editor mark included
@@ -836,7 +850,7 @@ export default function App() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [paletteOpen, view, visible, acted, selectedPid, decide, undo, openNoteAt,
-      togglePane, toggleExplorer, releaseSel]);
+      togglePane, toggleExplorer, releaseSel, consoleOpen]);
 
   /* refetch reconciles: decided proposals leave the queue, done rows
      leave the model; drop the optimistic marks so state never rots */
@@ -885,6 +899,7 @@ export default function App() {
     <OpenNote.Provider value={openNoteAt}>
     <SelectRow.Provider value={selCtx}>
     <div className={"shell" + (focusMode && selKey ? " focus" : "")}>
+      <Console open={consoleOpen} onClose={() => setConsoleOpen(false)} />
       <nav className="topnav small">
         <span className="brand">tezcat</span>
         <span className="nav-spacer" />
@@ -897,6 +912,10 @@ export default function App() {
         </button>
         <button className="navlink" onClick={toggleExplorer}>Files ⌘B</button>
         <button className="navlink" onClick={togglePane}>Chat ⌘J</button>
+        <button className="navlink" onClick={() => setConsoleOpen(true)}
+                title="Everything configurable: vault behaviour and models">
+          Console ⌘,
+        </button>
       </nav>
 
       {/* The rail sits OUTSIDE the split so opening it never touches the
@@ -1159,6 +1178,7 @@ export default function App() {
                today={today} changes={changes} health={health} tree={tree}
                refetch={refetch} runPass={runPass} togglePane={togglePane}
                toggleExplorer={toggleExplorer} toggleFocus={toggleFocus}
+               openConsole={() => setConsoleOpen(true)}
                azurePrefill={azurePrefill} revertLast={revertLast} />
     </div>
     </SelectRow.Provider>

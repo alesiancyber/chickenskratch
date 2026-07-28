@@ -49,6 +49,7 @@ from . import (
     cancel,
     changes,
     commands,
+    console,
     diffs,
     engine,
     events,
@@ -473,6 +474,45 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
             return JSONResponse({"error": str(e)}, status_code=400)
         return JSONResponse({"line": line})
 
+    # ---- the management console ----
+    #
+    # Reads render everything the harness treats as configuration; writes
+    # split by where the setting lives. Spec.md goes through the vault's
+    # gated write (snapshot, revertible, live next pass); config/*.yaml
+    # goes through config_store (validate, back up, restart may be
+    # needed). The console never returns a secret — a profile's key is
+    # reported as the env var's NAME and whether it is set.
+
+    async def console_route(request):
+        return JSONResponse(await run_in_threadpool(console.model, vault_path))
+
+    def _console_write(fn):
+        """Every console write: same consent gate, same error shapes.
+        ConfigError is the user's mistake stated back to them (400);
+        VaultLocked is the engine mid-pass (503, try again)."""
+        async def route(request):
+            body, err = await guard_write(request)
+            if err:
+                return err
+            try:
+                return JSONResponse(await run_in_threadpool(fn, body))
+            except console.ConfigError as e:
+                return JSONResponse({"error": str(e)}, status_code=400)
+            except VaultLocked as e:
+                return JSONResponse({"error": str(e)}, status_code=503)
+            except VaultError as e:
+                return JSONResponse({"error": str(e)}, status_code=409)
+        return route
+
+    console_spec_route = _console_write(
+        lambda body: console.save_spec(vault_path, dict(body.get("fields") or {})))
+    console_models_route = _console_write(
+        lambda body: console.save_model_fields(dict(body.get("patch") or {})))
+    console_models_text_route = _console_write(
+        lambda body: console.save_models_text(str(body.get("text", ""))))
+    console_restore_route = _console_write(
+        lambda body: console.restore_models(str(body.get("stamp", ""))))
+
     chat_tasks: set[asyncio.Task] = set()
 
     async def pass_route(request):
@@ -617,6 +657,11 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         Route("/api/task/due", task_due_route, methods=["POST"]),
         Route("/api/task/plan", task_plan_route, methods=["POST"]),
         Route("/api/task/line", task_line_route, methods=["POST"]),
+        Route("/api/console", console_route),
+        Route("/api/console/vault", console_spec_route, methods=["POST"]),
+        Route("/api/console/models", console_models_route, methods=["POST"]),
+        Route("/api/console/models/text", console_models_text_route, methods=["POST"]),
+        Route("/api/console/models/restore", console_restore_route, methods=["POST"]),
         Route("/api/pass", pass_route, methods=["POST"]),
         Route("/api/cancel", cancel_route, methods=["POST"]),
         Route("/api/chat", chat_send_route, methods=["POST"]),

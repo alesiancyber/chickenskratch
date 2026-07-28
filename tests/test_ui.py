@@ -280,6 +280,31 @@ def test_cancelling_chat_replaces_the_session_immediately(client):
     assert client.app.state.chat() is not after
 
 
+def test_console_reads_config_and_gates_its_writes(client, vault):
+    """The console's routes. Reads render both homes — vault behaviour and
+    repo-side models — and every write takes the same consent gate as the
+    rest of the server, because a settings page is a write surface."""
+    data = client.get("/api/console").json()
+    assert {"vault", "models"} <= set(data)
+    assert data["vault"]["values"]["autonomy"] in ("gated", "full")
+    assert "capture" in data["vault"]["processors"]
+    # no secret in the payload, ever — only the env var's name and status
+    assert "api_key\"" not in client.get("/api/console").text
+
+    # writes: same channel hardening as decide/revert/ingest
+    assert client.post("/api/console/vault", content="autonomy=full").status_code == 415
+    assert client.post("/api/console/vault", json={"fields": {"autonomy": "full"}},
+                       headers={"Origin": "https://evil.example"}).status_code == 403
+
+    # a rejected setting is a 400 with the reason, not a silent no-op
+    r = client.post("/api/console/vault", json={"fields": {"autonomy": "whenever"}})
+    assert r.status_code == 400 and "must be one of" in r.json()["error"]
+
+    r = client.post("/api/console/vault", json={"fields": {"autonomy": "full", "n_max": 7}})
+    assert r.status_code == 200 and set(r.json()["changed"]) == {"autonomy", "n_max"}
+    assert client.get("/api/console").json()["vault"]["values"]["n_max"] == 7
+
+
 def test_task_line_rewrites_without_touching_the_vault(client, vault):
     """The note editor's plan chips. It returns the rewritten line and
     writes NOTHING — that is the point: the editor splices the result into

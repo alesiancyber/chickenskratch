@@ -117,6 +117,33 @@ swapping the worker model is a note edit, no restart.
 """
 
 
+def spec_seed(vault_path: str) -> str:
+    """The Spec.md a vault starts with: every console-managed key written
+    out explicitly, over the prose that explains them.
+
+    One home, because two callers seed it — the engine's first pass, and
+    the console when you configure a vault that has never had a pass. A
+    second copy would drift, and the drift would be a key that silently
+    stops appearing in new vaults."""
+    base = get_config(vault_path)
+    fm = {
+        "folders": dict(base.folder_types),
+        "capture_inbox": base.capture_inbox,
+        "waiting_inbox": base.waiting_inbox,
+        "done_archive": base.done_archive,
+        "exclude": list(base.exclude),
+        "auto_apply": list(base.auto_apply),
+        "autonomy": base.autonomy,
+        "fidelity": base.fidelity,
+        "worker": base.worker,
+        "disabled_processors": list(base.disabled_processors),
+        "n_max": base.n_max,
+        "daily_dir": base.daily_dir,
+        "meetings_dir": base.meetings_dir,
+    }
+    return md.join_frontmatter(fm, SPEC_BODY)
+
+
 async def draft_schema_fix(item: dict) -> dict:
     """Default schema drafter: one bounded worker call -> {title, summary, apply}."""
     data = await wk.run_worker(
@@ -321,23 +348,7 @@ class Watcher:
         user's, and get_config() reads it fresh each pass."""
         if self.vault.resolve(vc.SPEC_REL).exists():
             return
-        base = get_config(self.vault_path)
-        fm = {
-            "folders": dict(base.folder_types),
-            "capture_inbox": base.capture_inbox,
-            "waiting_inbox": base.waiting_inbox,
-            "done_archive": base.done_archive,
-            "exclude": list(base.exclude),
-            "auto_apply": list(base.auto_apply),
-            "autonomy": base.autonomy,
-            "fidelity": base.fidelity,
-            "worker": base.worker,
-            "disabled_processors": list(base.disabled_processors),
-            "n_max": base.n_max,
-            "daily_dir": base.daily_dir,
-            "meetings_dir": base.meetings_dir,
-        }
-        self.write_surface(vc.SPEC_REL, md.join_frontmatter(fm, SPEC_BODY),
+        self.write_surface(vc.SPEC_REL, spec_seed(self.vault_path),
                            f"seed {vc.SPEC_REL}", action="seed_vault_spec")
 
     # ---- pass state: what has already been drafted ----

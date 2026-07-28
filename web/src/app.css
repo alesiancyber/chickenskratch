@@ -776,3 +776,73 @@ section { margin-bottom: var(--s5); }
 [cmdk-empty] { padding: var(--s3); color: var(--ink-3); }
 
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ---- the management console (⌘,) ------------------------------------
+   A full-screen overlay, not a column: settings are occasional and must
+   never re-proportion the two surfaces you actually work in. */
+.cfg-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(0, 0, 0, 0.32);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 6vh var(--s3) var(--s3);
+  animation: fade-in 120ms ease-out;
+}
+.cfg-dialog {
+  width: min(820px, 100%);
+  max-height: 88vh;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 16px 60px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+.cfg-head {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s3);
+  border-bottom: 1px solid var(--line);
+}
+.cfg-tabs { display: flex; gap: var(--s1); }
+.cfg-note { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); }
+.cfg-body { overflow-y: auto; padding: var(--s3); }
+
+.cfg-field { display: block; margin-bottom: var(--s4); }
+.cfg-label {
+  display: flex; align-items: center; gap: var(--s2);
+  font-weight: 600; margin-bottom: var(--s1);
+}
+/* Inputs read as part of the product, not as browser chrome. */
+.cfg-field input[type="text"], .cfg-field input[type="number"],
+.cfg-field input:not([type]), .cfg-field select, .cfg-field textarea,
+.cfg-raw, .cfg-inline input, .cfg-inline select {
+  font: inherit; color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+}
+.cfg-field input, .cfg-field select { min-width: 15rem; }
+.cfg-field textarea, .cfg-raw { width: 100%; resize: vertical; }
+.cfg-raw { font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
+.cfg-field .ghost { display: block; margin-top: 4px; }
+
+.cfg-checks { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); }
+.cfg-check, .cfg-inline { display: flex; align-items: center; gap: var(--s1); }
+.cfg-inline { flex-direction: column; align-items: flex-start; }
+.cfg-inline input, .cfg-inline select { min-width: 0; width: 100%; }
+
+.cfg-profile {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: var(--s3); margin-bottom: var(--s3);
+}
+.cfg-profile-head { display: flex; align-items: center; gap: var(--s2); }
+.cfg-grid {
+  display: grid; gap: var(--s2);
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  margin-top: var(--s3);
+}
+.cfg-actions {
+  display: flex; align-items: center; gap: var(--s3);
+  margin: var(--s3) 0;
+}
+.cfg-backups { margin-top: var(--s4); border-top: 1px solid var(--line); padding-top: var(--s3); }
