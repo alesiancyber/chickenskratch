@@ -10,6 +10,7 @@ import pytest
 
 import tezcat_vault.vault as vault_mod
 from tezcat import proposals
+from tezcat import watcher as watcher_mod
 from tezcat.processors import CAPTURE_SKELETON
 from tezcat_vault.vault import Vault
 
@@ -228,6 +229,74 @@ def test_a_quiet_pass_records_no_worker_error(vault, make_watcher):
     w = make_watcher(vault, capture_extractor=finds_nothing, disabled=OTHERS)
     summary = asyncio.run(w.run_once())
     assert summary["drafted"] == 0 and summary["worker_errors"] == []
+
+
+def test_an_unusable_plan_is_reported_and_retried_then_parked(vault, make_watcher,
+                                                              monkeypatch):
+    """The silent-loss case: extraction ran, the plan failed its schema,
+    and the bare `continue` left BOTH suppressors engaged — seen-hash
+    stamped and the memo saved — so no later pass could reach the text
+    while every surface said "nothing extractable".
+
+    It re-arms on a budget now: retried while there's a chance it was a
+    flake, then parked, because the drafters own the proposal's shape and
+    a plan rejected for this input tends to be rejected identically."""
+    def reject(p, d):
+        raise ValueError("invalid proposal: title too short")
+
+    monkeypatch.setattr(proposals, "save", reject)
+    (vault / "Harness/Capture.md").write_text(CAPTURE_SKELETON + "\ncall the vet\n")
+
+    for attempt in range(1, watcher_mod.DRAFT_PLAN_ATTEMPTS + 1):
+        w = make_watcher(vault, capture_extractor=fake_extractor, disabled=OTHERS)
+        (err,) = asyncio.run(w.run_once())["worker_errors"]
+        assert err["processor"] == "capture" and "invalid plan" in err["error"]
+        state = json.loads(w.state_path.read_text())
+        parked = attempt == watcher_mod.DRAFT_PLAN_ATTEMPTS
+        # while budget remains: re-armed (seen-hash dropped) and the memo
+        # forfeited, so the next pass really does scan and redraft
+        assert err["retrying"] is not parked
+        assert bool(state["seen"].get("capture")) is parked
+        assert bool(state["fingerprint"]) is parked
+    # parked: the budget is spent AND released, never left as scrap
+    assert json.loads(w.state_path.read_text())["draft_attempts"] == {}
+    seen_hash = json.loads(w.state_path.read_text())["seen"]["capture"]
+
+    # a further pass no longer calls the model at all — the seen-hash holds
+    w = make_watcher(vault, capture_extractor=fake_extractor, disabled=OTHERS)
+    assert asyncio.run(w.run_once())["worker_errors"] == []
+    assert json.loads(w.state_path.read_text())["seen"]["capture"] == seen_hash
+
+    # editing the text is the documented lever: new hash, fresh budget
+    monkeypatch.undo()
+    (vault / "Harness/Capture.md").write_text(CAPTURE_SKELETON + "\ncall the vet back\n")
+    w = make_watcher(vault, capture_extractor=fake_extractor, disabled=OTHERS)
+    assert asyncio.run(w.run_once())["drafted"] == 1
+
+
+def test_a_plan_that_saves_retires_the_budget_its_last_one_burned(vault, make_watcher,
+                                                                  monkeypatch):
+    """A transient rejection must not leave a counter behind — the budget
+    exists only while a retry is in flight."""
+    calls = {"n": 0}
+    real_save = proposals.save
+
+    def flaky(p, d):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ValueError("invalid proposal: title too short")
+        return real_save(p, d)
+
+    monkeypatch.setattr(proposals, "save", flaky)
+    (vault / "Harness/Capture.md").write_text(CAPTURE_SKELETON + "\ncall the vet\n")
+
+    w = make_watcher(vault, capture_extractor=fake_extractor, disabled=OTHERS)
+    asyncio.run(w.run_once())
+    assert json.loads(w.state_path.read_text())["draft_attempts"]  # one in flight
+
+    w2 = make_watcher(vault, capture_extractor=fake_extractor, disabled=OTHERS)
+    assert asyncio.run(w2.run_once())["drafted"] == 1     # the retry lands
+    assert json.loads(w2.state_path.read_text())["draft_attempts"] == {}
 
 
 def test_a_processor_whose_scan_throws_does_not_memoize_the_tree(

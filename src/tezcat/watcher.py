@@ -50,6 +50,12 @@ STATE_PATH = ROOT / "data" / "watcher_state.json"
 # holder may be mid-draft: a decision is worth waiting a minute for, and
 # LockBusy is a clean 409 rather than a silently dropped verdict.
 DECISION_LOCK_WAIT_S = 90.0
+# Draft attempts against ONE input before an unusable plan parks. Small on
+# purpose: the drafters own the proposal's shape and the model only fills
+# the fields, so a rejected plan usually fails identically next pass — the
+# budget is there to catch the flake, not to grind at a poison input.
+DRAFT_PLAN_ATTEMPTS = 3
+
 
 def _takewhile_not(commits: list[dict], stop_sha: str) -> list[dict]:
     """Commits newer than stop_sha (newest first) — the applies a single
@@ -220,6 +226,9 @@ class Watcher:
         # Keyed by name so a new extractor needs no engine-side field —
         # scan/draft own their entry, and _notify_stale re-arms it.
         self.seen: dict[str, str] = {}
+        # `processor:content-hash` -> failed draft attempts against that
+        # exact input, while a retry is still in flight. See _invalid_plan.
+        self.draft_attempts: dict[str, int] = {}
         # HEAD sha at scan time, stamped into drafted proposals; set once
         # per pass so processors never re-run git themselves
         self._pass_sha = ""
@@ -350,10 +359,19 @@ class Watcher:
                 seen[name] = str(state[legacy])
         return seen
 
+    @staticmethod
+    def _attempts_from_state(state: dict) -> dict[str, int]:
+        """Live retry budgets, keyed `processor:content-hash`. Absent in
+        state files written before the budget existed, and absent again
+        the moment a retry resolves — see _invalid_plan."""
+        return {str(k): int(v) for k, v in (state.get("draft_attempts") or {}).items()
+                if str(v).lstrip("-").isdigit()}
+
     def _save_state(self, fingerprint: dict | None = None) -> None:
         state = {
             "fingerprint": fingerprint if fingerprint is not None else self._vault_fingerprint(),
             "seen": self.seen,
+            "draft_attempts": self.draft_attempts,
         }
         atomic_write_text(self.state_path, json.dumps(state))
 
@@ -376,6 +394,52 @@ class Watcher:
         missed two of the four paths."""
         summary.setdefault("incomplete", []).append(reason)
 
+    def _invalid_plan(self, summary: dict, proc, error: Exception) -> None:
+        """The drafter answered, but its plan fails the proposal schema —
+        so nothing enters the queue.
+
+        Visibly identical to a dead worker (zero drafts), and it used to
+        be swallowed by a bare `continue` with the drafter's seen-hash
+        ALREADY stamped and the memo about to be saved. Two suppressors:
+        the text became unreachable by any later pass while every surface
+        said "nothing extractable". It wasn't — extraction ran, and only
+        the plan was malformed.
+
+        So it re-arms like a worker failure, but on a BUDGET. A down
+        worker recovers when you restart it; the drafters build the
+        proposal shape themselves and the model only fills the fields, so
+        a plan rejected for this input tends to be rejected the same way
+        every time — an unbounded re-arm is one LLM call per pass forever.
+        Past the budget the item PARKS: still reported, no longer retried,
+        and the memo is allowed again so passes stop rescanning for work
+        they will not redo. Editing the text moves the hash, which is a
+        new budget and a fresh try.
+
+        The counter lives only while a retry is in flight — dropped on
+        success and on parking alike — so state.json holds at most one
+        entry per processor rather than a growing scrapheap of hashes."""
+        detail = f"invalid plan: {error}"
+        # The seen-hash the drafter just stamped identifies the input that
+        # produced the bad plan; it is also the thing suppressing a retry.
+        # A processor that stamps nothing has nothing to re-arm.
+        key = self.seen.get(proc.name, "")
+        slot = f"{proc.name}:{key}"
+        attempts = self.draft_attempts.get(slot, 0) + 1
+        retrying = bool(key) and attempts < DRAFT_PLAN_ATTEMPTS
+        if retrying:
+            self.draft_attempts[slot] = attempts
+            self.seen.pop(proc.name, None)   # re-arm: the next pass redrafts it
+            self._incomplete(summary, f"plan:{proc.name}")
+        else:
+            self.draft_attempts.pop(slot, None)  # parked; the seen-hash holds it
+        # `retrying` is load-bearing on the surfaces: "the engine retries on
+        # its next pass" is the right thing to say exactly while it's true.
+        record = {"processor": proc.name, "error": detail, "retrying": retrying}
+        summary.setdefault("worker_errors", []).append(record)
+        events.emit(self.vault_path, "worker_error", record)
+        print(f"invalid plan from {proc.name} "
+              f"({'retrying' if retrying else 'parked'}): {error}")
+
     def forget_vault_memo(self) -> None:
         """Force the next pass to scan every note (`tezcat-watch --rescan`).
 
@@ -387,8 +451,13 @@ class Watcher:
         from disk first and written back untouched — they are real dedup
         state, and this method runs on a fresh Watcher whose in-memory
         `seen` is still empty (only run_once populates it), so writing
-        that would re-draft every surface's last text."""
-        self.seen = self._seen_from_state(self._load_state())
+        that would re-draft every surface's last text. The retry budgets
+        ride along for the same reason — a rescan does not re-arm a
+        parked input (its seen-hash still suppresses it), so silently
+        refunding its budget would only mislead."""
+        state = self._load_state()
+        self.seen = self._seen_from_state(state)
+        self.draft_attempts = self._attempts_from_state(state)
         self._save_state({})
 
     # ---- stage 2: execute typed //commands ----
@@ -455,22 +524,32 @@ class Watcher:
                 # only stamped past a successful draft) and the next pass
                 # retries it, which is what the surfaces must say.
                 failed.add(proc.name)
-                summary.setdefault("worker_errors", []).append(
-                    {"processor": proc.name, "error": str(e)})
                 self._incomplete(summary, f"draft:{proc.name}")
+                # `retrying` is always true here: the seen-hash is stamped
+                # past a successful draft, so a worker that never answered
+                # left the input armed, and a down worker recovers the
+                # moment it comes back. The budgeted case is _invalid_plan.
+                record = {"processor": proc.name, "error": str(e), "retrying": True}
+                summary.setdefault("worker_errors", []).append(record)
                 # Also on the stream: typing straight into Capture.md is a
                 # first-class input, and that path has no request to answer
                 # — without this, a dead worker is invisible on every
                 # surface until you notice tasks never appearing.
-                events.emit(self.vault_path, "worker_error",
-                            {"processor": proc.name, "error": str(e)})
+                events.emit(self.vault_path, "worker_error", record)
                 continue
             if p is None:
                 continue
             try:
                 proposals.save(p, self.proposals_dir)
-            except ValueError:
-                continue  # drafter emitted an invalid plan: never enters the queue
+            except ValueError as e:
+                # An invalid plan never enters the queue — but it is a
+                # draft-stage failure, not a quiet vault, and the seen-hash
+                # is already stamped. See _invalid_plan.
+                self._invalid_plan(summary, proc, e)
+                continue
+            # A plan this processor CAN build retires any budget its last
+            # one was burning down.
+            self.draft_attempts.pop(f"{proc.name}:{self.seen.get(proc.name, '')}", None)
             drafted += 1
             # Auto-apply: only processors the vault's Spec.md trusts, only
             # against an unmoved note, and never when the drafter itself
@@ -681,6 +760,7 @@ class Watcher:
             applier.use_vault(self.vault_path)
             state = self._load_state()
             self.seen = self._seen_from_state(state)
+            self.draft_attempts = self._attempts_from_state(state)
             if not decisions_only:
                 # Opens the activity indicator; pass_complete closes it.
                 events.emit(self.vault_path, "pass_started", {})

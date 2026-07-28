@@ -59,8 +59,14 @@ function Receipt({ last }) {
       {stalled && (
         <div className="small">
           <span className="attention">extraction didn’t run</span>
-          <span className="ghost"> — saved to Capture.md; the engine retries
-            on its next pass</span>
+          {/* Only while it's true: a plan that failed its schema often
+              fails the same way every time, so the engine retries it a
+              few times and then parks it. Saying "retries on its next
+              pass" about a parked item is the same lie as "nothing
+              extractable" — it just takes longer to notice. */}
+          <span className="ghost"> — saved to Capture.md; {last.workerErrors.some((w) => w.retrying)
+            ? "the engine retries on its next pass"
+            : "edit the text to try again"}</span>
           {last.workerErrors.map((w, i) => (
             <div className="ghost small" key={i}>{w.error}</div>
           ))}

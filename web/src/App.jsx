@@ -921,7 +921,9 @@ export default function App() {
           <span className="attention">extraction is down</span>
           <span className="ghost">
             {" "}— {workerError.processor} couldn’t draft; captures stay on
-            Capture.md and retry each pass
+            Capture.md{workerError.retrying === false
+              ? " — retried and parked, so edit the text to try again"
+              : " and retry each pass"}
           </span>
           <div className="ghost">{workerError.error}</div>
           <button className="linklike" onClick={clearWorkerError}>dismiss</button>

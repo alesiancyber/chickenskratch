@@ -204,10 +204,20 @@ tree is handled" over notes nothing ever read, and the input sits
 unprocessed until an unrelated edit happens to move the fingerprint.
 One gate, not a condition per failure: spelled per-failure, it had
 already missed two of its four paths. `tezcat-watch --rescan` forgets
-the memo (never the seen-hashes) as the recovery lever. The same rule at the surface: a
-worker that never answered is reported as such (`worker_errors`), never
-as "nothing extractable" — a failure the user reads as an empty dump is
-the one failure they cannot act on. The owned surfaces are a second renderer over
+the memo (never the seen-hashes) as the recovery lever.
+
+The same rule at the surface: a draft that never produced a usable
+proposal — a worker that never answered, or a plan that failed its
+schema — is reported as such (`worker_errors`), never as "nothing
+extractable". A failure the user reads as an empty dump is the one
+failure they cannot act on. Retry policy follows recoverability, and
+the surfaces are told which they're looking at (`retrying`): a down
+worker recovers on its own, so it re-arms indefinitely; an unusable
+plan usually fails identically on the same input, since the drafters
+own the proposal's shape and the model only fills the fields — so it
+re-arms on a budget (`DRAFT_PLAN_ATTEMPTS`) and then PARKS, still
+reported, no longer retried. A promise to retry is a claim, and the UI
+may only make it while it is true. The owned surfaces are a second renderer over
 the same state through the same gated paths — they add no state, no
 trust class, and no write that bypasses I1–I6. Built so far
 (2026-07-25): the live dashboard (`tezcat-ui`, 127.0.0.1-only — JSON
