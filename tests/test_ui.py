@@ -5,6 +5,7 @@ JSON-only (forces CORS preflight), local-origin-only, everything
 resolving through service.py under the pass lock."""
 
 import asyncio
+import time
 
 import pytest
 from starlette.testclient import TestClient
@@ -277,6 +278,78 @@ def test_cancelling_chat_replaces_the_session_immediately(client):
     # a second stop keeps working against the new session
     assert client.post("/api/cancel", json={"what": "chat"}).status_code == 202
     assert client.app.state.chat() is not after
+
+
+def test_shutdown_waits_out_the_sessions_stop_replaced(vault, tmp_path, monkeypatch):
+    """The lifespan exists to reap the MCP children a session spawns. Stop
+    hands teardown to a background task, so closing only the CURRENT
+    session orphans exactly what this hook is for: press stop, then quit,
+    and the old session's servers outlive the server."""
+    monkeypatch.setattr("tezcat.proposals.dir_for", lambda vp: tmp_path / "proposals")
+    closed = []
+
+    class SlowAgent:
+        profile = type("P", (), {"model": "m", "servers": []})()
+        messages: list = []
+
+        async def run(self, text):
+            return "ok"
+
+        async def __aexit__(self, *exc):
+            await asyncio.sleep(0.05)   # a teardown that takes real time
+            closed.append(True)
+
+    app = ui.build_app(str(vault), chat_agent_factory=lambda: _entered(SlowAgent()))
+    with TestClient(app, base_url="http://127.0.0.1") as c:
+        c.post("/api/chat", json={"text": "hi"})
+        time.sleep(0.2)                 # let the turn build its agent
+        assert app.state.chat().agent is not None
+        c.post("/api/cancel", json={"what": "chat"})
+    # the context manager ran the lifespan's shutdown
+    assert closed == [True]
+
+
+async def _entered(agent):
+    return agent
+
+
+def test_a_chat_stream_releases_the_session_it_subscribed_to(client):
+    """A stream binds ONE session for its lifetime. Cleanup that re-read
+    the name would unsubscribe from whatever session the stop button
+    swapped in — where this queue was never registered — and leave this
+    one on the fanout it actually came from.
+
+    The generator is driven by hand: an SSE stream only ends on
+    disconnect, and TestClient buffers a response whole, so a plain GET on
+    this route never returns."""
+    from starlette.requests import Request
+
+    app = client.app
+    endpoint = next(r.endpoint for r in app.routes
+                    if getattr(r, "path", "") == "/api/chat/events")
+
+    async def scenario():
+        before = app.state.chat()
+        scope = {"type": "http", "method": "GET", "path": "/api/chat/events",
+                 "headers": [], "query_string": b"", "app": app}
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        response = await endpoint(Request(scope, receive))
+        stream = response.body_iterator
+        await stream.__anext__()          # the retry hint: we're inside the try now
+        assert before.events.listeners == 1
+
+        # the stop button, mid-stream. TestClient drives its own loop, so it
+        # cannot be called from inside this one.
+        await asyncio.to_thread(lambda: client.post("/api/cancel", json={"what": "chat"}))
+        assert app.state.chat() is not before
+
+        await stream.aclose()             # the stream ends, however it ends
+        assert before.events.listeners == 0
+
+    asyncio.run(scenario())
 
 
 def test_a_busy_engine_409s_the_decision_instead_of_swallowing_it(client, vault, monkeypatch):

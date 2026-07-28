@@ -41,14 +41,35 @@ def run(w):
     return asyncio.run(w.run_once())
 
 
-def view(vault, pending=0):
-    """The Today view as text — the CLI's exact render path."""
-    from tezcat import today as today_mod
+def _vault_and_cfg(vault):
     from tezcat_vault.vault import Vault
     from tezcat_vault.vaultconfig import get_config
 
     cfg = get_config(str(vault))
-    return today_mod.render(Vault(str(vault), exclude=cfg.exclude), cfg, pending)
+    return Vault(str(vault), exclude=cfg.exclude), cfg
+
+
+def view(vault, pending=0):
+    """The Today view as text — the CLI's exact render path."""
+    from tezcat import today as today_mod
+
+    v, cfg = _vault_and_cfg(vault)
+    return today_mod.render(v, cfg, pending)
+
+
+def model(vault, pending=0):
+    """The view's MODEL — what the dashboard collects, before the render
+    folds each section behind a "+N more". Membership questions belong
+    here: a row that fell behind the fold is absent from the text for a
+    reason that has nothing to do with the rule under test."""
+    from tezcat import today as today_mod
+
+    v, cfg = _vault_and_cfg(vault)
+    return today_mod.collect(v, cfg, pending)
+
+
+def stranded_texts(vault):
+    return [r["text"] for r in model(vault)["stranded"]]
 
 
 def test_today_renders_the_attention_surface(vault, make_watcher):
@@ -114,9 +135,20 @@ def test_waiting_age_and_stranded_meeting_actions(vault, make_watcher):
     text = view(vault)
     assert "Marcus: firewall logs (12d waiting)" in text
     assert "## Stranded in meetings" in text
-    assert "chase the SOW redlines — 10d old" in text
-    # dated meeting items are Due-section business, not stranded
-    assert text.count("chase the SOW redlines") == 1
+    # the model, not the text: the section folds past a few rows, and the
+    # fixture vault already fills it — a cap is not a judgment about
+    # whether this item is stranded
+    m = model(vault)
+    rows = [r for r in m["stranded"] if r["text"] == "chase the SOW redlines"]
+    assert len(rows) == 1 and rows[0]["age_days"] == 10
+    # stranded is for UNdated items only — a dated one is Due's business,
+    # and no item may row in both
+    assert not any("chase the SOW redlines" in r["text"]
+                   for bucket in m["due"].values() if isinstance(bucket, list)
+                   for r in bucket)
+    # oldest first: the fold shows the most-rotted, never an arbitrary few
+    ages = [r["age_days"] for r in m["stranded"]]
+    assert ages == sorted(ages, reverse=True)
 
 
 def test_planned_meeting_actions_are_dispositioned_not_stranded(vault, make_watcher):
@@ -128,9 +160,11 @@ def test_planned_meeting_actions_are_dispositioned_not_stranded(vault, make_watc
         f"- [ ] chase the SOW redlines ⏳ {day(0)}\n")
     w = make_watcher(vault, registry=())
     run(w)
-    text = view(vault)
-    assert "chase the SOW redlines — 10d old" not in text  # not stranded
-    assert text.count("chase the SOW redlines") == 1       # planned-today's row now
+    # the model, not the text: a row that merely fell behind the section's
+    # fold is also "not in text", so the render can pass this for a reason
+    # that has nothing to do with the ⏳ rule
+    assert "chase the SOW redlines" not in stranded_texts(vault)
+    assert view(vault).count("chase the SOW redlines") == 1  # planned-today's row now
 
 
 def test_impossible_dates_report_instead_of_crashing_the_pass(vault, make_watcher):

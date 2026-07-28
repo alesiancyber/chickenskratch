@@ -230,6 +230,38 @@ def test_a_quiet_pass_records_no_worker_error(vault, make_watcher):
     assert summary["drafted"] == 0 and summary["worker_errors"] == []
 
 
+def test_a_processor_whose_scan_throws_does_not_memoize_the_tree(
+        vault, make_watcher):
+    """The dead-worker rule is about the MEMO, not about workers: a
+    processor whose scan raised never read the tree either, so the pass
+    cannot vouch for it. This shipped uncovered — the memo gate was
+    spelled per-failure and only the draft path had been wired to it, so
+    a poison scan memoized "handled" over notes nothing had looked at."""
+    from tezcat.watcher import ProcessorSpec
+
+    def poison_scan(w):
+        raise RuntimeError("a note vanished mid-walk")
+
+    (vault / "Harness/Capture.md").write_text(CAPTURE_SKELETON + "\ncall the vet\n")
+    w = make_watcher(vault, registry=(ProcessorSpec(name="boom", scan=poison_scan,
+                                                    draft=None),))
+    summary = asyncio.run(w.run_once())
+
+    assert summary["incomplete"] == ["scan:boom"]
+    assert json.loads(w.state_path.read_text())["fingerprint"] == {}
+
+
+def test_a_clean_pass_is_the_only_one_that_memoizes(vault, make_watcher):
+    """The other half: nothing gave up, so the memo is earned. Without
+    this the gate could be satisfied by never memoizing at all."""
+    (vault / "Harness/Capture.md").write_text(CAPTURE_SKELETON + "\ncall the vet\n")
+    w = make_watcher(vault, capture_extractor=fake_extractor, disabled=OTHERS)
+    summary = asyncio.run(w.run_once())
+
+    assert summary["incomplete"] == []
+    assert json.loads(w.state_path.read_text())["fingerprint"]
+
+
 def test_rescan_forgets_the_memo_without_forgetting_the_seen_hashes(
         vault, make_watcher):
     """`tezcat-watch --rescan`: the memo is a pure optimization and goes,

@@ -76,8 +76,9 @@ def resolve_worker_env(config: Config) -> None:
     _fill_worker_env("WORKER_BASE_URL", prof.base_url)
     _fill_worker_env("WORKER_MODEL", prof.model)
     _fill_worker_env("WORKER_ADAPT", prof.worker_adapt)
-    if prof.worker_max_tokens:
-        _fill_worker_env("WORKER_MAX_TOKENS", str(prof.worker_max_tokens))
+    # "" when the profile sets no ceiling — same contract as
+    # apply_worker_profile, so a later switch has something to re-point.
+    _fill_worker_env("WORKER_MAX_TOKENS", str(prof.worker_max_tokens or ""))
     if prof.api_key and prof.api_key != "ollama":
         _fill_worker_env("WORKER_API_KEY", prof.api_key)
 
@@ -97,15 +98,19 @@ def apply_worker_profile(name: str, config: Config | None = None) -> bool:
         print(f"Spec.md worker {name!r} unusable, keeping current worker: {e}")
         return False
     changed = False
-    pairs = [
+    for key, value in (
         ("WORKER_BASE_URL", prof.base_url),
         ("WORKER_MODEL", prof.model),
         ("WORKER_API_KEY", prof.api_key),
         ("WORKER_ADAPT", prof.worker_adapt),
-    ]
-    if prof.worker_max_tokens:
-        pairs.append(("WORKER_MAX_TOKENS", str(prof.worker_max_tokens)))
-    for key, value in pairs:
+        # ALWAYS re-pointed, including at 0: switching Spec.md's `worker:`
+        # from a reasoning profile to a local one must CLEAR the ceiling
+        # that profile asked for, not leave a 4B model holding it — the
+        # runaway-generation bound is per-spec for a reason. "" is how a
+        # profile says "no override": _env_number reads an empty value as
+        # absent and falls back to each spec's own max_tokens.
+        ("WORKER_MAX_TOKENS", str(prof.worker_max_tokens or "")),
+    ):
         if key in os.environ and key not in _config_filled:
             continue  # user-set: env always wins
         if os.environ.get(key) != value:

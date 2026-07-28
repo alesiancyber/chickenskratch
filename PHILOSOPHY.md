@@ -196,12 +196,15 @@ note edits, no restart.
 
 The vault memo (the fingerprint that lets an unchanged tree skip the
 scan) is an optimization with one invariant: **only a pass that
-finished its work may memoize it.** A cancelled pass, or one whose
-worker died mid-draft, memoizes nothing — otherwise the memo asserts
-"this tree is handled" over text nothing ever drafted, and the input
-sits unprocessed until an unrelated edit happens to move the
-fingerprint. `tezcat-watch --rescan` forgets the memo (never the
-seen-hashes) as the recovery lever. The same rule at the surface: a
+finished its work may memoize it.** Every stage that gives up early —
+a cancelled pass, a dead draft worker, a processor whose scan or
+ensure threw — registers through the one gate (`Watcher._incomplete`),
+and any reason at all forfeits the memo. Otherwise it asserts "this
+tree is handled" over notes nothing ever read, and the input sits
+unprocessed until an unrelated edit happens to move the fingerprint.
+One gate, not a condition per failure: spelled per-failure, it had
+already missed two of its four paths. `tezcat-watch --rescan` forgets
+the memo (never the seen-hashes) as the recovery lever. The same rule at the surface: a
 worker that never answered is reported as such (`worker_errors`), never
 as "nothing extractable" — a failure the user reads as an empty dump is
 the one failure they cannot act on. The owned surfaces are a second renderer over

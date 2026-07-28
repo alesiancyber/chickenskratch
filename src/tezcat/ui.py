@@ -63,6 +63,10 @@ from .watcher import LockBusy
 WEB_DIST = ROOT / "web" / "dist"
 SSE_POLL_SECONDS = 1.0
 SSE_HEARTBEAT_TICKS = 15
+# Shutdown's budget for the chat sessions the stop button replaced. Longer
+# than one session's own 30s close(), so a single unwinding turn finishes;
+# bounded, so a wedged one can't hold the process open.
+CHAT_TEARDOWN_TIMEOUT = 35.0
 
 # kinds whose issues list IS the payload (ProcessorSpec.render_diff=False)
 _NO_DIFF_KINDS = {p.name for p in processors.REGISTRY if not p.render_diff}
@@ -513,7 +517,13 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         # get() removes the record, so a second tab — or the overlap while
         # a browser reconnects this very stream — wouldn't get a copy, it
         # would take the other's half of the turn (see fanout.py).
-        queue = chat.events.subscribe()
+        #
+        # Bound to THIS session for the whole stream: cancel(chat) rebinds
+        # the name, so a cleanup that re-read it would unsubscribe from the
+        # replacement's fanout — where this queue was never registered —
+        # and leave it on the one it actually came from.
+        session = chat
+        queue = session.events.subscribe()
 
         async def pump():
             try:
@@ -524,7 +534,7 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
             # chat failures ride as chat_error
             return [("chat_error" if ev["type"] == "error" else ev["type"], ev)]
 
-        return _sse_response(request, pump, cleanup=lambda: chat.events.unsubscribe(queue))
+        return _sse_response(request, pump, cleanup=lambda: session.events.unsubscribe(queue))
 
     async def sse(request):
         """Live first, tail second. Events raised in this process — a
@@ -591,9 +601,19 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         exit that skips this orphans a tezcat-vault-mcp (plus
         tezcat-files-mcp and any HTTP sessions) and leaks HARNESS_CHAT_ID
         into the environment. Close the session, then stop the engine
-        thread."""
+        thread.
+
+        The sessions the stop button REPLACED tear down in background
+        tasks (cancel_route), and each may sit up to 30s waiting out an
+        in-flight turn. Shutting down without them orphans exactly the
+        children this hook exists to reap — press stop, then quit, and
+        the old session's servers outlive the server. Bounded, because a
+        wedged teardown must not hold the process open forever."""
         yield
         await chat.close()
+        if chat_tasks:
+            # A copy: done callbacks discard from the live set as we wait.
+            await asyncio.wait(set(chat_tasks), timeout=CHAT_TEARDOWN_TIMEOUT)
         engine.shutdown()
 
     app = Starlette(routes=routes, lifespan=lifespan, middleware=[

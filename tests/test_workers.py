@@ -152,3 +152,29 @@ def test_hedges_are_extra_rules_not_a_different_contract(monkeypatch):
     hedged = captured["prompt"]
     assert "dependency is usually TWO items" in hedged  # base rule still there
     assert workers.WORKERS["extract_tasks"].schema is not None
+
+
+def test_an_inline_hedges_slot_is_filled_not_left_for_format(monkeypatch):
+    """The slot has to be gone whichever way a spec wrote it. One left
+    behind reaches .format() as KeyError('hedges') — raised inside
+    run_worker, outside its VaultError contract, so it takes down every
+    pass instead of failing one processor."""
+    spec = workers.WorkerSpec(
+        name="inline", prompt="Rules: {hedges} about {text}",
+        hedges="- be careful", schema={"type": "object"})
+    monkeypatch.setenv("WORKER_ADAPT", "small")
+    captured = capture_prompt(monkeypatch)
+    asyncio.run(workers.run_worker(spec, text="stuff"))
+    assert captured["prompt"] == "Rules: - be careful about stuff"
+
+    monkeypatch.setenv("WORKER_ADAPT", "none")
+    asyncio.run(workers.run_worker(spec, text="stuff"))
+    assert captured["prompt"] == "Rules:  about stuff"
+
+
+def test_hedges_with_nowhere_to_go_fail_at_import_not_silently():
+    """Hedges on a prompt with no slot would simply vanish, and the first
+    sign would be a small model quietly running the loose rules."""
+    with pytest.raises(ValueError, match="no .* slot"):
+        workers.WorkerSpec(name="slotless", prompt="Rules: {text}",
+                           hedges="- be careful", schema={"type": "object"})

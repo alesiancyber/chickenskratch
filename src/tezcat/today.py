@@ -253,6 +253,11 @@ def _stranded_meeting_actions(v: Vault, meetings_dir: str, today: dt.date,
         for t in tk.iter_tasks(read_lossy(p)):
             if not t.done and not t.due and not t.scheduled:
                 rows.append({"text": t.text, "age_days": (today - met).days, "note": v.rel(p)})
+    # Oldest first, stated rather than inherited: the section only folds
+    # the first few rows into view, so the order IS which items you get
+    # told about. It came out right by accident of iter_notes sorting
+    # YYYY-MM-DD filenames — an accident a renamed note would end.
+    rows.sort(key=lambda r: -r["age_days"])
     return rows
 
 

@@ -106,6 +106,13 @@ class WorkerSpec:
     # The reply SCHEMA is never tiered — it is the API, not a hedge.
     hedges: str = ""
 
+    def __post_init__(self) -> None:
+        # Fail at import, not silently at draft time: hedges with nowhere
+        # to splice would just vanish, and the first sign would be a small
+        # model quietly running the loose prompt.
+        if self.hedges and "{hedges}" not in self.prompt:
+            raise ValueError(f"{self.name}: hedges set but prompt has no {{hedges}} slot")
+
 
 async def run_worker(spec: WorkerSpec, **inputs) -> dict:
     """One bounded call: format the prompt, require JSON out, validate it
@@ -114,8 +121,15 @@ async def run_worker(spec: WorkerSpec, **inputs) -> dict:
     client = _worker_client()
     # Hedges splice in BEFORE the one format pass, so a hedge rule may use
     # the same placeholders as the base prompt ({today}, {this_sunday}, …).
-    block = spec.hedges.rstrip() + "\n" if spec.hedges and worker_adapt() == "small" else ""
-    prompt = spec.prompt.replace("{hedges}\n", block).format(**inputs)
+    # Two replaces, because the slot must be gone either way: the first
+    # eats the placeholder's own line (so an unhedged prompt doesn't grow
+    # a blank one), the second catches a spec that wrote {hedges} inline.
+    # A slot surviving into .format() is a KeyError raised inside
+    # run_worker — outside its VaultError contract, so it would crash
+    # every pass instead of failing one processor.
+    hedges = spec.hedges.rstrip("\n") if spec.hedges and worker_adapt() == "small" else ""
+    prompt = spec.prompt.replace("{hedges}\n", f"{hedges}\n" if hedges else "")
+    prompt = prompt.replace("{hedges}", hedges).format(**inputs)
     # Env parses degrade to the spec default on garbage ("60s", ""): a
     # ValueError here is outside run_worker's VaultError contract, and an
     # .env typo must never become a crash of every engine pass.

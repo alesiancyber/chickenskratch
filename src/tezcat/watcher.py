@@ -357,6 +357,25 @@ class Watcher:
         }
         atomic_write_text(self.state_path, json.dumps(state))
 
+    @staticmethod
+    def _incomplete(summary: dict, reason: str) -> None:
+        """Mark this pass as one that did NOT finish its work.
+
+        The single gate on memoizing the vault fingerprint. Every stage
+        that gives up early must come through here — a cancelled pass, a
+        dead draft worker, a processor whose scan or ensure threw. They
+        look nothing alike in the logs and identical in the memo: each
+        one leaves notes the pass never processed, and memoizing the
+        fingerprint over them asserts "this tree is handled" about work
+        nothing did. The tree then stays skipped until an unrelated edit
+        happens to move the fingerprint.
+
+        One reason list, because the invariant is one invariant (see
+        PHILOSOPHY: only a pass that finished its work may memoize it) —
+        the previous per-failure spelling of this check had already
+        missed two of the four paths."""
+        summary.setdefault("incomplete", []).append(reason)
+
     def forget_vault_memo(self) -> None:
         """Force the next pass to scan every note (`tezcat-watch --rescan`).
 
@@ -438,6 +457,7 @@ class Watcher:
                 failed.add(proc.name)
                 summary.setdefault("worker_errors", []).append(
                     {"processor": proc.name, "error": str(e)})
+                self._incomplete(summary, f"draft:{proc.name}")
                 # Also on the stream: typing straight into Capture.md is a
                 # first-class input, and that path has no request to answer
                 # — without this, a dead worker is invisible on every
@@ -641,8 +661,9 @@ class Watcher:
             # DRAFT-side failures (a down or rate-limited LLM worker), because
             # "drafted 0" alone can't tell "nothing to extract" from "the
             # worker never answered" — and the surfaces must not guess.
-            "stale": 0, "failed": 0, "worker_errors": [], "scanned": False,
-            "locked": False, "cancelled": False,
+            # `incomplete` is the memo gate: see _incomplete.
+            "stale": 0, "failed": 0, "worker_errors": [], "incomplete": [],
+            "scanned": False, "locked": False, "cancelled": False,
         }
         lock_file = await self._acquire_pass_lock(lock_wait)
         if lock_file is None:
@@ -683,7 +704,11 @@ class Watcher:
                             # Creating a surface is setup, not the work:
                             # a processor that can't scaffold skips this
                             # pass rather than cancelling everyone else's.
+                            # Incomplete all the same — its surface never
+                            # existed, so its scan is about to see nothing
+                            # and the memo must not call that "handled".
                             print(f"ensure failed for {proc.name}: {e}")
+                            self._incomplete(summary, f"ensure:{proc.name}")
             # One queue read and one git-state read serve the whole pass:
             # _act works through the pending list, and everything after it
             # (auto-stale, coverage, sha stamping) reuses the same context.
@@ -728,8 +753,13 @@ class Watcher:
                         # A poison scan (a note deleted mid-walk, an
                         # unparseable edge) fails ITS processor, never the
                         # pass — the same contract _draft and _act already
-                        # enforce for their stages.
+                        # enforce for their stages. But this processor
+                        # never READ the tree, so the pass cannot vouch
+                        # for it: without the memo gate the next pass
+                        # skipped the scan entirely and the notes it
+                        # would have found stayed invisible.
                         print(f"scan failed for {proc.name}: {type(e).__name__}: {e}")
+                        self._incomplete(summary, f"scan:{proc.name}")
                         continue
                     for item in found:
                         if item["note"] not in seen_notes:
@@ -738,6 +768,8 @@ class Watcher:
                 summary["drafted"], summary["auto"] = await self._draft(items, summary)
                 summary["scanned"] = True
             summary["cancelled"] = bool(self.should_cancel())
+            if summary["cancelled"]:
+                self._incomplete(summary, "cancelled")
             # The memo is the fingerprint taken BEFORE the scan — the tree
             # this pass actually read. Anything written after it (a command
             # result, an auto-apply, the user typing while a draft was in
@@ -747,16 +779,11 @@ class Watcher:
             # edits as scanned when no scan ever saw them, and a //command
             # typed during a slow draft would never fire.
             #
-            # A cancelled pass memoizes nothing: it stopped before finishing
-            # the scan a memo would vouch for. A pass whose WORKER died is
-            # the same case and was missing it — the memo said "this tree is
-            # handled" when a processor never got an answer, so the next
-            # pass skipped the scan and the undrafted text sat on the
-            # capture surface forever (until an unrelated edit happened to
-            # move the fingerprint). Forgetting the memo is what makes
-            # "the engine retries it" true.
-            incomplete = summary["cancelled"] or bool(summary["worker_errors"])
-            self._save_state({} if incomplete else fingerprint)
+            # And only a pass that FINISHED its work may memoize it at all:
+            # anything that gave up early registered with _incomplete, and
+            # any reason at all forfeits the memo. Forgetting it is what
+            # makes "the engine retries it" true.
+            self._save_state({} if summary["incomplete"] else fingerprint)
             proposals.prune(self.proposals_dir)
             self._emit_pass(summary)
             return summary
