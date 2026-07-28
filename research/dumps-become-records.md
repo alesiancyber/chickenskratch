@@ -4,6 +4,11 @@
 PHILOSOPHY.md is superseded; one thing in it finally gets used properly
 (principle 7: a prompt issued twice is a processor candidate).*
 
+*Revised same day, after the workflow conversation: the inbox is gone
+entirely rather than demoted, the waiting list stops being a note, and
+the attention model is specified. See "Revision" at the end — it
+resolves the open question this doc originally flagged.*
+
 **Thesis.** A dump is not a source of tasks. It is a **record** that
 happens to contain work. The harness currently keeps the work and throws
 the record away — which is why everything reads as a task, why notes go
@@ -199,3 +204,155 @@ The reason we can lean this hard on the model is not that it is right —
 it is that **being wrong is cheap and visible**, which is the property
 I1–I6 exist to protect. Growing autonomy here means letting the model
 shape more, never letting it commit unreviewably.
+
+---
+
+# Revision — the inbox is gone, and Today is the amalgamation
+
+*Same day, after working through the actual workflow. This resolves the
+waiting-list question above and specifies what "intelligently routing
+work to me" means concretely.*
+
+## The settled part: dashboards read, files hold
+
+> *the files hold the context and the today/this week dynamic dashboards
+> should surface things. but it shouldnt be a write everytime no? cant we
+> show tasks on today without actually writing them to today?*
+
+This is already true and is the load-bearing fact under everything
+below. `today.collect()` walks the vault and returns a dict — it writes
+nothing, holds nothing, and the markdown `Today.md` surface was retired
+in `9f9a52c`. The dashboard is a **pure function of vault state**,
+recomputed per request. The only writes are the verbs you press: done,
+→ today, → this week.
+
+So a task is surfaced because of what it *is*, not because something
+filed it. Nothing has to be moved to be seen. That is what makes the
+rest of this cheap.
+
+## No inbox. Every dump becomes a record.
+
+The earlier draft demoted `Tasks/Inbox.md` to a residual for shapeless
+dumps. That is still one destination too many. **Every dump becomes a
+record**; when a dump has no shape worth naming — a bare task list — the
+record is a dated capture note:
+
+```
+Captures/2026-07-28.md     type: capture
+```
+
+which is itself context ("I dumped these on Tuesday, right after the
+Azure meeting"). "Where does a pure task list live?" answers itself:
+in the day you dumped it. There is no inbox, so there is no pile.
+
+## The waiting list stops being a note
+
+The open question was whether "Nadia owes me the pipeline costs" lives
+in the meeting (context) or in `Tasks/Waiting.md` (the nudge list).
+Answer: **in the meeting — and the waiting list becomes a view**, the
+same move as the inbox.
+
+> *the context lives in whereever what im owed was derived from —
+> meeting, info dump, research. but that should be reflected elsewhere
+> so i dont have to scrub through meetings*
+
+That is exactly a view over a walk. `_waiting_rows()` reads one note
+today; it becomes a filter over the same `_walk()` every other section
+already uses.
+
+**This costs one grammar addition.** Owed-ness is currently encoded by
+*location* — a task is owed because it sits in `Waiting.md`. Once it
+lives in the meeting, the task line itself has to say so. The task
+grammar is emoji fields (`📅 due`, `⏳ scheduled`, `➕ created`, `✅ done`,
+priority); owner becomes one more in the same shape:
+
+```
+- [ ] pipeline costs 👤 Nadia ➕ 2026-07-28 ^t-…
+```
+
+One regex, one `format_task` parameter, one `Task` field. It degrades
+harmlessly in Obsidian (renders as text). This is the *only* new grammar
+in the whole design, and it exists because we deleted a folder's worth
+of implicit meaning.
+
+## Snooze is ⏳, not a new mechanism
+
+> *i should be able to hide it, have it populate as a reminder... or i
+> could set them to disappear for a preset amount of time, day, week,
+> month*
+
+`⏳ scheduled` already means "deal with this then". For something owed,
+"chase this then" is the same field. **Snoozing an owed item is setting
+its ⏳** — the defer verb that already exists, with day/week/month
+presets on the row. The waiting view shows items whose ⏳ has arrived or
+that never had one.
+
+Recurring reminders ("reappear weekly") are deliberately NOT built:
+each time it resurfaces you snooze it again, which keeps the decision
+with you and needs no repeat grammar, no schedule state, and no way for
+the vault to disagree with a scheduler. If snoozing the same item four
+times in a row gets tedious, *that tedium is the signal* — and the
+attention model below is what should act on it.
+
+## The attention model: reasons, not scores
+
+> *you cant know what im in the mood for today. however, since true due
+> dates are rare... age + context + other markers*
+
+Right — so it must never pretend to. The design rule: **the dashboard
+never ranks by a hidden score; every surfaced row states the reason it
+is there.** That is already the house style — "4d overdue", "12d
+waiting", "11d old". A score would be unarguable; a reason can be
+disagreed with, and disagreeing is one click (→ today, → this week,
+done).
+
+The signals actually available:
+
+| signal | where it lives | already there? |
+|---|---|---|
+| age since capture | `➕ created` | yes |
+| explicit plan | `⏳ scheduled` | yes |
+| hard commitment | `📅 due` (rare) | yes |
+| stated importance | priority marks | yes, rarely set |
+| what it came from | the record it lives in | after phase 1 |
+| how often you've pushed it | nothing tracks this | **no** |
+
+**Age is the default clock.** A task captured three weeks ago and never
+dispositioned is either neglected-and-important or dead, and both want
+the same thing: a decision. That is precisely what
+`_stranded_meeting_actions` already does — undated, open, older than 7
+days, "rotting quietly" — but it only looks in `meetings_dir`.
+
+**Generalise it.** Stranded stops being a meetings feature and becomes
+the attention engine: any open task with no 📅 and no ⏳, older than N
+days, grouped by the record it came from. Phase 1 makes this powerful
+for free, because after it every task lives in a record worth naming —
+"three action items from the Azure meeting, 12 days untouched" is a far
+better prompt than "3 undated tasks".
+
+Deferral count is the one genuinely new signal and the most honest one
+(you keep pushing this — is it real?). It needs somewhere to live;
+`corpus.record_confirm` already logs promote/defer verbs, so the data is
+being written and just isn't read. **Phase 2, not phase 1** — it is
+worth building only once the rest is in place and you can say whether
+the tedium is real.
+
+## What this changes in the plan above
+
+- **Phase 1** additionally: `👤 owner` in the task grammar; `_waiting_rows`
+  becomes a filter over `_walk`; no inbox destination at all; a `capture`
+  record kind for shapeless dumps.
+- **Phase 1 also retires** `capture_inbox` / `waiting_inbox` as
+  destinations. They stay as Spec.md keys for one release so an existing
+  vault keeps rendering, then go.
+- **Phase 3** is now specific: generalise stranded into the attention
+  engine, snooze presets on owed rows, and (only then) deferral count.
+
+## The risk worth stating
+
+With nothing ever moved out of records, records accumulate open tasks
+forever. There is no inbox to go bankrupt on — which is the point — but
+it means the attention engine is not a nicety layered on top: it is the
+*only* thing standing between you and a vault full of quietly rotting
+checkboxes. Phase 3 is not optional, and phase 1 should not ship without
+at least the generalised age surfacing.
