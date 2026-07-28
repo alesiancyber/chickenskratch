@@ -104,6 +104,46 @@ def test_a_key_is_reported_by_name_and_presence_never_by_value(
     assert rows["big"]["key_set"] is False   # the surface can say "this will fail"
 
 
+def test_every_processor_and_setting_explains_itself(spec_vault, models_yaml):
+    """A console listing `spec_drift` and `n_max` as bare identifiers asks
+    you to already know what they do. Descriptions live on the registry
+    entry and beside the setting's own rules, so a new processor arrives
+    explained — or arrives visibly unexplained, which this catches."""
+    from tezcat import processors
+
+    vault = console.model(str(spec_vault))["vault"]
+    assert {p["name"] for p in vault["trustable"]} == {p.name for p in processors.REGISTRY}
+    for row in vault["trustable"]:
+        assert row["title"] and row["title"] != row["name"], row["name"]
+        assert len(row["blurb"]) > 60, row["name"]
+    for key in console.CHOICES | {"n_max": 0, "worker": 0} | dict.fromkeys(console.PATHS):
+        assert console.FIELD_HELP.get(key), f"{key} has no explanation"
+
+
+def test_trusting_the_commands_phase_is_not_offered(spec_vault, models_yaml):
+    """//commands can be switched off, but "trusted to apply" is
+    meaningless for it — it is intrinsically trusted and never queues
+    anything, so auto_apply never reads its name. A checkbox that
+    silently does nothing is worse than one that isn't there."""
+    vault = console.model(str(spec_vault))["vault"]
+    assert "inline_command" not in {p["name"] for p in vault["trustable"]}
+    assert "inline_command" in {p["name"] for p in vault["disablable"]}
+    # still a legal Spec.md value, so validation must keep accepting it
+    assert console.validate_spec(
+        {"disabled_processors": ["inline_command"]}, str(spec_vault))
+
+
+def test_which_processors_a_check_can_vouch_for_is_reported(spec_vault, models_yaml):
+    """Under gated autonomy, trusting a processor with no deterministic
+    verifier does nothing at all. The surface has to say which those are,
+    or the checkbox lies."""
+    rows = {p["name"]: p for p in console.model(str(spec_vault))["vault"]["trustable"]}
+    assert rows["capture"]["verified"] is True        # verify_extraction
+    assert rows["schema_fix"]["verified"] is True     # verify_schema_fix
+    assert rows["grouping"]["verified"] is False      # judgment: always queues
+    assert rows["plan_today"]["verified"] is False
+
+
 def test_the_read_model_separates_yours_from_inherited(spec_vault, models_yaml):
     """A value shown without saying whether it is set or defaulted invites
     you to 'change' something that was never written down."""

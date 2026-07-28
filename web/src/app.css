@@ -826,8 +826,39 @@ section { margin-bottom: var(--s5); }
 .cfg-raw { font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
 .cfg-field .ghost { display: block; margin-top: 4px; }
 
-.cfg-checks { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); }
-.cfg-check, .cfg-inline { display: flex; align-items: center; gap: var(--s1); }
+.cfg-checklist { display: flex; flex-direction: column; gap: 2px; }
+.cfg-item { padding: 2px 0; }
+.cfg-check, .cfg-inline { display: flex; align-items: center; gap: var(--s2); }
+/* the readable name leads; the identifier trails for anyone reading
+   Spec.md by hand, and must never be the thing you have to decode */
+.cfg-item-name { font-weight: 500; }
+.cfg-inert {
+  margin: 2px 0 var(--s2) 22px;
+  border-left: 2px solid var(--attention, var(--accent));
+  padding-left: var(--s2);
+}
+
+/* The (i): a quiet affordance until you want it, then a real explanation
+   rather than a tooltip you can't read at your own pace. */
+.cfg-info {
+  flex: none;
+  width: 15px; height: 15px; line-height: 13px;
+  border: 1px solid var(--line); border-radius: 50%;
+  background: none; color: var(--ink-3);
+  font-family: var(--font); font-size: 10px; font-style: italic;
+  cursor: pointer; padding: 0;
+  transition: color var(--fade), border-color var(--fade);
+}
+.cfg-info:hover, .cfg-info.on { color: var(--accent); border-color: var(--accent); }
+.cfg-help {
+  margin: var(--s2) 0 var(--s2) 0;
+  padding: var(--s2) var(--s3);
+  background: var(--hover);
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  max-width: 62ch;
+}
+.cfg-help p + p { margin-top: var(--s2); }
 .cfg-inline { flex-direction: column; align-items: flex-start; }
 .cfg-inline input, .cfg-inline select { min-width: 0; width: 100%; }
 

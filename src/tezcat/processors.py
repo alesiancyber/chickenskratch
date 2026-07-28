@@ -57,6 +57,16 @@ class ProcessorSpec:
     # (w, item, proposal) -> failure strings. Empty = safe to apply without
     # a human verdict; any failure (or no verifier) = the review queue.
     verify: Callable[[Watcher, dict, dict], list[str]] | None = None
+    # How this processor introduces itself in the console. A registry entry
+    # is the ONLY place that knows what it does, so it says so here rather
+    # than the UI keeping a second list that drifts — a new processor
+    # arrives already explained, or arrives visibly unexplained.
+    title: str = ""
+    blurb: str = ""
+
+    @property
+    def label(self) -> str:
+        return self.title or self.name
 
 
 # ---- capture: Harness/Capture.md -> extraction -> inbox/waiting proposal ----
@@ -1022,19 +1032,61 @@ CAPTURE = ProcessorSpec(
     "capture", scan_capture, draft_capture,
     render_diff=False, ensure=ensure_capture, on_applied=_capture_applied,
     verify=verify_extraction,
+    title="Capture dumps",
+    blurb="Reads whatever you dump into the capture surface and pulls the "
+          "tasks out of it: your own actions go to the task inbox, things "
+          "other people owe you go to the waiting list. The surface is "
+          "cleared once the extraction lands — the text stays in git.",
 )
-INBOX_EXTRACT = ProcessorSpec("inbox_extract", scan_inbox, draft_inbox,
-                              verify=verify_extraction)
-SPEC_DRIFT = ProcessorSpec("spec_drift", scan_spec_drift, draft_spec_drift)
-SCHEMA_FIX = ProcessorSpec("schema_fix", scan_schema, draft_schema,
-                           verify=verify_schema_fix)
-GROUPING = ProcessorSpec("grouping", scan_grouping, draft_grouping)
-ARCHIVE_DONE = ProcessorSpec("archive_done", scan_archive, draft_archive,
-                             render_diff=False, verify=verify_archive)
-OVERLAP = ProcessorSpec("overlap", scan_overlap, draft_overlap,
-                        render_diff=False)
-PLAN_TODAY = ProcessorSpec("plan_today", scan_plan, draft_plan,
-                           render_diff=False)
+INBOX_EXTRACT = ProcessorSpec(
+    "inbox_extract", scan_inbox, draft_inbox, verify=verify_extraction,
+    title="Loose lines in the inbox",
+    blurb="Free text typed straight into the task inbox, turned into real "
+          "task lines with dates and owners. Same promise as the capture "
+          "surface, for the note you were already typing in.",
+)
+SPEC_DRIFT = ProcessorSpec(
+    "spec_drift", scan_spec_drift, draft_spec_drift,
+    title="Unmapped folders",
+    blurb="Notices a new top-level folder your vault spec doesn't know and "
+          "proposes what note type belongs in it. Until a folder is mapped, "
+          "notes inside it have no default type.",
+)
+SCHEMA_FIX = ProcessorSpec(
+    "schema_fix", scan_schema, draft_schema, verify=verify_schema_fix,
+    title="Entity schema fixes",
+    blurb="Repairs notes whose frontmatter doesn't match the schema for "
+          "their type — a missing or malformed id, a required field left "
+          "out. Touches frontmatter only, never your prose.",
+)
+GROUPING = ProcessorSpec(
+    "grouping", scan_grouping, draft_grouping,
+    title="Group flat task lists",
+    blurb="Suggests headings for a long unstructured task list. A judgment "
+          "call with no deterministic check behind it, so it always asks.",
+)
+ARCHIVE_DONE = ProcessorSpec(
+    "archive_done", scan_archive, draft_archive, render_diff=False,
+    verify=verify_archive,
+    title="Archive completed tasks",
+    blurb="Moves finished tasks out of the working inboxes into the done "
+          "archive. Tasks you ticked inside a meeting or project note stay "
+          "where they are — there they are a record of what happened.",
+)
+OVERLAP = ProcessorSpec(
+    "overlap", scan_overlap, draft_overlap, render_diff=False,
+    title="Duplicate tasks",
+    blurb="Finds the same task written twice in different notes and "
+          "proposes merging the pair. Exact repeats are matched in code; "
+          "near-misses are judged by the worker model, so it always asks.",
+)
+PLAN_TODAY = ProcessorSpec(
+    "plan_today", scan_plan, draft_plan, render_diff=False,
+    title="Suggest a day plan",
+    blurb="Once a day, picks a few inbox tasks carrying neither a deadline "
+          "nor a plan date and proposes doing them today. Nothing "
+          "deterministic can place a task, so this always asks.",
+)
 
 # Capture first: the user actively feeding the pipeline is never starved
 # out of n_max by a maintenance backlog. archive_done outranks schema/

@@ -15,36 +15,84 @@ import { getJSON, postJSON } from "./api.js";
    Secrets never appear. A profile names the env var holding its key; the
    console reports the NAME and whether it is set. */
 
-function Field({ label, hint, declared, children }) {
+/* An (i) that opens the explanation in place. Collapsed by default: the
+   descriptions are long because these settings genuinely need explaining,
+   and a form where every control shouts a paragraph is one nobody reads.
+   Blank lines in the text become paragraphs. */
+function Info({ text, label }) {
+  const [open, setOpen] = useState(false);
+  if (!text) return null;
   return (
-    <label className="cfg-field">
-      <span className="cfg-label">
+    <>
+      <button type="button" className={"cfg-info" + (open ? " on" : "")}
+              aria-expanded={open}
+              aria-label={`What ${label} does`}
+              onClick={(e) => { e.preventDefault(); setOpen((v) => !v); }}>
+        i
+      </button>
+      {open && (
+        <div className="cfg-help small">
+          {String(text).split("\n\n").map((p, i) => <p key={i}>{p}</p>)}
+        </div>
+      )}
+    </>
+  );
+}
+
+function Field({ label, help, declared, children }) {
+  return (
+    <div className="cfg-field">
+      <div className="cfg-label">
         {label}
         {/* Inherited vs. yours: a value shown without saying which invites
             you to "change" something that was never written down. */}
         {declared === false && <span className="chip ghost">default</span>}
-      </span>
+        <Info text={help} label={label} />
+      </div>
       {children}
-      {hint && <span className="ghost small">{hint}</span>}
-    </label>
+    </div>
   );
 }
 
-function CheckList({ names, value, onChange }) {
+/* One checkbox per processor, each saying what it is and — behind the
+   (i) — what ticking it actually changes. `noVerifier` marks the ones a
+   deterministic check cannot vouch for: under gated autonomy, trusting
+   those does nothing, and a control that silently means nothing is worse
+   than one that isn't offered. */
+function CheckList({ items, value, onChange, showVerifier = false, gated = false }) {
   const set = new Set(value);
+  const order = items.map((it) => it.name);
   return (
-    <div className="cfg-checks">
-      {names.map((n) => (
-        <label key={n} className="cfg-check">
-          <input type="checkbox" checked={set.has(n)}
-                 onChange={(e) => {
-                   const next = new Set(set);
-                   if (e.target.checked) next.add(n); else next.delete(n);
-                   onChange(names.filter((x) => next.has(x)));
-                 }} />
-          <span>{n}</span>
-        </label>
-      ))}
+    <div className="cfg-checklist">
+      {items.map((it) => {
+        const inert = showVerifier && gated && !it.verified && set.has(it.name);
+        return (
+          <div className="cfg-item" key={it.name}>
+            <label className="cfg-check">
+              <input type="checkbox" checked={set.has(it.name)}
+                     onChange={(e) => {
+                       const next = new Set(set);
+                       if (e.target.checked) next.add(it.name); else next.delete(it.name);
+                       onChange(order.filter((x) => next.has(x)));
+                     }} />
+              <span className="cfg-item-name">{it.title}</span>
+              <span className="mono ghost small">{it.name}</span>
+              {showVerifier && !it.verified && (
+                <span className="chip" title="No deterministic check can vouch for this one">
+                  always asks
+                </span>
+              )}
+              <Info text={it.blurb} label={it.title} />
+            </label>
+            {inert && (
+              <div className="ghost small cfg-inert">
+                Ticked, but inert under gated autonomy — nothing can vouch for
+                this one, so it still queues. Switch autonomy to full to let it apply.
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -60,6 +108,7 @@ function VaultTab({ data, onSaved, onError }) {
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const dirty = JSON.stringify(draft) !== JSON.stringify(data.values);
   const declared = new Set(data.declared);
+  const help = data.help;
 
   const save = async () => {
     setBusy(true);
@@ -83,63 +132,76 @@ function VaultTab({ data, onSaved, onError }) {
         to restart.
       </p>
 
-      <Field label="Autonomy" declared={declared.has("autonomy")}
-             hint="gated: judgment always queues, and a failing verifier queues its proposal. full: a standing grant — everything trusted below applies, verifier or not, with objections recorded on the proposal.">
+      <Field label="How much it may do without asking" help={help.autonomy}
+             declared={declared.has("autonomy")}>
         <select value={draft.autonomy} onChange={(e) => set("autonomy", e.target.value)}>
-          {data.choices.autonomy.map((c) => <option key={c} value={c}>{c}</option>)}
+          {data.choices.autonomy.map((c) => (
+            <option key={c} value={c}>
+              {c === "gated" ? "gated — ask unless a check can vouch for it"
+                             : "full — apply everything trusted below"}
+            </option>
+          ))}
         </select>
       </Field>
 
-      <Field label="Trusted to apply without asking" declared={declared.has("auto_apply")}
-             hint="Only honoured for processors that ship a deterministic verifier — unless autonomy is full.">
-        <CheckList names={data.processors} value={draft.auto_apply}
-                   onChange={(v) => set("auto_apply", v)} />
+      <Field label="Trusted to apply without asking" help={help.auto_apply}
+             declared={declared.has("auto_apply")}>
+        <CheckList items={data.trustable} value={draft.auto_apply}
+                   onChange={(v) => set("auto_apply", v)}
+                   showVerifier gated={draft.autonomy === "gated"} />
       </Field>
 
-      <Field label="Switched off" declared={declared.has("disabled_processors")}
-             hint="The rollback flag: a processor listed here does not run at all.">
-        <CheckList names={data.processors} value={draft.disabled_processors}
+      <Field label="Switched off entirely" help={help.disabled_processors}
+             declared={declared.has("disabled_processors")}>
+        <CheckList items={data.disablable} value={draft.disabled_processors}
                    onChange={(v) => set("disabled_processors", v)} />
       </Field>
 
-      <Field label="Extraction fidelity" declared={declared.has("fidelity")}
-             hint="How closely an auto-applied extraction must match your words. strict: word-for-word. close: allows grammar and morphology, never meaning-flippers.">
+      <Field label="How closely extractions must match your words"
+             help={help.fidelity} declared={declared.has("fidelity")}>
         <select value={draft.fidelity} onChange={(e) => set("fidelity", e.target.value)}>
-          {data.choices.fidelity.map((c) => <option key={c} value={c}>{c}</option>)}
+          {data.choices.fidelity.map((c) => (
+            <option key={c} value={c}>
+              {c === "strict" ? "strict — word for word"
+                              : "close — allow grammar and word forms"}
+            </option>
+          ))}
         </select>
       </Field>
 
-      <Field label="Proposals drafted per pass" declared={declared.has("n_max")}
-             hint="A budget per pass, not a cap on the backlog — a big backlog drains over several passes.">
+      <Field label="Proposals drafted per pass" help={help.n_max}
+             declared={declared.has("n_max")}>
         <input type="number" min="1" max="50" value={draft.n_max}
                onChange={(e) => set("n_max", e.target.value)} />
       </Field>
 
-      <Field label="Worker profile" declared={declared.has("worker")}
-             hint="Which models.yaml profile drafts proposals. A profile NAME — endpoints and keys stay repo-side. Empty means the repo default.">
+      <Field label="Model that drafts proposals" help={help.worker}
+             declared={declared.has("worker")}>
         <select value={draft.worker} onChange={(e) => set("worker", e.target.value)}>
-          <option value="">(repo default)</option>
+          <option value="">(whatever the repo config picks)</option>
           {data.profiles.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
       </Field>
 
-      {["capture_inbox", "waiting_inbox", "done_archive", "daily_dir", "meetings_dir"]
-        .map((k) => (
-          <Field key={k} label={k.replace(/_/g, " ")} declared={declared.has(k)}
-                 hint={k === "done_archive" ? "Empty disables archiving." : ""}>
+      {[["capture_inbox", "Extracted tasks go to"],
+        ["waiting_inbox", "Things others owe you go to"],
+        ["done_archive", "Completed tasks are archived to"],
+        ["daily_dir", "Daily notes folder"],
+        ["meetings_dir", "Meeting notes folder"]].map(([k, label]) => (
+          <Field key={k} label={label} help={help[k]} declared={declared.has(k)}>
             <input value={draft[k] ?? ""} onChange={(e) => set(k, e.target.value)} />
           </Field>
         ))}
 
-      <Field label="Excluded from every model's view" declared={declared.has("exclude")}
-             hint="Top-level folders no read path may enter (I4). One per line.">
+      <Field label="Folders no model may ever see" help={help.exclude}
+             declared={declared.has("exclude")}>
         <textarea rows={3} value={(draft.exclude || []).join("\n")}
                   onChange={(e) => set("exclude", e.target.value.split("\n")
                     .map((s) => s.trim()).filter(Boolean))} />
       </Field>
 
-      <Field label="Folder → note type" declared={declared.has("folders")}
-             hint="The default type for untyped notes in a folder; a note's own frontmatter always wins. One `Folder: type` per line.">
+      <Field label="Default note type per folder" help={help.folders}
+             declared={declared.has("folders")}>
         <textarea rows={5}
                   value={Object.entries(draft.folders || {})
                     .map(([k, v]) => `${k}: ${v}`).join("\n")}
@@ -253,7 +315,7 @@ function ModelsTab({ data, onSaved, onError, refresh }) {
       </p>
 
       <Field label="Chat profile"
-             hint="What the escape-hatch pane and the CLI talk to.">
+             help="The model the chat pane and the CLI talk to. Changing it\nneeds a restart — a running agent already holds its profile.">
         <select value={data.default} disabled={busy}
                 onChange={(e) => send("/api/console/models",
                                       { patch: { default: e.target.value } },
@@ -263,7 +325,7 @@ function ModelsTab({ data, onSaved, onError, refresh }) {
       </Field>
 
       <Field label="Worker profile"
-             hint="What drafts proposals in the background. Spec.md can override this per vault.">
+             help="The model that drafts proposals in the background, for every\nvault. A vault can override it for itself on the Vault tab.\n\nRe-read every pass, so a change here takes effect without a restart.">
         <select value={data.worker} disabled={busy}
                 onChange={(e) => send("/api/console/models",
                                       { patch: { worker: e.target.value } },

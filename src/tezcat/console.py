@@ -49,6 +49,71 @@ MODELS_YAML = Path(DEFAULT_MODELS)
 # is a note edit the engine picks up next pass — no restart, no process
 # state. Keys NOT listed (surfaces, schemas_dir) are machine concerns
 # that live repo-side by design; the console does not pretend otherwise.
+# What each setting actually changes, in the console's own words. Here
+# rather than in the UI because these describe engine behaviour, and the
+# engine is what has to keep being true — a description of `autonomy`
+# that drifts from what autonomy does is worse than no description.
+FIELD_HELP = {
+    "autonomy": (
+        "How much the harness may do without asking you.\n\n"
+        "gated — a change applies on its own only when a deterministic "
+        "check can vouch for it. Anything involving judgment, and anything "
+        "whose check objects, waits in “What needs a decision?”.\n\n"
+        "full — a standing grant: everything you trust below applies, "
+        "including the judgment lanes no check can vouch for. A failing "
+        "check no longer holds a change back; it applies with the "
+        "objection recorded on the proposal. Every apply is still one "
+        "revertible snapshot, and anything the drafter itself flagged for "
+        "review still waits."),
+    "auto_apply": (
+        "Which processors may act without your verdict. Under gated "
+        "autonomy this only has teeth for processors with a deterministic "
+        "verifier — the others always queue no matter what you tick here. "
+        "Under full autonomy it applies to all of them."),
+    "disabled_processors": (
+        "Switched off entirely: no scanning, no drafting, nothing queued. "
+        "The rollback flag — reach for this when a processor is doing "
+        "something you don't want while you work out why."),
+    "fidelity": (
+        "How closely an auto-applied extraction must match your own words.\n\n"
+        "strict — word-for-word: every word in the task must appear in what "
+        "you wrote.\n\n"
+        "close — allows grammar and word-form changes (“call” → “called”), "
+        "but never a word that changes the meaning, and the result must "
+        "still follow the order of your line.\n\n"
+        "Either way, failing the check doesn't lose the task — it queues "
+        "it for you instead."),
+    "n_max": (
+        "How many proposals one pass may draft. This is a budget per pass, "
+        "not a cap on the backlog: a big backlog drains over several "
+        "passes. It exists to bound how much the model is asked to do at "
+        "once, since drafting is the expensive part."),
+    "worker": (
+        "Which models.yaml profile drafts proposals in the background, for "
+        "this vault. A profile NAME — endpoints and keys stay repo-side, "
+        "so a vault can pick a model but never point the harness at a new "
+        "server. Empty means the repo default. Re-read every pass."),
+    "capture_inbox": "Where tasks extracted from your dumps are filed.",
+    "waiting_inbox": (
+        "Where things other people owe you are filed — the follow-ups the "
+        "dashboard ages under “What's stalled on someone else?”."),
+    "done_archive": (
+        "Where completed tasks are moved out of the working inboxes. Leave "
+        "empty to switch archiving off and let done tasks pile up in place."),
+    "daily_dir": "The folder your daily notes live in.",
+    "meetings_dir": (
+        "The folder your meeting notes live in. Today's meetings and the "
+        "stranded-action-items list both read from here."),
+    "exclude": (
+        "Top-level folders no model ever sees — not the chat pane, not the "
+        "workers, not the cloud. The hard privacy boundary, enforced on "
+        "every read path rather than asked of the model."),
+    "folders": (
+        "The default note type for each folder, used when a note doesn't "
+        "declare its own. A note's own frontmatter always wins; this only "
+        "fills the gap, and it's what the schema fixer checks against."),
+}
+
 CHOICES = {"autonomy": ("gated", "full"), "fidelity": ("strict", "close")}
 PATHS = ("capture_inbox", "waiting_inbox", "done_archive", "daily_dir", "meetings_dir")
 LISTS = ("auto_apply", "disabled_processors", "exclude")
@@ -61,11 +126,33 @@ PROFILE_FIELDS = ("worker_adapt", "worker_max_tokens", "confirm_writes",
                   "max_iterations", "max_tool_result_chars", "temperature")
 
 
+# The //commands phase. Not a processor — it executes typed orders in
+# place and is intrinsically trusted (I3), so it can be switched OFF but
+# never "trusted to apply": it never queues anything to trust.
+INLINE_COMMAND = {
+    "name": "inline_command",
+    "title": "//commands",
+    "blurb": "The phase that runs commands you type into a note (//azure …) "
+             "and writes the answer back beside the question. Your orders, "
+             "not the harness's suggestions — they execute immediately and "
+             "never enter the review queue.",
+    "verified": True,
+}
+
+
 def processor_names() -> list[str]:
-    """Every name auto_apply / disabled_processors may contain. The
-    console offers checkboxes rather than a free-text list precisely so a
-    typo can't silently disable nothing."""
-    return [p.name for p in processors.REGISTRY] + ["inline_command"]
+    """Every name Spec.md may legally contain, for validation."""
+    return [p.name for p in processors.REGISTRY] + [INLINE_COMMAND["name"]]
+
+
+def _processor_rows() -> list[dict]:
+    """How each processor introduces itself, straight off the registry —
+    the only place that knows what it does. `verified` is the one that
+    changes behaviour: under `gated` autonomy, trusting a processor with
+    no deterministic verifier does nothing at all, and a checkbox that
+    silently means nothing is worse than no checkbox."""
+    return [{"name": p.name, "title": p.label, "blurb": p.blurb,
+             "verified": p.verify is not None} for p in processors.REGISTRY]
 
 
 # ---- read ----
@@ -146,7 +233,12 @@ def model(vault_path: str) -> dict:
             "spec_note": SPEC_REL,
             **_spec_fields(vault_path),
             "choices": {k: list(v) for k, v in CHOICES.items()},
-            "processors": processor_names(),
+            # Two lists, because the two settings do not take the same
+            # names: //commands can be switched off, but "trusting" it is
+            # meaningless — it never queues anything to trust.
+            "trustable": _processor_rows(),
+            "disablable": [*_processor_rows(), INLINE_COMMAND],
+            "help": FIELD_HELP,
         },
         "models": {
             "error": models_error,

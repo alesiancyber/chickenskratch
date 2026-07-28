@@ -287,7 +287,7 @@ def test_console_reads_config_and_gates_its_writes(client, vault):
     data = client.get("/api/console").json()
     assert {"vault", "models"} <= set(data)
     assert data["vault"]["values"]["autonomy"] in ("gated", "full")
-    assert "capture" in data["vault"]["processors"]
+    assert "capture" in {p["name"] for p in data["vault"]["trustable"]}
     # no secret in the payload, ever — only the env var's name and status
     assert "api_key\"" not in client.get("/api/console").text
 
