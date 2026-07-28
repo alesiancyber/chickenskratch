@@ -280,6 +280,34 @@ def test_cancelling_chat_replaces_the_session_immediately(client):
     assert client.app.state.chat() is not after
 
 
+def test_task_line_rewrites_without_touching_the_vault(client, vault):
+    """The note editor's plan chips. It returns the rewritten line and
+    writes NOTHING — that is the point: the editor splices the result into
+    an open buffer, so a real write here would stale that buffer and force
+    a reload that discards unsaved edits. One implementation of the task
+    grammar, in Python, reached over localhost."""
+    before = (vault / "Tasks/Inbox.md").read_text()
+    line = "- [ ] call the vet ➕ 2026-07-01 ^t-7d2a408e0209"
+
+    r = client.post("/api/task/line", json={"line": line, "when": "2026-08-02"})
+    assert r.status_code == 200
+    # ⏳ slots BEFORE ➕ (format_task's field order) and the block ref stays last
+    assert r.json()["line"] == (
+        "- [ ] call the vet ⏳ 2026-08-02 ➕ 2026-07-01 ^t-7d2a408e0209")
+
+    # "" is how the chip's second click clears the plan
+    planned = r.json()["line"]
+    assert client.post("/api/task/line", json={"line": planned, "when": ""}
+                       ).json()["line"] == line
+
+    # a bad date is a 400, never a crash or a corrupted line
+    assert client.post("/api/task/line",
+                       json={"line": line, "when": "2026-02-30"}).status_code == 400
+    # same consent gate as every other POST here
+    assert client.post("/api/task/line", content="line=x").status_code == 415
+    assert (vault / "Tasks/Inbox.md").read_text() == before   # nothing written
+
+
 def test_shutdown_waits_out_the_sessions_stop_replaced(vault, tmp_path, monkeypatch):
     """The lifespan exists to reap the MCP children a session spawns. Stop
     hands teardown to a background task, so closing only the CURRENT

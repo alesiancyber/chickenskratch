@@ -40,6 +40,7 @@ from starlette.responses import JSONResponse, PlainTextResponse, StreamingRespon
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
+from tezcat_vault import tasks as tk
 from tezcat_vault.vault import Vault, VaultError, VaultLocked
 from tezcat_vault.vaultconfig import get_config
 
@@ -67,6 +68,11 @@ SSE_HEARTBEAT_TICKS = 15
 # than one session's own 30s close(), so a single unwinding turn finishes;
 # bounded, so a wedged one can't hold the process open.
 CHAT_TEARDOWN_TIMEOUT = 35.0
+# What the stop button can be pointed at. "chat" is this route's own
+# vocabulary, not a cancel.py job: stopping a chat replaces the session
+# rather than cancelling anything (see cancel_route).
+STOP_CHAT = "chat"
+STOPPABLE = (cancel.PASS, STOP_CHAT)
 
 # kinds whose issues list IS the payload (ProcessorSpec.render_diff=False)
 _NO_DIFF_KINDS = {p.name for p in processors.REGISTRY if not p.render_diff}
@@ -438,6 +444,35 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
             return JSONResponse({"error": str(e)}, status_code=409)
         return JSONResponse(result)
 
+    async def task_line_route(request):
+        """Rewrite ONE task line's ⏳ plan date and hand it back. Writes
+        nothing — no vault access at all, just tasks.set_line_scheduled
+        over the text in the body.
+
+        This exists so the note editor's plan chips can splice the result
+        into the open buffer. The alternative shapes are both worse: a
+        real write (task_plan_route) would change the file under a buffer
+        the user may have unsaved edits in, forcing the stale-hash reload
+        that discards them; and reimplementing the rewrite in JavaScript
+        means this vault's task grammar lives in two languages, with the
+        engine re-reading whatever the editor wrote using the Python
+        regexes. One implementation, one round trip on localhost.
+
+        It still takes the consent gate — not because it mutates, but
+        because every POST on this server does, and an endpoint that opts
+        out is an exception someone has to remember."""
+        body, err = await guard_write(request)
+        if err:
+            return err
+        # "" clears the field, which is what an active chip's second click
+        # sends; tasks.set_line_scheduled takes None for that.
+        when = str(body.get("when", "")).strip() or None
+        try:
+            line = tk.set_line_scheduled(str(body.get("line", "")), when)
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse({"line": line})
+
     chat_tasks: set[asyncio.Task] = set()
 
     async def pass_route(request):
@@ -474,10 +509,10 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         if err:
             return err
         what = str(body.get("what", ""))
-        if what not in cancel.JOBS:
+        if what not in STOPPABLE:
             return JSONResponse(
-                {"error": f"what must be one of {list(cancel.JOBS)}"}, status_code=400)
-        if what == cancel.CHAT:
+                {"error": f"what must be one of {list(STOPPABLE)}"}, status_code=400)
+        if what == STOP_CHAT:
             old, chat = chat, pane.ChatSession(vault_path, agent_factory=chat_agent_factory)
             old.stop()  # marks it dead; denies any gate the turn is parked on
             old.events.publish({"type": "reset"})
@@ -581,6 +616,7 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         Route("/api/task/done", task_done_route, methods=["POST"]),
         Route("/api/task/due", task_due_route, methods=["POST"]),
         Route("/api/task/plan", task_plan_route, methods=["POST"]),
+        Route("/api/task/line", task_line_route, methods=["POST"]),
         Route("/api/pass", pass_route, methods=["POST"]),
         Route("/api/cancel", cancel_route, methods=["POST"]),
         Route("/api/chat", chat_send_route, methods=["POST"]),

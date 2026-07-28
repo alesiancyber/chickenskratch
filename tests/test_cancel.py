@@ -75,17 +75,20 @@ def test_run_pass_clears_a_stale_stop(gitvault, wkw):
 
 
 def test_token_reflects_live_state():
-    tok = cancel.token(cancel.CHAT)
+    tok = cancel.token(cancel.PASS)
     assert tok() is False
-    cancel.request(cancel.CHAT)
-    assert tok() is True          # the same token sees the later request
-    cancel.clear(cancel.CHAT)
-    assert tok() is False
-
-
-def test_jobs_are_independent():
     cancel.request(cancel.PASS)
-    assert cancel.is_requested(cancel.CHAT) is False
+    assert tok() is True          # the same token sees the later request
+    cancel.clear(cancel.PASS)
+    assert tok() is False
+
+
+def test_the_pass_is_the_only_job_here():
+    """Stopping a chat replaces the session (ui.cancel_route) — its flag
+    lives on the ChatSession it kills, so a second job name here would
+    imply a symmetry the two verbs do not have."""
+    assert cancel.JOBS == (cancel.PASS,)
+    assert not hasattr(cancel, "CHAT")
 
 
 # ---- the agent loop ----

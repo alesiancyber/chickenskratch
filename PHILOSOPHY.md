@@ -194,17 +194,26 @@ the same engine; the pass lock makes concurrent triggers safe. Spec.md
 is re-read every pass: worker model, n_max, disabled processors are
 note edits, no restart.
 
-The vault memo (the fingerprint that lets an unchanged tree skip the
-scan) is an optimization with one invariant: **only a pass that
-finished its work may memoize it.** Every stage that gives up early —
-a cancelled pass, a dead draft worker, a processor whose scan or
-ensure threw — registers through the one gate (`Watcher._incomplete`),
-and any reason at all forfeits the memo. Otherwise it asserts "this
-tree is handled" over notes nothing ever read, and the input sits
-unprocessed until an unrelated edit happens to move the fingerprint.
-One gate, not a condition per failure: spelled per-failure, it had
-already missed two of its four paths. `tezcat-watch --rescan` forgets
-the memo (never the seen-hashes) as the recovery lever.
+**Every pass scans, and repetition is bounded where it is expensive —
+never by remembering that work was done.** There was a vault memo (a
+git fingerprint that let an unchanged tree skip the scan) and it is
+gone, deliberately. It was a second change-detector behind a daemon
+that already fires only on change, so it mostly skipped passes where
+nothing had changed anyway; measured, it bought 20-70ms on an idle
+pass. It charged for that in a whole class of failure: any pass that
+gave up early — cancelled, dead worker, a processor whose scan threw —
+memoized "this tree is handled" and the input behind it stayed
+invisible until an unrelated edit moved the fingerprint. It also
+capped the backlog rather than the pass: proposals land in `data/`,
+which does not move the fingerprint, so once a pass drafted its n_max
+the remaining candidates were unreachable.
+
+What replaces it is narrower and honest about what it suppresses: the
+per-processor **seen-hashes**, which stop the same text being sent to a
+model twice, and are stamped only past a *successful* draft. That is
+the expensive repetition; the walk never was. A cache that says "this
+was already handled" must be able to prove it, and the cheapest way to
+prove it is not to need the claim.
 
 The same rule at the surface: a draft that never produced a usable
 proposal — a worker that never answered, or a plan that failed its
@@ -281,8 +290,10 @@ view and the consent verb reachable with no UI process running.
 One bug surfaced by the removal, worth remembering: those per-pass
 surface commits had been sweeping untracked notes into git as a side
 effect, which masked `vault_state()` being blind to untracked file
-*content*. A `//command` typed into a brand-new note never fired. The
-fingerprint now hashes untracked files directly.
+*content*. A `//command` typed into a brand-new note never fired.
+`vault_state()` hashes untracked files directly now — the scan-skipping
+that made this fatal is gone, but staleness still reads that text, and
+a proposal must go stale against a note it can actually see.
 
 ## Explicitly out (until a design commit says otherwise)
 

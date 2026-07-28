@@ -207,15 +207,13 @@ def test_a_dead_worker_is_reported_not_reported_as_nothing_to_extract(
     (err,) = summary["worker_errors"]       # …but the reason is on the record
     assert err["processor"] == "capture" and "429" in err["error"]
 
-    # The dump is intact and re-armed. Load-bearing: the pass must NOT
-    # memoize the vault fingerprint, or the next pass reads "vault
-    # unchanged", skips the scan, and the text sits there forever — the
-    # failure has to cost a delay, never the text. Nothing edits the vault
-    # between the two passes, so this only works if the memo was dropped.
+    # The dump is intact and re-armed: the failure costs a delay, never
+    # the text. Nothing edits the vault between the two passes, so this
+    # only works because the seen-hash is stamped past a SUCCESSFUL draft
+    # and the next pass scans regardless.
     assert "buy milk" in (vault / "Harness/Capture.md").read_text()
     w2 = make_watcher(vault, capture_extractor=fake_extractor, disabled=OTHERS)
     summary2 = asyncio.run(w2.run_once())
-    assert summary2["scanned"] is True      # the memo did not suppress it
     assert summary2["drafted"] == 1 and summary2["worker_errors"] == []
 
 
@@ -253,11 +251,10 @@ def test_an_unusable_plan_is_reported_and_retried_then_parked(vault, make_watche
         assert err["processor"] == "capture" and "invalid plan" in err["error"]
         state = json.loads(w.state_path.read_text())
         parked = attempt == watcher_mod.DRAFT_PLAN_ATTEMPTS
-        # while budget remains: re-armed (seen-hash dropped) and the memo
-        # forfeited, so the next pass really does scan and redraft
+        # while budget remains the seen-hash is dropped, so the next pass
+        # redrafts; once parked it stays stamped and suppresses the retry
         assert err["retrying"] is not parked
         assert bool(state["seen"].get("capture")) is parked
-        assert bool(state["fingerprint"]) is parked
     # parked: the budget is spent AND released, never left as scrap
     assert json.loads(w.state_path.read_text())["draft_attempts"] == {}
     seen_hash = json.loads(w.state_path.read_text())["seen"]["capture"]
@@ -299,52 +296,31 @@ def test_a_plan_that_saves_retires_the_budget_its_last_one_burned(vault, make_wa
     assert json.loads(w2.state_path.read_text())["draft_attempts"] == {}
 
 
-def test_a_processor_whose_scan_throws_does_not_memoize_the_tree(
-        vault, make_watcher):
-    """The dead-worker rule is about the MEMO, not about workers: a
-    processor whose scan raised never read the tree either, so the pass
-    cannot vouch for it. This shipped uncovered — the memo gate was
-    spelled per-failure and only the draft path had been wired to it, so
-    a poison scan memoized "handled" over notes nothing had looked at."""
+def test_a_poison_scan_does_not_strand_the_text_behind_it(vault, make_watcher):
+    """A processor whose scan raises fails ITS processor, never the pass —
+    and never the input. This is the case the vault memo used to break:
+    the pass memoized "this tree is handled" over notes nothing had read,
+    and the capture sat there until an unrelated edit moved the
+    fingerprint. Now every pass scans, so it is structural."""
     from tezcat.watcher import ProcessorSpec
 
     def poison_scan(w):
         raise RuntimeError("a note vanished mid-walk")
 
     (vault / "Harness/Capture.md").write_text(CAPTURE_SKELETON + "\ncall the vet\n")
-    w = make_watcher(vault, registry=(ProcessorSpec(name="boom", scan=poison_scan,
-                                                    draft=None),))
-    summary = asyncio.run(w.run_once())
-
-    assert summary["incomplete"] == ["scan:boom"]
-    assert json.loads(w.state_path.read_text())["fingerprint"] == {}
-
-
-def test_a_clean_pass_is_the_only_one_that_memoizes(vault, make_watcher):
-    """The other half: nothing gave up, so the memo is earned. Without
-    this the gate could be satisfied by never memoizing at all."""
-    (vault / "Harness/Capture.md").write_text(CAPTURE_SKELETON + "\ncall the vet\n")
-    w = make_watcher(vault, capture_extractor=fake_extractor, disabled=OTHERS)
-    summary = asyncio.run(w.run_once())
-
-    assert summary["incomplete"] == []
-    assert json.loads(w.state_path.read_text())["fingerprint"]
+    boom = ProcessorSpec(name="boom", scan=poison_scan, draft=None)
+    w = make_watcher(vault, capture_extractor=fake_extractor,
+                     registry=(boom, *(p for p in watcher_mod.processors.REGISTRY
+                                       if p.name == "capture")))
+    # the poison processor took itself down; capture behind it still drafted
+    assert asyncio.run(w.run_once())["drafted"] == 1
 
 
-def test_rescan_forgets_the_memo_without_forgetting_the_seen_hashes(
-        vault, make_watcher):
-    """`tezcat-watch --rescan`: the memo is a pure optimization and goes,
-    but the seen-hashes are real dedup state and must survive — a fresh
-    Watcher's in-memory `seen` is empty, so writing it blindly would
-    re-draft every surface's last text."""
+def test_state_carries_only_what_it_has_to(vault, make_watcher):
+    """Two keys, both real dedup state. The vault fingerprint used to live
+    here as a third — a pure optimization that cost an entire class of
+    stranded-input failure. It is not coming back by accident."""
     (vault / "Harness/Capture.md").write_text(CAPTURE_SKELETON + "\ncall the vet\n")
     w = make_watcher(vault, capture_extractor=fake_extractor, disabled=OTHERS)
     asyncio.run(w.run_once())
-    saved = json.loads(w.state_path.read_text())
-    assert saved["fingerprint"] and saved["seen"].get("capture")
-
-    fresh = make_watcher(vault, capture_extractor=fake_extractor, disabled=OTHERS)
-    fresh.forget_vault_memo()
-    after = json.loads(fresh.state_path.read_text())
-    assert after["fingerprint"] == {}                       # memo dropped
-    assert after["seen"] == saved["seen"]                   # dedup intact
+    assert set(json.loads(w.state_path.read_text())) == {"seen", "draft_attempts"}

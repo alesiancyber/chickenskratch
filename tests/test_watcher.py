@@ -70,10 +70,20 @@ def test_first_pass_scans_and_drafts_into_the_queue(vault, watcher):
     assert not any(f in retired for c in Vault(vault).history() for f in c["files"])
 
 
-def test_unchanged_vault_second_pass_is_free(vault, watcher):
-    run(watcher)
+def test_an_unchanged_vault_keeps_draining_its_backlog(vault, watcher):
+    """Every pass scans — there is no vault memo — so n_max is a per-pass
+    budget, not a cap on the whole backlog.
+
+    The memo made this wrong in a way nothing caught: proposals land in
+    data/, which does not move the vault fingerprint, so after the first
+    pass drafted its n_max the tree read "unchanged" and every later pass
+    skipped the scan. The remaining candidates were unreachable until
+    some unrelated edit happened to move the fingerprint."""
+    first = run(watcher)
+    assert first["drafted"] == 3            # n_max
     second = run(watcher)
-    assert not second["scanned"] and second["drafted"] == 0
+    assert second["scanned"] and second["drafted"] == 3   # the next three
+    assert len(proposals.pending(watcher.proposals_dir)) == 6
 
 
 def test_approve_applies_and_records(vault, watcher, monkeypatch):
@@ -159,11 +169,10 @@ def test_decisions_only_acts_without_scanning(vault, watcher, make_watcher):
     assert run(watcher)["scanned"]
 
 
-def test_post_scan_applies_are_rescanned_next_pass(vault, make_watcher):
-    """An apply that lands AFTER this pass's scan must not be folded into
-    the git memo — the next full pass has to rescan the notes it changed.
-    Auto-apply is the only thing that lands post-scan now that the
-    mid-pass checkbox sweep is gone, so it is what guards the rule."""
+def test_an_auto_apply_lands_and_the_next_pass_reads_what_it_wrote(vault, make_watcher):
+    """Auto-apply is the one thing that still writes to the vault AFTER
+    this pass's scan, so it is what proves the next pass reads the tree
+    as the apply left it rather than as the scan found it."""
     async def faithful(text, today):
         return [{"text": "buy a car", "due": None, "priority": None, "owed_by": None}]
 
@@ -176,7 +185,9 @@ def test_post_scan_applies_are_rescanned_next_pass(vault, make_watcher):
     inbox = vault / "Tasks/Inbox.md"
     inbox.write_text(inbox.read_text().rstrip("\n") + "\nbuy a car\n")
     assert run(w)["auto"] == 1        # applied after the scan had already run
-    assert run(w)["scanned"]          # so the memo was dropped: next pass scans
+    assert "buy a car" in (vault / "Tasks/Inbox.md").read_text()
+    # the next pass sees the applied text and does not re-extract it
+    assert run(w)["auto"] == 0
 
 
 def test_invalid_drafter_output_never_enters_queue(vault, tmp_path, monkeypatch):
@@ -273,7 +284,7 @@ def test_seen_state_is_one_keyed_map(watcher, vault):
     ) == {"capture": "new"}
 
     watcher.seen = {"capture": "hash-1"}
-    watcher._save_state({"head": "x", "dirty": "y"})
+    watcher._save_state()
     assert json.loads(watcher.state_path.read_text())["seen"] == {"capture": "hash-1"}
 
 
@@ -342,33 +353,47 @@ def test_a_raising_post_apply_hook_does_not_lose_the_apply(vault, make_watcher):
     assert proposals.pending(w.proposals_dir) == []
 
 
-# --------------- the git memo describes what the scan READ ---------------
+# --------------- work a pass did not reach is not lost ---------------
+#
+# These used to assert summary["scanned"] against the vault memo. The memo
+# is gone — every pass scans — so the claim worth making is the OUTCOME it
+# was protecting: whatever a pass didn't get to, the next one does.
 
 
-def test_note_written_while_drafting_is_scanned_next_pass(vault, make_watcher):
-    """The memo is the fingerprint taken BEFORE the scan. Anything that
-    lands after it — here a note written while a draft was in flight,
-    standing in for the user typing during a slow worker call — must
-    force the next pass to rescan, never be memoized as already seen."""
+def test_a_note_written_mid_pass_is_drafted_by_the_next_pass(vault, make_watcher):
+    """The user typing during a slow worker call. The note lands after
+    this pass's scan has already walked the tree, so nothing here can see
+    it — but it must not need an unrelated edit later to become visible."""
+    # a typed note the entity schema will flag — untyped files are nobody's
+    # candidate, so they could never prove anything about being picked up
+    mid = vault / "Tasks" / "typed-mid-pass.md"
+
     async def drafter_racing_a_user_edit(item):
-        (vault / "Tasks" / "typed-mid-pass.md").write_text("call the vendor\n")
+        mid.write_text("---\ntype: research\n---\n\n# Typed mid-pass\n\ncall the vendor\n")
         return await fake_drafter(item)
 
     w = make_watcher(vault, disabled=("archive_done",),
                      drafter=drafter_racing_a_user_edit, n_max=1)
-    assert run(w)["scanned"]
-    assert run(w)["scanned"], "the mid-pass note was memoized as scanned"
+    run(w)
+    assert mid.exists()
+    def drafted(wt):
+        return {p["drafted_against"]["note"] for p in proposals.pending(wt.proposals_dir)}
+
+    assert "Tasks/typed-mid-pass.md" not in drafted(w)   # this pass never saw it
+    w2 = make_watcher(vault, disabled=("archive_done",), drafter=fake_drafter, n_max=50)
+    run(w2)
+    assert "Tasks/typed-mid-pass.md" in drafted(w2)
 
 
-def test_a_cancelled_pass_memoizes_nothing(vault, make_watcher):
-    """A stop request ends the pass early, so the memo cannot vouch that
-    the tree was scanned — the next pass must start over."""
+def test_a_cancelled_pass_leaves_its_work_for_the_next_one(vault, make_watcher):
+    """A stop request ends the pass before it drafts. The next pass has to
+    pick that work up — a stop is a pause, never a silent drop."""
     w = make_watcher(vault, disabled=("archive_done",), drafter=fake_drafter,
                      n_max=3, should_cancel=lambda: True)
     summary = run(w)
-    assert summary["cancelled"]
+    assert summary["cancelled"] and summary["drafted"] == 0
     w2 = make_watcher(vault, disabled=("archive_done",), drafter=fake_drafter, n_max=3)
-    assert run(w2)["scanned"]
+    assert run(w2)["drafted"] == 3
 
 
 # --------------- one content walk per pass ---------------

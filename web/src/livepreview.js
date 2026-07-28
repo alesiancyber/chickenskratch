@@ -1,6 +1,6 @@
 import { RangeSet, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
-import { BLOCK_REF_RE, SCHEDULED_RE, setLineScheduled } from "./taskline.js";
+import { postJSON } from "./api.js";
 
 /* Arriving from the dashboard: the row you clicked gets marked so you
    land on it instead of re-finding it. This IS the selection, editor
@@ -45,6 +45,8 @@ const TASK_RE = /^(\s*)([-*]) \[(.)\]\s+/;
 const BULLET_RE = /^(\s*)([-*+]) (?!\[.\] )/;
 // ⌛ parses, ⏳ is what we write — same pair tasks.py accepts.
 const DATE_RE = /(📅|✅|➕|⏳|⌛)\s*(\d{4}-\d{2}-\d{2})/g;
+const SCHEDULED_RE = /[⏳⌛]\s*(\d{4}-\d{2}-\d{2})/;
+const BLOCK_REF_RE = /\s+\^([A-Za-z0-9][A-Za-z0-9_-]*)\s*$/;
 const PRIORITY_RE = /[🔺⏫🔼🔽⏬]/g;
 const WIKILINK_RE = /\[\[([^\]]+)\]\]/g;
 const BOLD_RE = /\*\*([^*]+)\*\*/g;
@@ -100,13 +102,16 @@ export const planDatesField = StateField.define({
 });
 
 /* Plan chips on an open task: the same ⏳ verb the dashboard's rows
-   offer, on the surface where you're actually reading the task. Like
-   the checkbox, this edits the DOCUMENT — it does not call
-   /api/task/plan. That is deliberate: the API writes the file on the
-   server, which would stale the buffer you have open and force a
-   reload that discards unsaved edits. The text is the file; ⌘S is
-   still the write, and it goes through the same gated /api/note path
-   as any other edit here. */
+   offer, on the surface where you're actually reading the task.
+
+   The rewrite itself comes from the server (/api/task/line), which
+   returns the new line and writes nothing. Two shapes were rejected:
+   /api/task/plan would change the file under a buffer that may hold
+   unsaved edits, forcing the stale-hash reload that discards them; and
+   a JS reimplementation would put this vault's task grammar in two
+   languages, with the engine re-reading whatever we wrote using the
+   Python regexes. Like the checkbox, what lands here is a DOCUMENT
+   edit — ⌘S is still the write, through the same gated /api/note. */
 class PlanChips extends WidgetType {
   constructor(lineFrom, planned, dates) {
     super();
@@ -127,12 +132,23 @@ class PlanChips extends WidgetType {
       b.className = "cm-plan-btn" + (on ? " on" : "");
       b.textContent = label;
       b.title = on ? `Planned ${when} — click to clear` : `Plan for ${when} (⏳)`;
-      b.onmousedown = (e) => {
+      b.onmousedown = async (e) => {
         e.preventDefault();          // never steal the caret from the line
-        const line = view.state.doc.lineAt(this.lineFrom);
-        const next = setLineScheduled(line.text, on ? null : when);
-        if (next !== line.text)
-          view.dispatch({ changes: { from: line.from, to: line.to, insert: next } });
+        const before = view.state.doc.lineAt(this.lineFrom).text;
+        let next;
+        try {
+          ({ line: next } = await postJSON("/api/task/line",
+                                           { line: before, when: on ? "" : when }));
+        } catch {
+          return;                    // server unreachable: the line stands
+        }
+        // The round trip is localhost-fast but not instant, and the
+        // document is live under it. Re-find the line and apply only if it
+        // still says what we sent — a keystroke that landed meanwhile owns
+        // the line, and we must not paste a stale rewrite over it.
+        const now = view.state.doc.lineAt(this.lineFrom);
+        if (now.text === before && next !== before)
+          view.dispatch({ changes: { from: now.from, to: now.to, insert: next } });
       };
       wrap.appendChild(b);
     };

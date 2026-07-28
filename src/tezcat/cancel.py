@@ -16,14 +16,14 @@ is one in-flight model call, which the worker and MCP timeouts already
 bound — the UI can report "stopping…" and mean it.
 
 Process-global, like the vault singleton: one UI server process owns at
-most one pass and one chat turn, and the pass flock enforces the first
-half of that.
+most one pass, and the pass flock enforces it.
 
-The chat job is the exception: its flag lives on the ChatSession
-(session-local `stopped`), because stopping a chat REPLACES the session
-immediately — a process-global flag would let the replacement's first
-turn clear a stop the old session's still-unwinding turn depends on.
-CHAT stays here as the cancel route's vocabulary only.
+The pass is the only job here. Stopping a CHAT is not a cancellation at
+all — it replaces the session (ui.cancel_route), and its flag lives on
+the ChatSession it kills, because a process-global one would let the
+replacement's first turn clear a stop the old session's still-unwinding
+turn depends on. Naming it here too would suggest a symmetry the two
+verbs do not have.
 """
 
 from __future__ import annotations
@@ -31,8 +31,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 PASS = "pass"    # an engine pass (scan/draft/apply)
-CHAT = "chat"    # one escape-hatch pane turn
-JOBS = (PASS, CHAT)
+JOBS = (PASS,)
 
 _requested: set[str] = set()
 

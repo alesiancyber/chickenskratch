@@ -1,11 +1,16 @@
 """The processor engine: a pipeline, not a process.
 
-One pass = act on decisions handed in by a human verb → (if the vault
-moved) run every registered processor's deterministic `scan`, draft up
-to N proposals via their bounded `draft` calls → memoize the vault's git
-state so an unchanged vault makes the next pass free. `uv run
-tezcat-watch` runs one by hand or cron; tezcatd runs one when the vault
-settles.
+One pass = act on decisions handed in by a human verb → run every
+registered processor's deterministic `scan` → draft up to N proposals
+via their bounded `draft` calls. `uv run tezcat-watch` runs one by hand
+or cron; tezcatd runs one when the vault settles.
+
+Every pass scans. Skipping the scan on an unchanged vault was a second
+change-detector behind a daemon that already fires only on change, and
+it cost far more than the walk it saved: a pass that gave up early
+memoized "this tree is handled" and the input behind it stayed
+invisible. Repetition is bounded where it is expensive instead — the
+per-processor seen-hashes below stop redundant LLM drafts.
 
 Consent arrives through `decisions` from a human verb (the dashboard
 button, `tezcat decide`), never by parsing a note back: the vault is
@@ -335,18 +340,23 @@ class Watcher:
         self.write_surface(vc.SPEC_REL, md.join_frontmatter(fm, SPEC_BODY),
                            f"seed {vc.SPEC_REL}", action="seed_vault_spec")
 
-    # ---- git memo ----
-
-    def _vault_fingerprint(self, state: tuple[str, str] | None = None) -> dict:
-        sha, dirty = state if state is not None else applier.vault_state(self.vault_path)
-        return {"head": sha, "dirty": proposals.content_hash(dirty)}
+    # ---- pass state: what has already been drafted ----
+    #
+    # Every pass scans. There is no vault memo: the daemon already fires
+    # only when its own tree fingerprint moves, so a second change-detector
+    # here skipped the scan mainly on passes where nothing had changed
+    # anyway — and it bought ~20-70ms on an idle pass in exchange for a
+    # whole class of failure where a pass that gave up early memoized
+    # "this tree is handled" and stranded the input behind it until an
+    # unrelated edit moved the fingerprint. The seen-hashes below already
+    # prevent the expensive repetition (redundant LLM drafts); the memo
+    # only ever saved the walk.
 
     def _load_state(self) -> dict:
         try:
-            saved = json.loads(self.state_path.read_text(encoding="utf-8"))
+            return json.loads(self.state_path.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
-        return saved if "fingerprint" in saved else {}
 
     @staticmethod
     def _seen_from_state(state: dict) -> dict[str, str]:
@@ -367,32 +377,11 @@ class Watcher:
         return {str(k): int(v) for k, v in (state.get("draft_attempts") or {}).items()
                 if str(v).lstrip("-").isdigit()}
 
-    def _save_state(self, fingerprint: dict | None = None) -> None:
-        state = {
-            "fingerprint": fingerprint if fingerprint is not None else self._vault_fingerprint(),
+    def _save_state(self) -> None:
+        atomic_write_text(self.state_path, json.dumps({
             "seen": self.seen,
             "draft_attempts": self.draft_attempts,
-        }
-        atomic_write_text(self.state_path, json.dumps(state))
-
-    @staticmethod
-    def _incomplete(summary: dict, reason: str) -> None:
-        """Mark this pass as one that did NOT finish its work.
-
-        The single gate on memoizing the vault fingerprint. Every stage
-        that gives up early must come through here — a cancelled pass, a
-        dead draft worker, a processor whose scan or ensure threw. They
-        look nothing alike in the logs and identical in the memo: each
-        one leaves notes the pass never processed, and memoizing the
-        fingerprint over them asserts "this tree is handled" about work
-        nothing did. The tree then stays skipped until an unrelated edit
-        happens to move the fingerprint.
-
-        One reason list, because the invariant is one invariant (see
-        PHILOSOPHY: only a pass that finished its work may memoize it) —
-        the previous per-failure spelling of this check had already
-        missed two of the four paths."""
-        summary.setdefault("incomplete", []).append(reason)
+        }))
 
     def _invalid_plan(self, summary: dict, proc, error: Exception) -> None:
         """The drafter answered, but its plan fails the proposal schema —
@@ -400,20 +389,19 @@ class Watcher:
 
         Visibly identical to a dead worker (zero drafts), and it used to
         be swallowed by a bare `continue` with the drafter's seen-hash
-        ALREADY stamped and the memo about to be saved. Two suppressors:
-        the text became unreachable by any later pass while every surface
-        said "nothing extractable". It wasn't — extraction ran, and only
-        the plan was malformed.
+        ALREADY stamped — so the text became unreachable by any later
+        pass while every surface said "nothing extractable". It wasn't:
+        extraction ran, and only the plan was malformed.
 
-        So it re-arms like a worker failure, but on a BUDGET. A down
-        worker recovers when you restart it; the drafters build the
-        proposal shape themselves and the model only fills the fields, so
-        a plan rejected for this input tends to be rejected the same way
-        every time — an unbounded re-arm is one LLM call per pass forever.
-        Past the budget the item PARKS: still reported, no longer retried,
-        and the memo is allowed again so passes stop rescanning for work
-        they will not redo. Editing the text moves the hash, which is a
-        new budget and a fresh try.
+        So it re-arms like a worker failure — drop the seen-hash and the
+        next pass redrafts — but on a BUDGET. A down worker recovers when
+        you restart it; the drafters build the proposal shape themselves
+        and the model only fills the fields, so a plan rejected for this
+        input tends to be rejected the same way every time, and an
+        unbounded re-arm is one LLM call per pass forever. Past the budget
+        the item PARKS: still reported, never retried, the seen-hash left
+        stamped. Editing the text moves the hash, which is a new budget
+        and a fresh try.
 
         The counter lives only while a retry is in flight — dropped on
         success and on parking alike — so state.json holds at most one
@@ -429,7 +417,6 @@ class Watcher:
         if retrying:
             self.draft_attempts[slot] = attempts
             self.seen.pop(proc.name, None)   # re-arm: the next pass redrafts it
-            self._incomplete(summary, f"plan:{proc.name}")
         else:
             self.draft_attempts.pop(slot, None)  # parked; the seen-hash holds it
         # `retrying` is load-bearing on the surfaces: "the engine retries on
@@ -439,26 +426,6 @@ class Watcher:
         events.emit(self.vault_path, "worker_error", record)
         print(f"invalid plan from {proc.name} "
               f"({'retrying' if retrying else 'parked'}): {error}")
-
-    def forget_vault_memo(self) -> None:
-        """Force the next pass to scan every note (`tezcat-watch --rescan`).
-
-        The recovery lever for a memo that wrongly says "this tree is
-        handled" — the state a draft-time worker failure used to leave
-        behind, stranding undrafted text until an unrelated edit moved the
-        fingerprint. Only the fingerprint goes: it is a pure optimization,
-        so dropping it costs one full scan. The seen-hashes are RELOADED
-        from disk first and written back untouched — they are real dedup
-        state, and this method runs on a fresh Watcher whose in-memory
-        `seen` is still empty (only run_once populates it), so writing
-        that would re-draft every surface's last text. The retry budgets
-        ride along for the same reason — a rescan does not re-arm a
-        parked input (its seen-hash still suppresses it), so silently
-        refunding its budget would only mislead."""
-        state = self._load_state()
-        self.seen = self._seen_from_state(state)
-        self.draft_attempts = self._attempts_from_state(state)
-        self._save_state({})
 
     # ---- stage 2: execute typed //commands ----
 
@@ -524,7 +491,6 @@ class Watcher:
                 # only stamped past a successful draft) and the next pass
                 # retries it, which is what the surfaces must say.
                 failed.add(proc.name)
-                self._incomplete(summary, f"draft:{proc.name}")
                 # `retrying` is always true here: the seen-hash is stamped
                 # past a successful draft, so a worker that never answered
                 # left the input armed, and a down worker recovers the
@@ -716,9 +682,7 @@ class Watcher:
                        decisions: list[tuple[str, str]] | None = None,
                        lock_wait: float = 0.0) -> dict:
         """One engine pass. `decisions_only` is the fast lane: act on
-        decisions, done — no scanning or drafting, and the git memo is
-        left untouched so the next full pass still scans whatever the
-        apply changed.
+        decisions, done — no scanning or drafting.
 
         `decisions` injects explicit (pid, verdict) pairs — the human
         verbs' channel (service.decide, the dashboard button, `tezcat
@@ -740,8 +704,8 @@ class Watcher:
             # DRAFT-side failures (a down or rate-limited LLM worker), because
             # "drafted 0" alone can't tell "nothing to extract" from "the
             # worker never answered" — and the surfaces must not guess.
-            # `incomplete` is the memo gate: see _incomplete.
-            "stale": 0, "failed": 0, "worker_errors": [], "incomplete": [],
+            "stale": 0, "failed": 0, "worker_errors": [],
+            # False only for a decisions-only pass: every full pass scans.
             "scanned": False, "locked": False, "cancelled": False,
         }
         lock_file = await self._acquire_pass_lock(lock_wait)
@@ -784,11 +748,7 @@ class Watcher:
                             # Creating a surface is setup, not the work:
                             # a processor that can't scaffold skips this
                             # pass rather than cancelling everyone else's.
-                            # Incomplete all the same — its surface never
-                            # existed, so its scan is about to see nothing
-                            # and the memo must not call that "handled".
                             print(f"ensure failed for {proc.name}: {e}")
-                            self._incomplete(summary, f"ensure:{proc.name}")
             # One queue read and one git-state read serve the whole pass:
             # _act works through the pending list, and everything after it
             # (auto-stale, coverage, sha stamping) reuses the same context.
@@ -798,72 +758,50 @@ class Watcher:
             if decisions_only:
                 # Persist any stale-triggered re-arm (seen-hashes) — losing it
                 # here would resurrect the suppression on the next full pass.
-                # The memo passes through untouched, so that pass still scans.
-                self._save_state(state.get("fingerprint") or {})
+                self._save_state()
                 self._emit_pass(summary)
                 return summary
             vs = applier.vault_state(self.vault_path)
-            fingerprint = self._vault_fingerprint(vs)
-            if state.get("fingerprint") != fingerprint:
-                # One content walk per pass: reset here so pass_notes()
-                # rebuilds against the tree `fingerprint` describes.
-                self._pass_notes = None
-                flipped, pending = self._auto_stale(pending, vs)
-                summary["stale"] += flipped
-                self._pass_sha = vs[0]
-                # Commands execute before the proposal scan and refresh
-                # their notes in the pass cache, so drafts see the
-                # post-command note.
-                await self._run_commands(summary)
-                # One pending proposal per note is a queue invariant, so it
-                # is enforced here — not re-implemented in every scan. The
-                # seen set also dedupes WITHIN the pass: when two
-                # processors both want a note, registry priority wins.
-                seen_notes = {p["drafted_against"]["note"] for p in pending}
-                # Registry order is priority order: capture-class first, so
-                # the user actively feeding the pipeline is never starved
-                # out of n_max by a maintenance backlog.
-                items = []
-                for proc in self.processors:
-                    if self.should_cancel():
-                        break
-                    try:
-                        found = proc.scan(self)
-                    except Exception as e:
-                        # A poison scan (a note deleted mid-walk, an
-                        # unparseable edge) fails ITS processor, never the
-                        # pass — the same contract _draft and _act already
-                        # enforce for their stages. But this processor
-                        # never READ the tree, so the pass cannot vouch
-                        # for it: without the memo gate the next pass
-                        # skipped the scan entirely and the notes it
-                        # would have found stayed invisible.
-                        print(f"scan failed for {proc.name}: {type(e).__name__}: {e}")
-                        self._incomplete(summary, f"scan:{proc.name}")
-                        continue
-                    for item in found:
-                        if item["note"] not in seen_notes:
-                            seen_notes.add(item["note"])
-                            items.append((proc, item))
-                summary["drafted"], summary["auto"] = await self._draft(items, summary)
-                summary["scanned"] = True
+            # One content walk per pass: reset so pass_notes() rebuilds
+            # against the tree THIS pass reads.
+            self._pass_notes = None
+            flipped, pending = self._auto_stale(pending, vs)
+            summary["stale"] += flipped
+            self._pass_sha = vs[0]
+            # Commands execute before the proposal scan and refresh
+            # their notes in the pass cache, so drafts see the
+            # post-command note.
+            await self._run_commands(summary)
+            # One pending proposal per note is a queue invariant, so it
+            # is enforced here — not re-implemented in every scan. The
+            # seen set also dedupes WITHIN the pass: when two
+            # processors both want a note, registry priority wins.
+            seen_notes = {p["drafted_against"]["note"] for p in pending}
+            # Registry order is priority order: capture-class first, so
+            # the user actively feeding the pipeline is never starved
+            # out of n_max by a maintenance backlog.
+            items = []
+            for proc in self.processors:
+                if self.should_cancel():
+                    break
+                try:
+                    found = proc.scan(self)
+                except Exception as e:
+                    # A poison scan (a note deleted mid-walk, an
+                    # unparseable edge) fails ITS processor, never the
+                    # pass — the same contract _draft and _act already
+                    # enforce for their stages. Nothing to re-arm: the
+                    # next pass scans again regardless.
+                    print(f"scan failed for {proc.name}: {type(e).__name__}: {e}")
+                    continue
+                for item in found:
+                    if item["note"] not in seen_notes:
+                        seen_notes.add(item["note"])
+                        items.append((proc, item))
+            summary["drafted"], summary["auto"] = await self._draft(items, summary)
+            summary["scanned"] = True
             summary["cancelled"] = bool(self.should_cancel())
-            if summary["cancelled"]:
-                self._incomplete(summary, "cancelled")
-            # The memo is the fingerprint taken BEFORE the scan — the tree
-            # this pass actually read. Anything written after it (a command
-            # result, an auto-apply, the user typing while a draft was in
-            # flight) moves the tree past the memo, so the next pass
-            # rescans it. That costs one echo pass after a pass that wrote;
-            # re-fingerprinting at pass end instead would memoize mid-pass
-            # edits as scanned when no scan ever saw them, and a //command
-            # typed during a slow draft would never fire.
-            #
-            # And only a pass that FINISHED its work may memoize it at all:
-            # anything that gave up early registered with _incomplete, and
-            # any reason at all forfeits the memo. Forgetting it is what
-            # makes "the engine retries it" true.
-            self._save_state({} if summary["incomplete"] else fingerprint)
+            self._save_state()
             proposals.prune(self.proposals_dir)
             self._emit_pass(summary)
             return summary
@@ -897,17 +835,10 @@ def main() -> None:
         + ", ".join(p.name for p in processors.REGISTRY)
         + ", inline_command (the //commands phase)",
     )
-    parser.add_argument(
-        "--rescan", action="store_true",
-        help="forget the vault memo and scan every note, even if nothing "
-        "changed — the recovery lever for a tree the memo wrongly calls "
-        "handled (the seen-hashes are kept, so it is not a re-extract-all)")
     args = parser.parse_args()
     _config, vault, _servers = load_runtime(vault=args.vault)
     w = Watcher(vault, n_max=args.n_max,
                 disabled=tuple(args.disable) if args.disable else None)
-    if args.rescan:
-        w.forget_vault_memo()
     summary = asyncio.run(w.run_once())
     if summary["locked"]:
         print("watch pass: skipped — another pass is already running")
@@ -917,10 +848,10 @@ def main() -> None:
         f"auto-applied {summary['auto']}, applied {summary['approved']}, "
         f"rejected {summary['rejected']}, stale {summary['stale']}"
         + (f", FAILED {summary['failed']}" if summary.get("failed") else "")
-        + ("" if summary["scanned"] else " (vault unchanged — scan skipped)")
     )
     for err in summary.get("worker_errors", []):
-        print(f"  ⚠ {err['processor']}: {err['error']} — retries next pass")
+        print(f"  ⚠ {err['processor']}: {err['error']}"
+              + (" — retries next pass" if err.get("retrying", True) else " — parked"))
 
 
 if __name__ == "__main__":

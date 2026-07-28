@@ -62,17 +62,13 @@ def vault_state(vault_path: str) -> tuple[str, str]:
     """(HEAD sha, a text fingerprint of everything not yet committed).
     Empty sha if the repo has no commits yet; empty text = clean tree.
 
-    Three sources, and each one is load-bearing:
-
-    - `status --porcelain` — which paths are dirty or untracked.
-    - `diff HEAD` — the CONTENT of tracked edits. Porcelain alone lists
-      paths, so a second edit to an already-dirty note would leave the
-      pass fingerprint unchanged, the engine would skip the scan, and an
-      armed //command in a dirty inbox would never retry.
-    - content hashes of UNTRACKED files — the same hole, one step
-      further out. Porcelain reports `?? Tasks/typing.md` identically no
-      matter what the file says, so without the hash a //command typed
-      into a brand-new note never moves the fingerprint and never fires.
+    The sha stamps drafted proposals (what tree they were drafted
+    against) and the dirty text feeds _auto_stale — a pending proposal
+    whose note has moved under it must flip stale rather than apply to
+    text nobody reviewed. Both halves are content-sensitive on purpose:
+    `status --porcelain` names dirty paths but not what they now say, so
+    an edit to an already-dirty note has to show up in `diff HEAD`, and
+    an edit to an untracked one in its content hash.
     """
     v = Vault(vault_path)
     v.ensure_repo()
