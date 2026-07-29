@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getJSON, postJSON } from "./api.js";
 
-/* The management console (⌘,). Everything the harness treats as
+/* The management console (⌘;). Everything the harness treats as
    configuration, in one place, with the split that decides how a change
    behaves stated on the surface rather than left to be discovered:
 

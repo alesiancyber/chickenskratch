@@ -247,3 +247,47 @@ def test_plan_approval_stamps_the_plan_never_a_deadline(vault, make_watcher):
     assert f"- [ ] chase the SOW redlines ⏳ {today} ➕ 2026-07-10 ^t-aaaaaaaaaaaa" in text
     assert "read the auth RFC ^t-bbbbbbbbbbbb" in text          # untouched
     assert text.count("📅") == 1                                 # only the planted one
+
+
+# ---- the owed_by backstop: a name prefix IS the 👤 field ----
+
+
+def test_name_prefix_becomes_owed_by_for_attendees_and_speakers():
+    """Small workers return "Rio: finish DNS migration" with owed_by
+    null — somebody else's debt filed as the user's own work, invisible
+    to the waiting view. A prefix naming an attendee (or a speaker
+    labeled in the dump itself, the VTT shape) moves to owed_by."""
+    record = {"attendees": ["Rio"]}
+    dump = "Jordan: pricing copy still needs legal\nRio: I'll move the registrar\n"
+    tasks = [
+        {"text": "Rio: finish DNS migration", "owed_by": None},
+        {"text": "jordan: send pricing copy to legal", "owed_by": None},  # speaker, any case
+        {"text": "book next sprint review", "owed_by": None},             # no prefix
+        {"text": "Nadia: send costs", "owed_by": None},                   # unknown name: untouched
+    ]
+    out = processors._name_prefix_owed(record, tasks, dump)
+    assert (out[0]["owed_by"], out[0]["text"]) == ("Rio", "finish DNS migration")
+    assert (out[1]["owed_by"], out[1]["text"]) == ("Jordan", "send pricing copy to legal")
+    assert out[2]["owed_by"] is None
+    assert out[3]["owed_by"] is None and out[3]["text"] == "Nadia: send costs"
+
+
+def test_name_prefix_never_marks_the_reader_or_invents_from_headings():
+    """"User:"/"me:" is the reader — their own task, never a debt owed
+    to them. And a prose lead-in ("action items for me:") is not a
+    speaker, so it can never mint a name."""
+    dump = "User: got it\naction items for me:\nupdate jiras\n"
+    tasks = [
+        {"text": "User: update jiras", "owed_by": None},
+        {"text": "action items for me: update jiras", "owed_by": None},
+    ]
+    out = processors._name_prefix_owed({"attendees": []}, tasks, dump)
+    assert out[0]["owed_by"] is None and out[0]["text"] == "User: update jiras"
+    assert out[1]["owed_by"] is None
+
+
+def test_name_prefix_respects_an_owed_by_the_worker_already_set():
+    tasks = [{"text": "Sam: check hosting tiers", "owed_by": "the SOC"}]
+    out = processors._name_prefix_owed({"attendees": ["Sam"]}, tasks, "Sam: hi\n")
+    assert out[0]["owed_by"] == "the SOC"           # the worker's call stands
+    assert out[0]["text"] == "Sam: check hosting tiers"

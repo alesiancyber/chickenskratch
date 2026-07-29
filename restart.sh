@@ -33,14 +33,33 @@ say()  { printf '\033[1m==> %s\033[0m\n' "$*"; }
 ok()   { printf '    ✓ %s\n' "$*"; }
 die()  { printf '    ✗ %s\n' "$*" >&2; exit 1; }
 
-if [ "$BUILD" = 1 ]; then
-  say "Building"
-  (cd "$REPO" && uv sync -q) && ok "uv sync"
+build_web() {
   # lint BEFORE the bundle: vite happily builds a reference to deleted
   # state (the blank-page bug, 2026-07-28); eslint's no-undef refuses it
   (cd "$REPO/web" && npm run lint --silent) && ok "web lint"
   (cd "$REPO/web" && npx vite build --logLevel error) && ok "web/dist"
+}
+
+if [ "$BUILD" = 1 ]; then
+  say "Building"
+  (cd "$REPO" && uv sync -q) && ok "uv sync"
+  build_web
   (cd "$REPO/daemon" && cargo build --release -q) && ok "tezcatd"
+elif [ "$UI" = 1 ]; then
+  # A plain restart serves web/dist AS-IS — and dist is gitignored, so a
+  # `git pull` brings new source but never a new bundle. Restarting the
+  # dashboard onto a stale bundle is how frontend features report as
+  # "didn't appear" against code that's already merged (2026-07-29): the
+  # server was new, the pixels were old. Rebuild when the source is
+  # newer than the bundle; skip with a pointer when web/ was never set up.
+  if [ ! -d "$REPO/web/node_modules" ]; then
+    ok "web/node_modules missing — run 'npm install' in web/ to build the dashboard"
+  elif [ ! -f "$REPO/web/dist/index.html" ] \
+       || [ -n "$(find "$REPO/web/src" "$REPO/web/index.html" \
+                    -newer "$REPO/web/dist/index.html" 2>/dev/null | head -1)" ]; then
+    say "web/dist is older than web/src — rebuilding the bundle"
+    build_web
+  fi
 fi
 
 # ---- the daemon ----
@@ -77,10 +96,29 @@ if [ "$UI" = 1 ]; then
     pkill -9 -f 'tezcat-ui' 2>/dev/null || true
     ok "force-killed a lingering dashboard process"
   fi
+  # Kill by PORT too: the pattern only matches dashboards started the
+  # usual way. Whatever else is holding :$UI_PORT is still the thing the
+  # browser talks to — starting over it would leave the OLD process
+  # serving while the new one fails to bind and dies.
+  HOLDERS="$(lsof -ti "tcp:$UI_PORT" 2>/dev/null || true)"
+  if [ -n "$HOLDERS" ]; then
+    kill $HOLDERS 2>/dev/null || true
+    ok "asked the process(es) on :$UI_PORT to exit"
+  fi
   for _ in $(seq 1 40); do   # wait for the port to actually free
     lsof -ti "tcp:$UI_PORT" >/dev/null 2>&1 || break
     sleep 0.25
   done
+  HOLDERS="$(lsof -ti "tcp:$UI_PORT" 2>/dev/null || true)"
+  if [ -n "$HOLDERS" ]; then
+    kill -9 $HOLDERS 2>/dev/null || true
+    sleep 0.5
+  fi
+  # Loud, not lucky: proceeding here starts a dashboard that can't bind,
+  # and the health check below would then vouch for the OLD process —
+  # "restarted" while serving last week's code.
+  lsof -ti "tcp:$UI_PORT" >/dev/null 2>&1 \
+    && die "port $UI_PORT is still held (lsof -i tcp:$UI_PORT to see by what) — not starting a dashboard that can't bind"
   mkdir -p "$REPO/data/logs"
   (cd "$REPO" && nohup uv run tezcat-ui --port "$UI_PORT" \
       >> data/logs/ui.log 2>&1 & echo $! > data/logs/ui.pid)

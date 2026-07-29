@@ -55,6 +55,13 @@ const PRIORITY_RE = /[🔺⏫🔼🔽⏬]/gu;
 const WIKILINK_RE = /\[\[([^\]]+)\]\]/g;
 const BOLD_RE = /\*\*([^*]+)\*\*/g;
 const HEADING_RE = /^(#{1,6})\s+/;
+// A callout title: `> [!NOTE]- Verbatim — 14:32` (the space after > is
+// optional — hand-typed `>[!NOTE]` is the same callout). `-` marks it
+// collapsed by default; the body is every following quoted line. This
+// is the block the record pipeline folds a dump's verbatim into, so a
+// pasted transcript must read as one collapsed row, not a wall.
+const CALLOUT_RE = /^>\s*\[!(\w+)\]([-+]?)\s?(.*)$/;
+const QUOTE_PREFIX_RE = /^\s*>\s?/;
 
 /* The checkbox: a real affordance over plain text. Clicking dispatches
    a one-character replacement of the mark inside the brackets — the
@@ -77,9 +84,12 @@ class TaskBox extends WidgetType {
     box.title = this.checked ? "Reopen" : "Complete";
     box.onmousedown = (e) => {
       e.preventDefault();
+      // "affordance": the editor saves this on a clean buffer — a click
+      // on a checkbox is the dashboard's done-verb, not a keystroke.
       view.dispatch({
         changes: { from: this.markPos, to: this.markPos + 1,
                    insert: this.checked ? " " : "x" },
+        userEvent: "affordance.task",
       });
     };
     return box;
@@ -152,7 +162,12 @@ class PlanChips extends WidgetType {
         // the line, and we must not paste a stale rewrite over it.
         const now = view.state.doc.lineAt(this.lineFrom);
         if (now.text === before && next !== before)
-          view.dispatch({ changes: { from: now.from, to: now.to, insert: next } });
+          // "affordance": on a clean buffer the editor saves this — the
+          // chip is the same plan verb the dashboard applies instantly,
+          // and a silent buffer edit that still needs ⌘S reads as "the
+          // move didn't happen" from the Today column.
+          view.dispatch({ changes: { from: now.from, to: now.to, insert: next },
+                          userEvent: "affordance.plan" });
       };
       wrap.appendChild(b);
     };
@@ -162,6 +177,78 @@ class PlanChips extends WidgetType {
     if (this.dates.week && this.dates.week !== this.dates.today)
       chip("→ this week", this.dates.week);
     return wrap;
+  }
+  ignoreEvent() {
+    return false;   // the click is ours, not the editor's
+  }
+}
+
+/* Callout folding. The default comes from the marker (`-` starts
+   collapsed); clicking the header toggles, and the toggle is remembered
+   per block in a state field — positions map through edits, so typing
+   above a folded verbatim doesn't spring it open. Like every rule here
+   it is a view decision: the bytes on disk never change. */
+export const toggleCallout = StateEffect.define({
+  map: (pos, changes) => changes.mapPos(pos),
+});
+
+export const calloutFoldField = StateField.define({
+  create: () => new Set(),
+  update(set, tr) {
+    let next = set;
+    if (tr.docChanged) {
+      next = new Set();
+      for (const p of set) next.add(tr.changes.mapPos(p));
+    }
+    for (const e of tr.effects) {
+      if (e.is(toggleCallout)) {
+        if (next === set) next = new Set(set);
+        next.has(e.value) ? next.delete(e.value) : next.add(e.value);
+      }
+    }
+    return next;
+  },
+});
+
+/* The callout's header: caret + type when open (the title text stays
+   real, editable text on the line); caret + type + title + a line count
+   when the whole block is folded behind it. */
+class CalloutHead extends WidgetType {
+  constructor(type, title, count, at, folded) {
+    super();
+    this.type = type;
+    this.title = title;
+    this.count = count;
+    this.at = at;           // the title line's start — the fold's key
+    this.folded = folded;
+  }
+  eq(o) {
+    return o.type === this.type && o.title === this.title
+      && o.count === this.count && o.at === this.at && o.folded === this.folded;
+  }
+  toDOM(view) {
+    const el = document.createElement(this.folded ? "div" : "span");
+    el.className = "cm-callout-head" + (this.folded ? " folded" : "");
+    const caret = document.createElement("span");
+    caret.className = "cm-callout-caret";
+    caret.textContent = this.folded ? "▸" : "▾";
+    el.appendChild(caret);
+    const label = document.createElement("span");
+    label.className = "cm-callout-type";
+    label.textContent = this.type.toUpperCase();
+    el.appendChild(label);
+    if (this.folded) {
+      if (this.title) el.appendChild(document.createTextNode(" " + this.title));
+      const n = document.createElement("span");
+      n.className = "cm-callout-count";
+      n.textContent = ` · ${this.count} line${this.count === 1 ? "" : "s"}`;
+      el.appendChild(n);
+    }
+    el.onmousedown = (e) => {
+      e.preventDefault();
+      view.dispatch({ effects: toggleCallout.of(this.at) });
+    };
+    return el;
   }
   ignoreEvent() {
     return false;   // the click is ours, not the editor's
@@ -205,9 +292,11 @@ function build(view) {
   const active = activeLines(state);
   const fmEnd = frontmatterEnd(state.doc);
   const dates = state.field(planDatesField, false) || { today: "", week: "" };
+  const foldToggles = state.field(calloutFoldField, false) || new Set();
   const marks = [];
   const add = (from, to, deco) => marks.push(deco.range(from, to));
   const hide = (from, to) => add(from, to, Decoration.replace({}));
+  let calloutUntil = 0;   // last line number of an open callout's body
 
   for (const { from: vFrom, to: vTo } of view.visibleRanges) {
     let pos = vFrom;
@@ -220,6 +309,50 @@ function build(view) {
          hidden (it holds the entity id and the vault spec) */
       if (fmEnd && line.number <= fmEnd) {
         add(line.from, line.from, Decoration.line({ class: "cm-frontmatter" }));
+        pos = line.to + 1;
+        continue;
+      }
+
+      /* callouts: title line + every following quoted line is one block.
+         Folded, the whole block is a single header row; open, the header
+         replaces just the `> [!NOTE]-` machinery and the body renders as
+         a styled quote. A caret anywhere inside forces the raw source —
+         nothing is hidden that the caret can't reach. */
+      const callout = line.number > calloutUntil && CALLOUT_RE.exec(text);
+      if (callout) {
+        let end = line;
+        while (end.number < state.doc.lines) {
+          const nxt = state.doc.line(end.number + 1);
+          if (!QUOTE_PREFIX_RE.test(nxt.text)) break;
+          end = nxt;
+        }
+        let blockLive = false;
+        for (let n = line.number; n <= end.number && !blockLive; n++)
+          if (active.has(n)) blockLive = true;
+        const folded = (callout[2] === "-") !== foldToggles.has(line.from);
+        const bodyLines = end.number - line.number;
+        if (folded && !blockLive && bodyLines > 0) {
+          add(line.from, end.to, Decoration.replace({
+            widget: new CalloutHead(callout[1], callout[3], bodyLines, line.from, true),
+            block: true,
+          }));
+          pos = end.to + 1;
+          continue;
+        }
+        add(line.from, line.from, Decoration.line({ class: "cm-callout-title" }));
+        if (!live)
+          add(line.from, line.from + text.length - callout[3].length,
+              Decoration.replace({
+                widget: new CalloutHead(callout[1], "", bodyLines, line.from, false),
+              }));
+        calloutUntil = end.number;
+        pos = line.to + 1;
+        continue;
+      }
+      if (line.number <= calloutUntil) {
+        add(line.from, line.from, Decoration.line({ class: "cm-callout" }));
+        const q = QUOTE_PREFIX_RE.exec(text);
+        if (!live && q && q[0].length) hide(line.from, line.from + q[0].length);
         pos = line.to + 1;
         continue;
       }
@@ -337,8 +470,10 @@ export const livePreview = ViewPlugin.fromClass(
     }
     update(u) {
       // selection matters as much as content: moving the caret is what
-      // reveals and re-hides syntax
-      if (u.docChanged || u.selectionSet || u.viewportChanged)
+      // reveals and re-hides syntax — and a fold toggle redraws too
+      if (u.docChanged || u.selectionSet || u.viewportChanged
+          || u.startState.field(calloutFoldField, false)
+             !== u.state.field(calloutFoldField, false))
         this.decorations = build(u.view);
     }
   },
@@ -430,4 +565,28 @@ export const vaultTheme = EditorView.theme({
   ".cm-prio": { color: "var(--accent)" },
   ".cm-wikilink": { color: "var(--accent)", cursor: "pointer" },
   ".cm-strong": { fontWeight: "600" },
+
+  /* Callouts: one quiet, clickable header; the body reads as a quote.
+     Folded, the header row is all there is — a pasted transcript is a
+     single line until asked for. */
+  ".cm-callout-head": { cursor: "pointer", color: "var(--ink-2)" },
+  ".cm-callout-head.folded": {
+    padding: "2px 8px", margin: "2px 0",
+    backgroundColor: "var(--hover)", borderLeft: "2px solid var(--line)",
+    borderRadius: "4px",
+  },
+  ".cm-callout-caret": { display: "inline-block", width: "1em", color: "var(--ink-3)" },
+  ".cm-callout-type": {
+    fontWeight: "600", fontSize: "var(--text-small)",
+    letterSpacing: "0.04em", marginRight: "6px",
+  },
+  ".cm-callout-count": { color: "var(--ink-3)", fontSize: "var(--text-small)" },
+  ".cm-callout-title": {
+    backgroundColor: "var(--hover)", borderLeft: "2px solid var(--line)",
+    borderRadius: "4px 4px 0 0",
+  },
+  ".cm-callout": {
+    borderLeft: "2px solid var(--line)", color: "var(--ink-2)",
+    backgroundColor: "var(--hover)",
+  },
 });

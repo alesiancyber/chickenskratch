@@ -186,9 +186,9 @@ function TaskRow({ r, right, onDone, done }) {
 
 /* Region 1 — do. Hard commitments first (due today, overdue, broken
    dates — rows carry the delta, never the bare state), then the plan:
-   ⏳-today tasks, with how long each has carried and a "later" defer.
-   Then today's meetings. */
-function DoToday({ due, planned, meetings, onDone, doneKeys, onDefer, moved }) {
+   ⏳-today tasks, with how long each has carried and the same "→ this
+   week" chip every other surface offers. Then today's meetings. */
+function DoToday({ due, planned, meetings, onDone, doneKeys, onMove, weekTarget, moved }) {
   const rows = [
     ...due.broken.map((r) => ({ ...r, cls: "overdue", when: `due date ${r.due} is not a real date` })),
     ...due.overdue.map((r) => ({ ...r, cls: "overdue", when: `${r.days}d overdue` })),
@@ -212,12 +212,8 @@ function DoToday({ due, planned, meetings, onDone, doneKeys, onDefer, moved }) {
                      {r.slipped ? `planned · carried ${r.slipped}d` : "planned"}
                    </span>
                    {r.due && <span className="chip">due {r.due}</span>}
-                   {moved.has(doneKey(r))
-                     ? <span className="chip">pushed</span>
-                     : <button className="affordance linklike"
-                               onClick={(e) => { e.stopPropagation(); onDefer(r); }}>
-                         later →
-                       </button>}
+                   <MoveChips r={r} moved={moved} onMove={onMove}
+                              targets={[weekTarget]} />
                  </>} />
       ))}
       {meetings.map((rel) => (
@@ -522,7 +518,7 @@ function Palette({ open, setOpen, today, changes, tree, refetch, runPass,
             <span className="ghost small">click a task, the rest dims</span>
           </Command.Item>
           <Command.Item onSelect={go(openConsole)}>
-            <span>Open the console</span><span className="ghost small">⌘,</span>
+            <span>Open the console</span><span className="ghost small">⌘;</span>
           </Command.Item>
           <Command.Item onSelect={go(runPass)}>
             <span>Run an engine pass now</span><span className="ghost small">engine</span>
@@ -732,12 +728,14 @@ export default function App() {
     }
   }, [showToast]);
   // Defer from Today = the rest of this week; on Sunday there is no
-  // rest, so it rolls to next week's anchor.
-  const deferTask = useCallback((r) => {
-    const when = today?.due?.this_sunday !== today?.date
-      ? today?.due?.this_sunday : today?.due?.next_sunday;
-    return planTask(r, when, "Pushed to later this week");
-  }, [planTask, today]);
+  // rest, so the chip becomes next week's anchor and says so.
+  const weekTarget = useMemo(() => (
+    today?.due?.this_sunday !== today?.date
+      ? { when: today?.due?.this_sunday, text: "→ this week",
+          toast: "Planned for later this week" }
+      : { when: today?.due?.next_sunday, text: "→ next week",
+          toast: "Planned for next week" }
+  ), [today]);
   /* "→ today" and "→ this week" from every row a task lives on — soon,
      stranded, the week lanes, the backlog — not just the Week tab. Same
      gated ⏳ verb (plan, never deadline), same corpus row, wherever it's
@@ -805,7 +803,10 @@ export default function App() {
         toggleExplorer();
         return;
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+      // ⌘; — NOT ⌘,: on macOS every browser owns ⌘, (its own settings)
+      // and the page never sees the keydown. The comma still works where
+      // it is deliverable (e.g. an app shell), but ; is what we print.
+      if ((e.metaKey || e.ctrlKey) && (e.key === ";" || e.key === ",")) {
         e.preventDefault();
         setConsoleOpen((v) => !v);
         return;
@@ -832,7 +833,16 @@ export default function App() {
       // nor the explorer's: its rows are buttons, and `e` on a focused
       // tree row must not fire the review shortcut for a different note
       if (e.target.closest?.(".explorer")) return;
+      // u stays live past the last decision: the moment you most want to
+      // undo is right after approving the queue's final item, which is
+      // exactly when `pending` goes empty.
+      if (e.key === "u") return undo();
       const pending = visible.filter((p) => !(p.id in acted));
+      // ⌘K is the summons; a bare j/k only means something while there
+      // are decisions to walk. With an empty queue these keys fall
+      // through untouched — swallowing them here is how k reads as dead
+      // whenever focus sits on a meeting row instead of a text field.
+      if (pending.length === 0) return;
       const idx = pending.findIndex((p) => p.id === selectedPid);
       const move = (d) => {
         const next = pending[Math.min(Math.max(idx + d, 0), pending.length - 1)];
@@ -849,7 +859,6 @@ export default function App() {
         const p = pending[idx];
         if (p) openNoteAt(p.note);   // our editor now, not a deep link out
       }
-      else if (e.key === "u") undo();
       else if (e.key === "Escape") setSelectedPid(null);
     };
     document.addEventListener("keydown", onKey);
@@ -928,7 +937,7 @@ export default function App() {
         <button className="navlink" onClick={togglePane}>Chat ⌘J</button>
         <button className="navlink" onClick={() => setConsoleOpen(true)}
                 title="Everything configurable: vault behaviour and models">
-          Console ⌘,
+          Console ⌘;
         </button>
       </nav>
 
@@ -980,7 +989,7 @@ export default function App() {
 
       <DoToday due={today.due} planned={today.planned ?? []}
                meetings={today.meetings} onDone={taskDone} doneKeys={doneKeys}
-               onDefer={deferTask} moved={movedKeys} />
+               onMove={planTask} weekTarget={weekTarget} moved={movedKeys} />
 
       {today.due.soon.length > 0 && (
         <Section id="soon" label="What lands soon?" verb="start">

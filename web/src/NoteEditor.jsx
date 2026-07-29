@@ -5,7 +5,8 @@ import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getJSON, postJSON } from "./api.js";
 import {
-  livePreview, planDatesField, setPlanDates, setTarget, targetField, vaultTheme,
+  calloutFoldField, livePreview, planDatesField, setPlanDates, setTarget,
+  targetField, vaultTheme,
 } from "./livepreview.js";
 
 /* The owned note editor. CodeMirror 6, because the vault is portable
@@ -44,6 +45,10 @@ export default function NoteEditor({ path, target, seq, planDates, visible = tru
   const saveRef = useRef(() => {});
   const runLineRef = useRef(() => {});
   const [state, setState] = useState("loading");   // loading|clean|dirty|saving|error|conflict
+  // Mirrors `state` for the update listener, which is built once with
+  // the editor and must read the CURRENT save state, not a stale closure.
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const [ephemeral, setEphemeral] = useState(false);
   const [cmdBusy, setCmdBusy] = useState(false);   // a ⌘↩ command in flight
   const [error, setError] = useState("");
@@ -167,11 +172,24 @@ export default function NoteEditor({ path, target, seq, planDates, visible = tru
           livePreview,
           targetField,
           planDatesField,
+          calloutFoldField,
           vaultTheme,
           EditorView.lineWrapping,
           placeholder("Empty note."),
           EditorView.updateListener.of((u) => {
-            if (u.docChanged) setState((s) => (s === "conflict" ? s : "dirty"));
+            if (!u.docChanged) return;
+            /* A widget affordance (task checkbox, plan chip) on an
+               otherwise-clean buffer is the dashboard's verb, not a
+               keystroke: save it now, so "→ this week" actually moves
+               the task instead of parking it behind an unsaved ⌘S.
+               With unsaved typing in the buffer the edit just joins it
+               — ⌘S stays the one write and nothing is clobbered. */
+            if (stateRef.current === "clean"
+                && u.transactions.some((tr) => tr.isUserEvent("affordance"))) {
+              saveRef.current();
+              return;
+            }
+            setState((s) => (s === "conflict" ? s : "dirty"));
           }),
         ],
       }),

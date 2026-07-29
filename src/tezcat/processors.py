@@ -235,6 +235,7 @@ async def draft_capture(w: Watcher, item: dict) -> dict | None:
     # re-extracted; editing the surface changes the hash and re-arms.
     w.seen["capture"] = content_hash(item["text"])
     record, tasks = data["record"], data["tasks"]
+    tasks = _name_prefix_owed(record, tasks, item["text"])
     own, owed = _split_owed(tasks)
     now = dt.datetime.now()
     if record["kind"] == "meeting":
@@ -294,6 +295,45 @@ def _split_owed(tasks: list[dict]) -> tuple[list[dict], list[dict]]:
     they route to the waiting list."""
     own = [t for t in tasks if not t.get("owed_by")]
     return own, [t for t in tasks if t.get("owed_by")]
+
+
+# A speaker-labeled line ("Sam: we should…") — how transcripts (VTT
+# pastes included) name the people in the room, deterministically.
+# At most three name-shaped words: "Sam Jones" is a speaker, a prose
+# lead-in like "action items for me:" is not.
+_SPEAKER_RE = re.compile(r"^([A-Za-z][\w'-]*(?: [A-Za-z][\w'-]*){0,2}):\s", re.M)
+# The reader's own aliases: a "me:" or "User:" prefix is the user's task,
+# never a debt someone else owes them.
+_SELF_NAMES = {"me", "i", "user", "myself"}
+
+
+def _name_prefix_owed(record: dict, tasks: list[dict], dump: str) -> list[dict]:
+    """The owed_by backstop. Small workers reliably return the owner as a
+    name PREFIX in the task text ("Rio: finish DNS migration") with
+    owed_by null — which files somebody else's debt as the user's own
+    work, invisible to the waiting view (owed-ness IS the 👤 field).
+    When a task opens with a name we can independently see in the
+    meeting — an extracted attendee, or a speaker label in the dump
+    itself — that prefix is the owed_by field: move it there and drop it
+    from the text (removal, so fidelity still traces every word to the
+    dump). An unknown prefix is left alone: better an owned task than a
+    debt invented for "TODO"."""
+    names = {a.strip().lower(): a.strip()
+             for a in record.get("attendees") or [] if a and a.strip()}
+    for m in _SPEAKER_RE.finditer(dump):
+        name = m.group(1).strip()
+        names.setdefault(name.lower(), name)
+    for alias in _SELF_NAMES:
+        names.pop(alias, None)
+    for t in tasks if names else []:
+        if t.get("owed_by"):
+            continue
+        head, sep, rest = str(t.get("text", "")).partition(":")
+        owner = names.get(head.strip().lower())
+        if sep and owner and rest.strip():
+            t["owed_by"] = owner
+            t["text"] = rest.strip()
+    return tasks
 
 
 def _task_issue(t: dict) -> str:
