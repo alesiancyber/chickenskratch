@@ -431,11 +431,19 @@ export default function Console({ open, onClose }) {
 
   useEffect(() => { if (open) load(); }, [open, load]);
 
-  // Esc closes — but not while a select or textarea has it, where esc is
-  // the control's own cancel.
+  // Esc closes — but not while a field has focus: there esc is the
+  // control's own cancel, and closing would unmount the tabs and silently
+  // discard a staged Spec.md draft or a half-edited models.yaml.
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      if (/^(input|textarea|select)$/i.test(e.target.tagName)) {
+        e.target.blur();   // first esc leaves the field…
+        return;
+      }
+      onClose();           // …second esc closes the console
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);

@@ -206,6 +206,39 @@ def test_invalid_drafter_output_never_enters_queue(vault, tmp_path, monkeypatch)
     assert proposals.pending(w.proposals_dir) == []
 
 
+def test_a_seenless_lane_parks_on_its_budget_not_forever(vault, tmp_path, monkeypatch):
+    """schema_fix re-finds its items every pass and stamps no seen-hash,
+    so parking must ride the budget slot itself. Before the slot check
+    in _draft, a plan that always failed its schema burned one worker
+    call per pass forever — while the log claimed it had parked."""
+    monkeypatch.setattr("tezcat.watcher.record_dashboard", lambda *a, **k: None)
+    from tezcat import watcher as watcher_mod
+    calls = []
+
+    async def bad_drafter(item):
+        calls.append(item["note"])
+        return {"title": "", "summary": "s",   # empty title fails the proposal schema
+                "apply": [{"tool": "update_frontmatter",
+                           "args": {"path": item["note"], "key": "id",
+                                    "value": item["new_id"]}}]}
+
+    def engine():
+        return Watcher(str(vault), proposals_dir=tmp_path / "pq",
+                       state_path=tmp_path / "sq.json", drafter=bad_drafter,
+                       n_max=20, disabled=("capture", "grouping",
+                                           "spec_drift", "overlap", "plan_today"))
+
+    for i in range(1, watcher_mod.DRAFT_PLAN_ATTEMPTS + 1):
+        errs = run(engine())["worker_errors"]
+        assert errs and all(
+            e["retrying"] is (i < watcher_mod.DRAFT_PLAN_ATTEMPTS) for e in errs)
+    burned = len(calls)
+    # parked: a further pass never reaches the drafter, and reports no
+    # retry it won't make — the budget entry itself holds each input
+    assert run(engine())["worker_errors"] == []
+    assert len(calls) == burned
+
+
 def test_proposal_save_validates():
     with pytest.raises(ValueError, match="invalid proposal"):
         proposals.save({"schema_version": 1, "id": "p-nothexdigits"})

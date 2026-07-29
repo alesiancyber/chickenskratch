@@ -35,6 +35,10 @@ def test_first_pass_seeds_spec_note_once(vault, make_watcher):
     run(w)
     fm, body = md.split_frontmatter(spec_path(vault).read_text())
     assert fm["folders"]["Tasks"] == "task"
+    # every console-managed key, written out explicitly — capture_archive
+    # included (it went missing once, and the console showed it as an
+    # undeclared default while the docstring promised otherwise)
+    assert fm["capture_archive"] == "Captures"
     # the whole consent posture, legible in one key from day one
     assert fm["policies"]["capture"] == "verified"
     assert fm["policies"]["grouping"] == "ask"
@@ -117,6 +121,26 @@ def test_spec_note_bad_processor_name_degrades_not_crashes(vault, make_watcher, 
     run(w)  # pass completes on the previous processor set
     assert "no_such_processor" in capsys.readouterr().out
     assert len(w.processors) == len(processors_module.REGISTRY)
+
+
+def test_a_stale_spec_name_cannot_brick_watcher_construction(vault, make_watcher, capsys):
+    """decide and ingest construct a Watcher per call, so an unknown name
+    in the policies map (a Spec seeded by an older registry naming a
+    since-retired processor) must degrade at CONSTRUCTION too. Raising
+    there took every consent verb down over one stale key — a confusing
+    400 from decide, a 500 from ingest — while the valid keys never
+    applied."""
+    w = full_registry_watcher(make_watcher, vault)
+    run(w)  # seeds Spec.md
+    fm, body = md.split_frontmatter(spec_path(vault).read_text())
+    fm["policies"] = {**fm["policies"], "archive_done": "verified"}
+    fm["n_max"] = 2
+    spec_path(vault).write_text(md.join_frontmatter(fm, body))
+    w2 = full_registry_watcher(make_watcher, vault,
+                               state_path=vault / "s2.json",
+                               proposals_dir=vault / "p2")  # must not raise
+    assert w2.n_max == 2  # the valid keys still configured
+    assert "archive_done" in capsys.readouterr().out  # …and the junk is named
 
 
 def test_new_folder_drafts_a_spec_proposal_and_approval_updates_the_note(vault, make_watcher):

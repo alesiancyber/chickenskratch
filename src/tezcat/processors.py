@@ -32,7 +32,6 @@ from . import applier, grouping, proposals
 # Re-exported: the capture text contract is shared with applier (see
 # capture.py), but it reads as part of this processor's surface.
 from .capture import CAPTURE_SKELETON, capture_text
-from .commands import is_command_line
 from .proposals import content_hash
 
 __all__ = ["CAPTURE_SKELETON", "capture_text", "registry", "REGISTRY"]
@@ -719,9 +718,9 @@ async def draft_grouping(w: Watcher, item: dict) -> dict | None:
 # an unchanged vault re-embeds nothing) and are judged in ONE worker
 # call: duplicate (remove the redundant copy), related (add a ⇄ link —
 # links, not prose), or distinct (drop it). Verdicts queue — judgment
-# has no verifier — and resolved pair verdicts are remembered via the
-# queue itself, so a rejected pair stops nagging (until queue retention
-# expires it).
+# has no verifier — and pair verdicts are remembered via the queue
+# itself (pending AND resolved), so a rejected pair stops nagging and a
+# pending one is never filed twice (until queue retention expires it).
 
 OVERLAP_SIM_THRESHOLD = 0.80  # cosine floor for a pair to be worth judging
 MAX_OVERLAP_PAIRS = 4         # judged pairs per pass — a trickle, not an audit
@@ -746,12 +745,14 @@ def _linked_line(raw: str, target_note: str, target_id: str) -> str:
 
 
 def _decided_pairs(w: Watcher) -> set[frozenset]:
-    """Pairs a human (or staleness) already resolved: never re-ask. The
-    queue is the memory — resolved overlap proposals carry their pairs,
-    and queue retention (30d) is the natural expiry of a dismissal."""
+    """Pairs already answered — or currently awaiting a verdict: never
+    re-ask either. The queue is the memory: overlap proposals carry
+    their pairs, a PENDING one means the question is already on the
+    dashboard (re-drafting it would file the same pair twice), and
+    queue retention (30d) is the natural expiry of a dismissal."""
     decided = set()
     for p in proposals.load_all(w.proposals_dir):
-        if p.get("kind") != "overlap" or p.get("status") == "pending":
+        if p.get("kind") != "overlap":
             continue
         for pair in p.get("pairs", []):
             if len(pair) == 2:
@@ -811,19 +812,22 @@ def scan_overlap(w: Watcher) -> list[dict]:
     }]
 
 
-async def _fuzzy_candidates(w: Watcher, item: dict) -> list[tuple]:
+async def _fuzzy_candidates(w: Watcher, item: dict) -> list[tuple] | None:
     """Near-match pairs from the embedding index, best first, bounded.
-    Degrades to [] when the endpoint is down — exact duplicates and the
-    rest of the pass never depend on the embedder (I6)."""
-    from tezcat.embeddings import EmbeddingError, cosine
+    None when the endpoint is down — exact duplicates and the rest of
+    the pass never depend on the embedder (I6), but the caller must
+    know the difference between "no candidates" and "couldn't look":
+    only an answered pool may stamp the seen-hash, or an embedder
+    outage silences the fuzzy lane until the pool happens to change."""
+    from tezcat.embeddings import cosine
 
     pool = item["pool"]
     texts = {t.block_id: t.text for t, _rel in pool}
     try:
         vecs = await w.embedder(w.vault_path, texts)
-    except (EmbeddingError, Exception) as e:  # noqa: BLE001 — degrade, never fail
+    except Exception as e:  # noqa: BLE001 — degrade, never fail
         print(f"overlap: embeddings unavailable, exact-only this pass ({e})")
-        return []
+        return None
     by_id = {t.block_id: (t, rel) for t, rel in pool}
     exact_ids = {frozenset((a[0].block_id, b[0].block_id)) for a, b in item["exact"]}
     scored = []
@@ -888,11 +892,16 @@ async def draft_overlap(w: Watcher, item: dict) -> dict | None:
             win, lose = (a, b) if (a[0].created or "") <= (b[0].created or "") else (b, a)
         verdicts.append({"a": win, "b": lose, "verdict": "duplicate",
                          "keep": win[0].block_id})
-    to_judge += await _fuzzy_candidates(w, item)
-    # Asked and answered for this pool, whatever the outcome.
-    w.seen["overlap"] = item["seen_key"]
+    fuzzy = await _fuzzy_candidates(w, item)  # None: embedder down
+    to_judge += fuzzy or []
     if to_judge:
+        # The judge call comes BEFORE the seen-hash stamp: a worker that
+        # raises here leaves the pool armed, so it really is retried next
+        # pass — which is what the surfaces say about a down worker.
         reply = await w.overlap_drafter(item, to_judge)
+        # Answered — even a broken reply must not re-ask every pass (the
+        # distinct verdicts below have no other memory than this stamp).
+        w.seen["overlap"] = item["seen_key"]
         answered = {}
         for p in reply.get("pairs") or []:
             answered[frozenset((str(p.get("a")), str(p.get("b"))))] = p
@@ -911,6 +920,14 @@ async def draft_overlap(w: Watcher, item: dict) -> dict | None:
                 verdicts.append({"a": a, "b": b, "verdict": "related", "keep": None})
             elif verdict != "distinct":
                 return None
+    elif fuzzy is not None:
+        # Nothing needed judging and the embedder answered: the pool is
+        # settled. Embedder down with nothing to judge stays UNSTAMPED —
+        # the retry costs one cheap scan, and the fuzzy lane recovers the
+        # moment the endpoint does instead of waiting for the pool to
+        # happen to change. (The already-drafted exact pairs can't
+        # re-propose meanwhile: _decided_pairs counts pending ones.)
+        w.seen["overlap"] = item["seen_key"]
     actionable = [v for v in verdicts if v["verdict"] in ("duplicate", "related")]
     if not actionable:
         return None
@@ -1076,17 +1093,16 @@ PLAN_TODAY = ProcessorSpec(
 )
 
 # Capture first: the user actively feeding the pipeline is never starved
-# out of n_max by a maintenance backlog. archive_done outranks schema/
-# grouping — the one-proposal-per-note invariant means whoever scans a
-# note first claims it, and grouping would claim a task note (a stamped
-# flat list is a grouping candidate) while done tasks sat unarchived;
-# housekeeping first, then fix what remains. overlap and plan_today are
-# the cross-note lanes (claims_note=False): their pools span the vault
-# and their anchors claim nothing, so they never contend with the
-# per-note processors. Within the suggestion lanes: dedupe before
-# planning (planning a task that's about to be merged away is wasted
-# judgment). (//commands are not processors — they execute in their own
-# pass phase; see commands.py.)
+# out of n_max by a maintenance backlog. spec_drift and schema_fix come
+# before grouping — the one-proposal-per-note invariant means whoever
+# scans a note first claims it, and conformance (typing, ids) unlocks
+# grouping anyway. overlap and plan_today are the cross-note lanes
+# (claims_note=False): their pools span the vault and their anchors
+# claim nothing, so they never contend with the per-note processors.
+# Within the suggestion lanes: dedupe before planning (planning a task
+# that's about to be merged away is wasted judgment). (//commands are
+# not processors — they execute in their own pass phase; see
+# commands.py.)
 REGISTRY: tuple[ProcessorSpec, ...] = (
     CAPTURE, SPEC_DRIFT, SCHEMA_FIX, OVERLAP, PLAN_TODAY, GROUPING)
 

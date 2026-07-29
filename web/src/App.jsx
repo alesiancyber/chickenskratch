@@ -154,6 +154,22 @@ function Section({ id, label, verb, children }) {
    is built. */
 const doneKey = (r) => r.note + String.fromCharCode(0) + r.text;
 
+/* The promote/defer chips — ONE implementation for every surface that
+   offers them (Today's soon/stranded rows, the Week tab's lanes), so the
+   two tabs can't drift on what a move looks like. Shows the "moved" chip
+   once the optimistic mark lands, otherwise one button per target.
+   `toast` is what the confirmation toast says; `text` is the button. */
+function MoveChips({ r, moved, onMove, targets }) {
+  if (moved.has(doneKey(r)))
+    return <span className="chip verdict-approve">moved</span>;
+  return targets.map((t) => (
+    <button key={t.text} className="affordance linklike"
+            onClick={(e) => { e.stopPropagation(); onMove(r, t.when, t.toast ?? t.text); }}>
+      {t.text}
+    </button>
+  ));
+}
+
 /* a task row with the prototype's checkbox: click = done, through the
    gated set_task_status tool */
 function TaskRow({ r, right, onDone, done }) {
@@ -226,12 +242,9 @@ const weekday = (iso) =>
    promote/defer stream the judge trains on. */
 function WeekPane({ today, onDone, doneKeys, moved, onMove }) {
   const { due } = today;
-  const mover = (r, when, label) => moved.has(doneKey(r))
-    ? <span className="chip verdict-approve">moved</span>
-    : <button className="affordance linklike"
-              onClick={(e) => { e.stopPropagation(); onMove(r, when, label); }}>
-        {label}
-      </button>;
+  // the shared chips, with this pane's ladder targets pre-bound
+  const toToday = [{ when: today.date, text: "→ today" }];
+  const ladder = [{ when: due.this_sunday, text: "→ this week" }, ...toToday];
   const whenChip = (r) => (
     <span className={"small " + (r.kind === "due" ? "meta" : "ghost")}>
       {r.kind === "due" ? `due ${weekday(r.when)}` : "planned"}
@@ -250,7 +263,9 @@ function WeekPane({ today, onDone, doneKeys, moved, onMove }) {
         <Section id="this-week" label="What lands this week?" verb="do">
           <Rows items={today.this_week} render={(r, i) => (
             <TaskRow key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
-                     right={<>{whenChip(r)}{mover(r, today.date, "→ today")}</>} />
+                     right={<>{whenChip(r)}
+                            <MoveChips r={r} moved={moved} onMove={onMove}
+                                       targets={toToday} /></>} />
           )} />
         </Section>
       )}
@@ -259,12 +274,8 @@ function WeekPane({ today, onDone, doneKeys, moved, onMove }) {
           <Rows items={today.next_week} render={(r, i) => (
             <TaskRow key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
                      right={<>{whenChip(r)}
-                            {moved.has(doneKey(r))
-                              ? <span className="chip verdict-approve">moved</span>
-                              : <>
-                                  {mover(r, due.this_sunday, "→ this week")}
-                                  {mover(r, today.date, "→ today")}
-                                </>}</>} />
+                            <MoveChips r={r} moved={moved} onMove={onMove}
+                                       targets={ladder} /></>} />
           )} />
         </Section>
       )}
@@ -275,12 +286,8 @@ function WeekPane({ today, onDone, doneKeys, moved, onMove }) {
                      right={<>
                        <span className="small ghost">{r.kind === "due"
                          ? `due ${r.when}` : `planned ${r.when}`}</span>
-                       {moved.has(doneKey(r))
-                         ? <span className="chip verdict-approve">moved</span>
-                         : <>
-                             {mover(r, due.this_sunday, "→ this week")}
-                             {mover(r, today.date, "→ today")}
-                           </>}
+                       <MoveChips r={r} moved={moved} onMove={onMove}
+                                  targets={ladder} />
                      </>} />
           )} />
         </Section>
@@ -294,12 +301,8 @@ function WeekPane({ today, onDone, doneKeys, moved, onMove }) {
                        {r.age_days != null && (
                          <span className="small ghost">{r.age_days}d old</span>
                        )}
-                       {moved.has(doneKey(r))
-                         ? <span className="chip verdict-approve">moved</span>
-                         : <>
-                             {mover(r, due.this_sunday, "→ this week")}
-                             {mover(r, today.date, "→ today")}
-                           </>}
+                       <MoveChips r={r} moved={moved} onMove={onMove}
+                                  targets={ladder} />
                      </>} />
           )} />
         </Section>
@@ -739,25 +742,13 @@ export default function App() {
      is the same moment as deciding when it IS for, and sending the user
      to another tab to say so is how things end up undated. */
   const planBtns = useCallback((r) => {
-    if (movedKeys.has(doneKey(r)))
-      return <span className="chip verdict-approve">moved</span>;
-    const plan = (when, label) => (e) => { e.stopPropagation(); planTask(r, when, label); };
-    return (
-      <>
-        <button className="affordance linklike"
-                onClick={plan(today?.date, "Promoted to today")}>
-          → today
-        </button>
-        {/* On a Sunday the week anchor IS today; one button, not two
-            spellings of it. */}
-        {today?.due?.this_sunday !== today?.date && (
-          <button className="affordance linklike"
-                  onClick={plan(today?.due?.this_sunday, "Planned for this week")}>
-            → this week
-          </button>
-        )}
-      </>
-    );
+    const targets = [{ when: today?.date, text: "→ today", toast: "Promoted to today" }];
+    // On a Sunday the week anchor IS today; one button, not two
+    // spellings of it.
+    if (today?.due?.this_sunday !== today?.date)
+      targets.push({ when: today?.due?.this_sunday, text: "→ this week",
+                     toast: "Planned for this week" });
+    return <MoveChips r={r} moved={movedKeys} onMove={planTask} targets={targets} />;
   }, [movedKeys, planTask, today]);
 
   /* The chips inside the note editor plan against the SAME anchors the
@@ -861,19 +852,28 @@ export default function App() {
   }, [review, selectedPid]);
   useEffect(() => {
     if (!today) return;
-    const live = new Set();
-    for (const r of [...today.due.overdue, ...today.due.due_today,
-                     ...today.due.soon, ...today.due.broken, ...today.waiting])
-      live.add(r.note + "\u0000" + r.text);
+    // every list that renders a done-strike participates in liveness —
+    // the due buckets and waiting, but also the plan lanes (planned,
+    // the week buckets, the backlog), which all draw TaskRows too
+    const live = new Set([...today.due.overdue, ...today.due.due_today,
+                          ...today.due.soon, ...today.due.broken,
+                          ...today.waiting,
+                          ...(today.planned ?? []),
+                          ...(today.this_week ?? []),
+                          ...(today.next_week ?? []),
+                          ...(today.later ?? []),
+                          ...(today.backlog ?? [])].map(doneKey));
     setDoneKeys((k) => new Set([...k].filter((key) => live.has(key))));
     // moved rows leave the week buckets once the refetch lands; pruning
     // by liveness (not clearing) keeps the "moved" chip up during the
-    // gap between optimistic mark and fresh data
+    // gap between optimistic mark and fresh data. Stranded rows carry
+    // the plan chips too, so they participate as well.
     const moveLive = new Set([...today.due.soon,
                               ...(today.this_week ?? []),
                               ...(today.next_week ?? []),
                               ...(today.later ?? []),
                               ...(today.planned ?? []),
+                              ...(today.stranded ?? []),
                               ...(today.backlog ?? [])].map(doneKey));
     setMovedKeys((k) => new Set([...k].filter((key) => moveLive.has(key))));
   }, [today]);

@@ -393,6 +393,17 @@ class Agent:
         except json.JSONDecodeError as e:
             return f"Error: tool arguments were not valid JSON ({e})"
         self.log(name, args)
+        # One exit: every logged call gets a log_result, whichever branch
+        # of _dispatch answered it. The pane renders log/log_result as
+        # paired rows, and any branch that returned without the result
+        # (a denied write gate, a loop-guard short-circuit, use_skill)
+        # left its row dangling on "(no result yet)".
+        text = await self._dispatch(name, args)
+        if self.log_result is not None:
+            self.log_result(name, args, text)
+        return text
+
+    async def _dispatch(self, name: str, args: dict) -> str:
         if name == "use_skill":
             skill = next((s for s in self.skills if s.name == args.get("name")), None)
             if skill is None:
@@ -438,10 +449,7 @@ class Agent:
         try:
             text, is_error = await self.client.call(name, args)
         except Exception as e:
-            text = f"Error calling tool: {e}"
-            if self.log_result is not None:
-                self.log_result(name, args, text)
-            return text
+            return f"Error calling tool: {e}"
         domain = self.client.docs_domain(name)
         if domain:
             self._doc_domains.add(domain)
@@ -462,6 +470,4 @@ class Agent:
             self._executed_writes[write_key] = text
         if not is_write:
             self._executed_reads[write_key] = text  # errors too: same call, same answer
-        if self.log_result is not None:
-            self.log_result(name, args, text)
         return text

@@ -47,6 +47,15 @@ export const cancelJob = (what) => postJSON("/api/cancel", { what });
 
 const IDLE = { running: false, label: "", stopping: false };
 
+/* Every dashboard read, keyed the way state and refetch("what") name them. */
+const ROUTES = {
+  today: "/api/today",
+  review: "/api/review",
+  changes: "/api/changes",
+  health: "/api/health",
+  tree: "/api/tree",
+};
+
 /* One hook owns all server state. REST paints the initial screen; the
    SSE stream (the engine's pass_started / draft_started /
    pass_complete / vault_changed events) marks it stale and triggers a
@@ -66,43 +75,37 @@ export function useDashboard() {
   const [workerError, setWorkerError] = useState(null);
   const alive = useRef(true);
   /* Refetches overlap: pass_complete and vault_changed can land together,
-     and each fires four parallel requests. Without a sequence number the
-     SLOWER (older) response wins and paints stale data over fresh. Only
-     the newest refetch may write state. */
-  const seq = useRef(0);
+     and each fires parallel requests. Sequence numbers are per KEY, so
+     only the newest fetch of each key may write it — an older response
+     never paints stale data over fresh, and a narrow refetch never
+     invalidates keys it didn't ask for on a full one still in flight
+     (one global counter did: the full fetch's tree/changes/health were
+     discarded wholesale whenever a checked task raced it). */
+  const seqs = useRef({});
 
   /* `what` narrows the refetch. A checked task changes the task lists and
      nothing else — re-pulling git log and worker health for it is the
      difference between instant and a beat behind. */
-  const refetch = useCallback(
-    async (what = ["today", "review", "changes", "health", "tree"]) => {
-    const mine = ++seq.current;
+  const refetch = useCallback(async (what = Object.keys(ROUTES)) => {
+    const mine = Object.fromEntries(
+      what.map((k) => [k, (seqs.current[k] = (seqs.current[k] || 0) + 1)]));
     try {
-      const want = new Set(what);
-      const [today, review, changes, health, tree] = await Promise.all([
-        want.has("today") ? getJSON("/api/today") : null,
-        want.has("review") ? getJSON("/api/review") : null,
-        want.has("changes") ? getJSON("/api/changes") : null,
-        want.has("health") ? getJSON("/api/health") : null,
-        want.has("tree") ? getJSON("/api/tree") : null,
-      ]);
-      if (!alive.current || mine !== seq.current) return;
-      setState((s) => ({
-        ...s,
-        today: today ?? s.today,
-        review: review ?? s.review,
-        changes: changes ?? s.changes,
-        health: health ?? s.health,
-        tree: tree ?? s.tree,
-        error: null,
-      }));
-      if (health?.last_pass)
+      const fetched = await Promise.all(what.map((k) => getJSON(ROUTES[k])));
+      if (!alive.current) return;
+      const fresh = {};
+      what.forEach((k, i) => {
+        if (mine[k] === seqs.current[k]) fresh[k] = fetched[i];
+      });
+      if (Object.keys(fresh).length === 0) return;
+      setState((s) => ({ ...s, ...fresh, error: null }));
+      if (fresh.health?.last_pass)
         setLastPassAt((prev) => {
-          const t = new Date(health.last_pass);
+          const t = new Date(fresh.health.last_pass);
           return prev && prev > t ? prev : t;
         });
     } catch (e) {
-      if (alive.current && mine === seq.current)
+      // same rule for failure: only the newest fetch of a key may claim it
+      if (alive.current && what.some((k) => mine[k] === seqs.current[k]))
         setState((s) => ({ ...s, error: String(e) }));
     }
   }, []);

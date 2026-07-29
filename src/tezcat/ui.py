@@ -166,17 +166,19 @@ def review_model(vault_path: str) -> list[dict]:
             "needs_review": bool(p.get("needs_review")),
             "diff": None, "not_previewed": [], "diff_error": "",
             # partial approval: steps map 1:1 to apply entries for the
-            # kinds whose plan is a per-item list (captured tasks, plan
-            # picks, overlap pairs) — approve some, reject the rest.
-            # Overlap steps are replace_line ops, so their label is the
-            # matching issue line (same index by construction).
+            # kinds whose plan is a per-item list (plan picks, overlap
+            # pairs) — approve some, reject the rest. Capture is NOT one
+            # of them anymore: a record files as one atomic step, so it
+            # gets no picker. Overlap steps are replace_line ops, so
+            # their label is the matching issue line (same index by
+            # construction).
             "steps": [
                 {"label": (p["issues"][i] if p["kind"] == "overlap" and i < len(p["issues"])
                            else s["args"].get("text") or s["args"].get("task_text") or s["tool"]),
                  "due": s["args"].get("due", ""),
                  "to": s["args"].get("path", "")}
                 for i, s in enumerate(p["apply"])
-            ] if p["kind"] in ("capture", "plan_today", "overlap") else [],
+            ] if p["kind"] in ("plan_today", "overlap") else [],
         }
         if p["kind"] not in _NO_DIFF_KINDS:
             try:

@@ -127,6 +127,77 @@ def test_rejected_pairs_are_remembered_not_renagged(vault, make_watcher):
     assert proposals.pending(w2.proposals_dir) == []
 
 
+def test_a_down_judge_leaves_the_pool_armed(vault, make_watcher):
+    """The seen-hash is stamped only past an ANSWERED judge call. The
+    stamp used to land before the call, so a down worker read as a
+    handled pool: the UI said "retries next pass" while nothing ever
+    would until a task happened to change."""
+    from tezcat_vault.vault import VaultError
+
+    sim = {"t-inbox0000002": [1.0, 0.0, 0.0], "t-wait00000001": [1.0, 0.0, 0.0]}
+
+    async def dead_judge(item, pairs):
+        raise VaultError("overlap worker unavailable: 429")
+
+    w = make_watcher(vault, registry=(processors.OVERLAP,),
+                     overlap_drafter=dead_judge, embedder=fake_embedder(sim))
+    summary = run(w)
+    assert summary["drafted"] == 0
+    (err,) = summary["worker_errors"]
+    assert err["retrying"] is True
+
+    # Nothing changed in the vault; the promised retry must be real.
+    judge = fake_judge([{"a": "t-inbox0000002", "b": "t-wait00000001",
+                         "verdict": "related", "keep": None}])
+    w2 = make_watcher(vault, registry=(processors.OVERLAP,),
+                      overlap_drafter=judge, embedder=fake_embedder(sim))
+    assert run(w2)["drafted"] == 1
+    assert judge.calls  # the pair actually reached the judge this time
+
+
+def test_a_pending_pair_is_never_filed_twice(vault, make_watcher):
+    """A pending overlap proposal already asks the question — re-drafting
+    the same pair (after any pool change re-arms the seen-hash) would put
+    it on the dashboard twice."""
+    sim = {"t-inbox0000002": [1.0, 0.0, 0.0], "t-wait00000001": [1.0, 0.0, 0.0]}
+    judge = fake_judge([{"a": "t-inbox0000002", "b": "t-wait00000001",
+                         "verdict": "duplicate", "keep": "t-wait00000001"}])
+    w = make_watcher(vault, registry=(processors.OVERLAP,),
+                     overlap_drafter=judge, embedder=fake_embedder(sim))
+    run(w)
+    before = len(proposals.pending(w.proposals_dir))
+    # the pool changes, re-arming the seen-hash — the pending pairs stay asked
+    inbox = vault / "Tasks/Inbox.md"
+    inbox.write_text(inbox.read_text() + "- [ ] unrelated new task ^t-new000000001\n")
+    w2 = make_watcher(vault, registry=(processors.OVERLAP,),
+                      overlap_drafter=judge, embedder=fake_embedder(sim))
+    run(w2)
+    assert len(judge.calls) == 1  # never re-asked
+    assert len(proposals.pending(w2.proposals_dir)) == before
+
+
+def test_embedder_recovery_judges_the_pool_it_missed(vault, make_watcher):
+    """An embedder outage must not silence the fuzzy lane until the pool
+    happens to change: with nothing left to judge the pool stays
+    unstamped, so recovery retries it — and the exact merge already
+    filed can't re-file meanwhile (pending pairs count as asked)."""
+    async def broken(vault_path, items):
+        raise RuntimeError("connection refused")
+
+    sim = {"t-inbox0000002": [1.0, 0.0, 0.0], "t-wait00000001": [1.0, 0.0, 0.0]}
+    w = make_watcher(vault, registry=(processors.OVERLAP,),
+                     overlap_drafter=fake_judge([]), embedder=broken)
+    assert run(w)["drafted"] == 1          # the exact duplicate still filed
+
+    judge = fake_judge([{"a": "t-inbox0000002", "b": "t-wait00000001",
+                         "verdict": "related", "keep": None}])
+    w2 = make_watcher(vault, registry=(processors.OVERLAP,),
+                      overlap_drafter=judge, embedder=fake_embedder(sim))
+    assert run(w2)["drafted"] == 1         # the fuzzy pair, judged at last
+    assert judge.calls == [[("t-inbox0000002", "t-wait00000001")]]
+    assert len(proposals.pending(w2.proposals_dir)) == 2
+
+
 def test_embedder_down_degrades_to_exact_only(vault, make_watcher):
     async def broken(vault_path, items):
         raise RuntimeError("connection refused")

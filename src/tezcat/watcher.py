@@ -128,6 +128,7 @@ def spec_seed(vault_path: str) -> str:
         "folders": dict(base.folder_types),
         "done_archive": base.done_archive,
         "exclude": list(base.exclude),
+        "capture_archive": base.capture_archive,
         # The consent map, every processor named at its resolved level —
         # a new vault starts with its whole posture legible in one key.
         "policies": {p.name: base.policy_for(p.name) for p in processors.REGISTRY},
@@ -261,7 +262,8 @@ class Watcher:
         # scan/draft own their entry, and _notify_stale re-arms it.
         self.seen: dict[str, str] = {}
         # `processor:content-hash` -> failed draft attempts against that
-        # exact input, while a retry is still in flight. See _invalid_plan.
+        # exact input. An entry at the budget ceiling IS the parking —
+        # _draft skips its item until the text changes. See _invalid_plan.
         self.draft_attempts: dict[str, int] = {}
         # HEAD sha at scan time, stamped into drafted proposals; set once
         # per pass so processors never re-run git themselves
@@ -276,30 +278,34 @@ class Watcher:
         Called at construction and again each full pass, so a Spec.md
         edit takes effect without a restart.
 
-        Everything that can reject a value is resolved BEFORE anything is
-        assigned. The caller's contract is that a bad Spec.md degrades to
-        the current configuration — assigning as we went made that a lie:
-        an unknown processor name raised only after the new vault handle,
-        n_max, and surfaces had already landed, leaving the pass running
-        half of each config."""
+        Spec.md junk never raises — unknown names are reported and
+        ignored per key, so a stale Spec configures everything it CAN
+        name (raising used to brick every Watcher construction over one
+        retired processor name). Only explicit constructor args (the
+        test/CLI overrides) still fail loud, via processors.registry."""
         if self._disabled_override is not None:
             # Explicit constructor/CLI names pin the disabled set outright.
             disabled = tuple(self._disabled_override)
             commands_enabled = "inline_command" not in disabled
             registry_disabled = tuple(n for n in disabled if n != "inline_command")
         else:
-            # A typo'd name in either consent key must fail LOUD (the
-            # caller degrades to the current configuration and says so):
-            # a policy silently gating nothing is the checkbox lie this
-            # model exists to remove. Known = the default registry plus
-            # anything injected — a test running a subset must not make
-            # the vault's ordinary Spec read as typos.
+            # A typo'd (or retired) name in either consent key is REPORTED
+            # and ignored, per key: a policy silently gating nothing is the
+            # checkbox lie this model exists to remove, so it must be said
+            # out loud every pass — but raising here once bricked every
+            # Watcher construction (decide, ingest, the pass) over one
+            # stale name in a Spec seeded by an older registry. The valid
+            # keys still apply; the console refuses to SAVE an unknown
+            # name, so this print is the legacy-Spec path only. Known =
+            # the default registry plus anything injected — a test running
+            # a subset must not make the vault's ordinary Spec read as
+            # typos.
             names = {p.name for p in processors.REGISTRY} | {"inline_command"}
             if self._registry_override is not None:
                 names |= {p.name for p in self._registry_override}
             unknown = (set(cfg.disabled_processors) | set(cfg.policies)) - names
             if unknown:
-                raise ValueError(f"unknown processor(s): {sorted(unknown)}")
+                print(f"Spec.md names unknown processor(s) {sorted(unknown)} — ignored")
             # A processor is off when its resolved level says so (the
             # disabled_processors kill switch outranks the policies map —
             # see policy_for). "inline_command" is a pass phase, not a
@@ -398,19 +404,35 @@ class Watcher:
 
     @staticmethod
     def _attempts_from_state(state: dict) -> dict[str, int]:
-        """Live retry budgets, keyed `processor:content-hash`. Absent in
-        state files written before the budget existed, and absent again
-        the moment a retry resolves — see _invalid_plan."""
+        """Retry budgets, keyed `processor:content-hash`. An entry at the
+        ceiling is a PARKED input and persists (it is the parking itself —
+        see _invalid_plan); live retries drop on success. Absent in state
+        files written before the budget existed."""
         return {str(k): int(v) for k, v in (state.get("draft_attempts") or {}).items()
                 if str(v).lstrip("-").isdigit()}
 
     def _save_state(self) -> None:
+        # Parked slots persist (the entry IS the parking — see
+        # _invalid_plan), bounded so state.json never grows a scrapheap of
+        # dead hashes: oldest fall off, which merely un-parks an input
+        # nobody has re-drafted in ages.
         atomic_write_text(self.state_path, json.dumps({
             "seen": self.seen,
-            "draft_attempts": self.draft_attempts,
+            "draft_attempts": dict(list(self.draft_attempts.items())[-64:]),
         }))
 
-    def _invalid_plan(self, summary: dict, proc, error: Exception) -> None:
+    @staticmethod
+    def _draft_slot(proc: ProcessorSpec, item: dict) -> str:
+        """The retry-budget key for one work item: the processor plus a
+        hash of the exact input handed to its drafter. Content-keyed so
+        EVERY lane gets a real budget — the deterministic scans
+        (schema_fix, grouping) re-find their items each pass and stamp no
+        seen-hash to hold a parking on — and so an edit to the text is a
+        new slot, a fresh budget, a fresh try."""
+        basis = str(item.get("text") or item.get("content") or "")
+        return f"{proc.name}:{proposals.content_hash(item['note'] + chr(0) + basis)}"
+
+    def _invalid_plan(self, summary: dict, proc, error: Exception, slot: str) -> None:
         """The drafter answered, but its plan fails the proposal schema —
         so nothing enters the queue.
 
@@ -420,32 +442,25 @@ class Watcher:
         pass while every surface said "nothing extractable". It wasn't:
         extraction ran, and only the plan was malformed.
 
-        So it re-arms like a worker failure — drop the seen-hash and the
-        next pass redrafts — but on a BUDGET. A down worker recovers when
-        you restart it; the drafters build the proposal shape themselves
-        and the model only fills the fields, so a plan rejected for this
-        input tends to be rejected the same way every time, and an
-        unbounded re-arm is one LLM call per pass forever. Past the budget
-        the item PARKS: still reported, never retried, the seen-hash left
-        stamped. Editing the text moves the hash, which is a new budget
-        and a fresh try.
-
-        The counter lives only while a retry is in flight — dropped on
-        success and on parking alike — so state.json holds at most one
-        entry per processor rather than a growing scrapheap of hashes."""
+        So it re-arms like a worker failure — but on a BUDGET. A down
+        worker recovers when you restart it; the drafters build the
+        proposal shape themselves and the model only fills the fields, so
+        a plan rejected for this input tends to be rejected the same way
+        every time, and an unbounded re-arm is one LLM call per pass
+        forever. The budget rides `slot` (processor + input hash, from
+        _draft_slot), and the slot entry ITSELF parks the input once
+        spent: _draft skips any item sitting at the ceiling, which holds
+        for every lane — including the deterministic scans that re-find
+        their items each pass and have no seen-hash to hold a parking on.
+        The seen-hash lanes (capture) also get their hash dropped while
+        retrying, so the next pass redrafts. Editing the text moves the
+        hash: new slot, fresh budget."""
         detail = f"invalid plan: {error}"
-        # The seen-hash the drafter just stamped identifies the input that
-        # produced the bad plan; it is also the thing suppressing a retry.
-        # A processor that stamps nothing has nothing to re-arm.
-        key = self.seen.get(proc.name, "")
-        slot = f"{proc.name}:{key}"
         attempts = self.draft_attempts.get(slot, 0) + 1
-        retrying = bool(key) and attempts < DRAFT_PLAN_ATTEMPTS
+        self.draft_attempts[slot] = attempts
+        retrying = attempts < DRAFT_PLAN_ATTEMPTS
         if retrying:
-            self.draft_attempts[slot] = attempts
-            self.seen.pop(proc.name, None)   # re-arm: the next pass redrafts it
-        else:
-            self.draft_attempts.pop(slot, None)  # parked; the seen-hash holds it
+            self.seen.pop(proc.name, None)   # re-arm the seen-hash lanes
         # `retrying` is load-bearing on the surfaces: "the engine retries on
         # its next pass" is the right thing to say exactly while it's true.
         record = {"processor": proc.name, "error": detail, "retrying": retrying}
@@ -498,6 +513,9 @@ class Watcher:
                 break
             if proc.name in failed:
                 continue  # its worker already failed once: don't hammer it
+            slot = self._draft_slot(proc, item)
+            if self.draft_attempts.get(slot, 0) >= DRAFT_PLAN_ATTEMPTS:
+                continue  # parked: this exact input already returned N bad plans
             attempts += 1
             # The activity signal: which processor is thinking, about what.
             # Emission is telemetry (events.emit swallows OSError) — the
@@ -530,18 +548,18 @@ class Watcher:
                 events.emit(self.vault_path, "worker_error", record)
                 continue
             if p is None:
+                self.draft_attempts.pop(slot, None)  # a clean "nothing to propose"
                 continue
             try:
                 proposals.save(p, self.proposals_dir)
             except ValueError as e:
                 # An invalid plan never enters the queue — but it is a
-                # draft-stage failure, not a quiet vault, and the seen-hash
-                # is already stamped. See _invalid_plan.
-                self._invalid_plan(summary, proc, e)
+                # draft-stage failure, not a quiet vault. See _invalid_plan.
+                self._invalid_plan(summary, proc, e, slot)
                 continue
-            # A plan this processor CAN build retires any budget its last
-            # one was burning down.
-            self.draft_attempts.pop(f"{proc.name}:{self.seen.get(proc.name, '')}", None)
+            # A plan this processor CAN build retires any budget this
+            # input was burning down.
+            self.draft_attempts.pop(slot, None)
             drafted += 1
             # Auto-apply is the processor's POLICY level (Spec.md
             # `policies`, via policy_for), only
@@ -762,10 +780,10 @@ class Watcher:
                 # restarting the daemon. A bad value degrades to the
                 # current configuration, never a crashed pass.
                 cfg = get_config(self.vault_path)
-                try:
-                    self._configure(cfg)
-                except ValueError as e:
-                    print(f"Spec.md processor config ignored: {e}")
+                # Never raises for Spec.md content (unknown names are
+                # reported and ignored inside); the override branch was
+                # validated at construction.
+                self._configure(cfg)
                 if cfg.worker:
                     apply_worker_profile(cfg.worker)
                 for proc in self.processors:

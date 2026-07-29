@@ -53,6 +53,12 @@ def use_vault(vault_path: str) -> None:
     An early return here would silently keep the harness reading a
     folder the user just excluded. Rebuilding is cheap — get_config is
     mtime-cached — so pay it.
+
+    Thread note: this writes process globals (the env var, the vault
+    singleton) and is called from both the engine thread and the UI
+    server's threadpool readers. That is safe only because one server
+    process serves one vault, so every caller writes the same value —
+    a second vault in this process would need a lock here.
     """
     os.environ["TEZCAT_VAULT_PATH"] = str(vault_path)
     vault_mod._vault = None

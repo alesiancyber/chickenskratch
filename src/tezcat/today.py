@@ -33,17 +33,17 @@ from tezcat_vault import tasks as tk
 from tezcat_vault.vault import Vault, VaultError, read_lossy
 
 SOON_DAYS = 3   # "due soon" horizon (the Today view's forward glance)
+MAX_ROWS = 8    # per section; the rest folds behind a "+N more"
+WAITING_AGE_MIN = 3  # days before a waiting item starts showing its age
+
+# kanban columns that count as work in flight
+_ACTIVE_COLUMNS = {"doing", "in progress", "active", "in-progress"}
 
 
 def week_end(d: dt.date) -> dt.date:
     """The Sunday ending d's week — the ⏳ anchor for week-granular plans
     ("this week" stamps this Sunday, "next week" the one after)."""
     return d + dt.timedelta(days=6 - d.weekday())
-MAX_ROWS = 8    # per section; the rest folds behind a "+N more"
-WAITING_AGE_MIN = 3  # days before a waiting item starts showing its age
-
-# kanban columns that count as work in flight
-_ACTIVE_COLUMNS = {"doing", "in progress", "active", "in-progress"}
 
 
 def _link(rel: str) -> str:

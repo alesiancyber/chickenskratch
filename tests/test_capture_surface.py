@@ -305,8 +305,12 @@ def test_an_unusable_plan_is_reported_and_retried_then_parked(vault, make_watche
         # redrafts; once parked it stays stamped and suppresses the retry
         assert err["retrying"] is not parked
         assert bool(state["seen"].get("capture")) is parked
-    # parked: the budget is spent AND released, never left as scrap
-    assert json.loads(w.state_path.read_text())["draft_attempts"] == {}
+    # parked: the slot entry persists at the ceiling — the entry ITSELF is
+    # the parking, because the deterministic lanes (schema_fix, grouping)
+    # re-find their items every pass and stamp no seen-hash for a parking
+    # to ride on. _save_state bounds the map so it never grows a scrapheap.
+    ((slot, spent),) = json.loads(w.state_path.read_text())["draft_attempts"].items()
+    assert slot.startswith("capture:") and spent == watcher_mod.DRAFT_PLAN_ATTEMPTS
     seen_hash = json.loads(w.state_path.read_text())["seen"]["capture"]
 
     # a further pass no longer calls the model at all — the seen-hash holds

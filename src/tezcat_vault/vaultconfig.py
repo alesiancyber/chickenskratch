@@ -35,7 +35,6 @@ POLICY_LEVELS = ("off", "ask", "verified", "full")
 DEFAULT_POLICIES = {
     "capture": "verified",
     "schema_fix": "verified",
-    "archive_done": "verified",
 }
 
 
@@ -46,7 +45,7 @@ class VaultConfig:
     surfaces: dict[str, str]
     schemas_dir: Path
     # Where completed tasks get filed out of the working task notes (the
-    # archive_done processor). Empty string disables archiving.
+    # archive_done_tasks tool). Empty string disables archiving.
     done_archive: str = "Tasks/Archive.md"
     # Folder of dated capture records — where a dump with no shape worth
     # naming (a bare task list) lives, one note per day: summary if any,
@@ -161,7 +160,7 @@ def _spec_overrides(base: VaultConfig, fm: dict) -> VaultConfig:
         out = replace(out, exclude=tuple(str(e) for e in fm["exclude"]))
     if isinstance(fm.get("done_archive"), str):  # empty string = archiving off
         out = replace(out, done_archive=fm["done_archive"].strip())
-    if isinstance(fm.get("capture_archive"), str):  # empty string = no filing
+    if isinstance(fm.get("capture_archive"), str):  # empty falls back to Captures
         out = replace(out, capture_archive=fm["capture_archive"].strip())
     if isinstance(fm.get("policies"), dict):
         # Junk levels are dropped, not defaulted: an invalid level falls
