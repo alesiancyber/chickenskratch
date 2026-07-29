@@ -80,13 +80,13 @@ function Receipt({ last }) {
           saved to Capture.md — the engine was busy; it extracts on its next pass
         </div>
       )}
-      {/* "Nothing extractable" reads as "your text was worthless". What
-          actually happened is narrower and worth saying exactly: the
-          extractor found no TASKS. The words are still on the surface,
-          and prose is not a failed task. */}
+      {/* Every dump drafts a record proposal now, so a quiet pass means
+          something narrower: the engine had already processed this exact
+          text (the seen-hash) and won't re-ask. The words are still on
+          the surface either way. */}
       {quiet && (
         <div className="ghost small">
-          No tasks in that — your text is still on Capture.md.
+          Nothing new to file — your text is still on Capture.md.
         </div>
       )}
     </div>

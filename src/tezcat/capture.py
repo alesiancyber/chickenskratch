@@ -16,29 +16,20 @@ CAPTURE_SKELETON = """\
 # Capture
 
 _Type or paste anything here — brain dumps, meeting scraps, forwarded
-messages. On its next pass the harness extracts tasks and proposes them
-on the dashboard (or `tezcat decide`); nothing is added to the vault
-without your approval._
+messages. On its next pass the harness files it as a record: tasks
+extracted and formatted, your original text kept verbatim beneath. A
+plain task list files itself once verified; anything with a rewrite
+asks on the dashboard first (unless its policy in Spec.md is full)._
 """
-
-# Skeleton lines from earlier wordings of CAPTURE_SKELETON. Vaults seed
-# the skeleton once and keep it until the next reset, so retired wording
-# must stay stripped — otherwise it reads as user text and gets extracted
-# into junk tasks.
-_LEGACY_SKELETON_LINES = frozenset({
-    "_Type or paste anything here — brain dumps, meeting scraps, forwarded",
-    "messages. On its next pass the harness extracts tasks and proposes them",
-    "in Review.md; nothing is added to the vault without your approval there._",
-})
 
 
 def capture_text(raw: str) -> str:
-    """What the user typed: the note minus the skeleton's own lines
-    (current or legacy wording). Known //command lines are never capture
+    """What the user typed: the note minus the skeleton's own lines.
+    Known //command lines are never capture
     text — a command typed here by habit must not be extracted into a
     junk task (commands execute in knowledge notes; surfaces are
     excluded from the command scan)."""
-    skeleton = {ln for ln in CAPTURE_SKELETON.splitlines() if ln.strip()} | _LEGACY_SKELETON_LINES
+    skeleton = {ln for ln in CAPTURE_SKELETON.splitlines() if ln.strip()}
     return "\n".join(
         ln for ln in raw.splitlines()
         if ln.strip() and ln not in skeleton and not is_command_line(ln)

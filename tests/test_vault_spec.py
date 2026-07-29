@@ -242,3 +242,49 @@ def test_meetings_dir_is_a_spec_key_like_daily_dir(vault, monkeypatch):
     model = today_mod.collect(vault_mod.get_vault(), cfg, 0, dt.date(2026, 7, 20))
     assert model["meetings"] == ["Standups/2026-07-20 Weekly.md"]
     vaultconfig._merged_cache.clear()
+
+
+def test_policy_for_resolves_the_map_with_kill_switch_precedence(vault, monkeypatch):
+    """The policies map is the truth; a processor it doesn't name takes
+    DEFAULT_POLICIES; disabled_processors outranks everything — it is
+    the emergency kill switch, and a map naming every processor must
+    never render it inert. One resolver, so the engine and the console
+    can never read the same Spec differently."""
+    import tezcat_vault.vault as vault_mod
+
+    spec = vault / "Harness" / "Spec.md"
+    spec.parent.mkdir(parents=True, exist_ok=True)
+    spec.write_text(
+        "---\n"
+        "policies: {capture: full, grouping: verified, overlap: junklevel}\n"
+        "disabled_processors: [schema_fix]\n"
+        "---\n")
+    vaultconfig._merged_cache.clear()
+    monkeypatch.setattr(vault_mod, "_vault", None)
+
+    cfg = vaultconfig.get_config(str(vault))
+    assert cfg.policy_for("capture") == "full"        # explicit
+    assert cfg.policy_for("grouping") == "verified"   # explicit, even verifier-less
+    assert cfg.policy_for("schema_fix") == "off"      # kill switch outranks default
+    assert cfg.policy_for("plan_today") == "ask"      # named nowhere, no default grant
+    # a junk level is dropped at parse, so overlap falls to its default
+    # (ask) instead of silently meaning something the user didn't write
+    assert cfg.policy_for("overlap") == "ask"
+    vaultconfig._merged_cache.clear()
+
+
+def test_policy_defaults_grant_only_the_checkable_lanes(vault, monkeypatch):
+    import tezcat_vault.vault as vault_mod
+
+    spec = vault / "Harness" / "Spec.md"
+    spec.parent.mkdir(parents=True, exist_ok=True)
+    spec.write_text("---\nn_max: 5\n---\n")
+    vaultconfig._merged_cache.clear()
+    monkeypatch.setattr(vault_mod, "_vault", None)
+
+    cfg = vaultconfig.get_config(str(vault))
+    assert cfg.policy_for("capture") == "verified"
+    assert cfg.policy_for("schema_fix") == "verified"
+    assert cfg.policy_for("grouping") == "ask"        # judgment asks by default
+    assert cfg.policy_for("plan_today") == "ask"
+    vaultconfig._merged_cache.clear()

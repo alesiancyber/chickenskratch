@@ -177,7 +177,7 @@ def test_dead_worker_never_starves_commands(vault, make_watcher, monkeypatch):
         "# Capture\n\nremember to rotate the api keys\n")
     note = vault / "Tasks/detections.md"
     note.write_text("//azure alert correlation\n")
-    w = make_watcher(vault, registry=(processors.CAPTURE,), capture_extractor=worker_down)
+    w = make_watcher(vault, registry=(processors.CAPTURE,), record_worker=worker_down)
     summary = run(w)
     assert summary["commands"] == 1
     assert "learn.microsoft.com" in note.read_text()
@@ -203,23 +203,6 @@ def test_command_typed_into_capture_surface_never_becomes_a_task():
     assert commands.is_command_line("//azure alert correlation")
     assert commands.is_command_line("//azure")  # even bare: never task text
     assert not commands.is_command_line("//todo unknown commands are prose")
-
-
-def test_command_results_in_the_inbox_are_not_task_intent():
-    """A command result (callout title, quoted links, indented
-    continuations) must not be re-extracted as tasks; real free text
-    still is."""
-    section = [
-        "- [ ] existing task ^t-aaaaaaaaaaaa",
-        "> [!NOTE] //azure alert correlation",
-        "> - Alert correlation — https://learn.microsoft.com/x",
-        ">   covers: correlating alerts into incidents",
-        "call the vendor tomorrow",
-    ]
-    found = processors._inbox_prose("## Tasks\n" + "\n".join(section) + "\n")
-    heading, _lines, _idx, prose = found
-    assert heading == "Tasks"
-    assert prose == ["call the vendor tomorrow"]
 
 
 def test_callouts_are_always_note(vault, make_watcher, fake_azure):

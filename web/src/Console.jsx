@@ -54,53 +54,55 @@ function Field({ label, help, declared, children }) {
   );
 }
 
-/* One checkbox per processor, each saying what it is and — behind the
-   (i) — what ticking it actually changes. `noVerifier` marks the ones a
-   deterministic check cannot vouch for: under gated autonomy, trusting
-   those does nothing, and a control that silently means nothing is worse
-   than one that isn't offered. */
-function CheckList({ items, value, onChange, showVerifier = false, gated = false }) {
-  const set = new Set(value);
-  const order = items.map((it) => it.name);
-  // Said once, at the end, naming them. Repeating the same paragraph under
-  // every affected row buries the list it is talking about.
-  const inert = showVerifier && gated
-    ? items.filter((it) => !it.verified && set.has(it.name)) : [];
+/* Per-processor consent levels. The level IS the gate — there is no
+   second setting for a level to conflict with, which retired the whole
+   "ticked but inert" class this component's predecessor had to explain.
+   `verified` is offered only where a deterministic check exists; the
+   preset select above just fills these in. */
+const LEVEL_LABEL = {
+  off: "off — don't run",
+  ask: "ask — queue everything",
+  verified: "verified — apply what the check vouches for",
+  full: "full — apply everything, objections on the record",
+};
+
+const PRESETS = {
+  cautious: () => "ask",
+  standard: (it) => (it.verified ? "verified" : "ask"),
+  autonomous: () => "full",
+};
+
+function presetOf(items, levels) {
+  for (const [name, fn] of Object.entries(PRESETS)) {
+    if (items.every((it) => (levels?.[it.name] ?? "ask") === fn(it))) return name;
+  }
+  return "custom";
+}
+
+function PolicyList({ items, value, onChange }) {
+  const levels = value || {};
   return (
     <div className="cfg-checklist">
-      {items.map((it) => (
-        <label className="cfg-check" key={it.name}>
-          <input type="checkbox" checked={set.has(it.name)}
-                 onChange={(e) => {
-                   const next = new Set(set);
-                   if (e.target.checked) next.add(it.name); else next.delete(it.name);
-                   onChange(order.filter((x) => next.has(x)));
-                 }} />
-          <span className="cfg-item-name">{it.title}</span>
-          <span className="mono ghost small">{it.name}</span>
-          {showVerifier && !it.verified && (
-            <span className="chip" title="No deterministic check can vouch for this one">
-              always asks
-            </span>
-          )}
-          <Info text={it.blurb} label={it.title} />
-        </label>
-      ))}
-      {inert.length > 0 && (
-        <div className="small cfg-inert">
-          <strong>{inert.map((it) => it.title).join(", ")}</strong>{" "}
-          {inert.length === 1 ? "is ticked but inert" : "are ticked but inert"} while
-          autonomy is <em>gated</em>: nothing can vouch for {inert.length === 1 ? "it" : "them"},
-          so {inert.length === 1 ? "it" : "they"} still queue for you. Switch autonomy
-          to <em>full</em> to let {inert.length === 1 ? "it" : "them"} apply.
-        </div>
-      )}
+      {items.map((it) => {
+        const opts = ["off", "ask", ...(it.verified ? ["verified"] : []), "full"];
+        const cur = levels[it.name] ?? "ask";
+        return (
+          <div className="cfg-check" key={it.name}>
+            <span className="cfg-item-name">{it.title}</span>
+            <span className="mono ghost small">{it.name}</span>
+            <select value={opts.includes(cur) ? cur : "ask"}
+                    onChange={(e) => onChange({ ...levels, [it.name]: e.target.value })}>
+              {opts.map((o) => <option key={o} value={o}>{LEVEL_LABEL[o]}</option>)}
+            </select>
+            <Info text={it.blurb} label={it.title} />
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-/* Spec.md. Edits are staged and saved together: these keys interact —
-   autonomy decides what auto_apply MEANS — and saving each keystroke
+/* Spec.md. Edits are staged and saved together — saving each keystroke
    would write a git snapshot per character. */
 function VaultTab({ data, onSaved, onError }) {
   const [draft, setDraft] = useState(data.values);
@@ -134,29 +136,39 @@ function VaultTab({ data, onSaved, onError }) {
         to restart.
       </p>
 
-      <Field label="How much it may do without asking" help={help.autonomy}
-             declared={declared.has("autonomy")}>
-        <select value={draft.autonomy} onChange={(e) => set("autonomy", e.target.value)}>
-          {data.choices.autonomy.map((c) => (
-            <option key={c} value={c}>
-              {c === "gated" ? "gated — ask unless a check can vouch for it"
-                             : "full — apply everything trusted below"}
-            </option>
-          ))}
+      <Field label="How much it may do without asking" help={help.policies}
+             declared={declared.has("policies")}>
+        {/* The preset is not stored — it pre-selects the per-processor
+            levels below, which are the only truth. Mixed levels read
+            back as "custom". */}
+        <select value={presetOf(data.trustable, draft.policies)}
+                onChange={(e) => {
+                  const fn = PRESETS[e.target.value];
+                  if (fn) set("policies", Object.fromEntries(
+                    data.trustable.map((it) => [it.name, fn(it)])));
+                }}>
+          <option value="cautious">cautious — everything asks</option>
+          <option value="standard">standard — apply what a check can vouch for</option>
+          <option value="autonomous">autonomous — apply everything, on the record</option>
+          <option value="custom" disabled>custom — tuned below</option>
         </select>
+        <PolicyList items={data.trustable} value={draft.policies}
+                    onChange={(v) => set("policies", v)} />
       </Field>
 
-      <Field label="Trusted to apply without asking" help={help.auto_apply}
-             declared={declared.has("auto_apply")}>
-        <CheckList items={data.trustable} value={draft.auto_apply}
-                   onChange={(v) => set("auto_apply", v)}
-                   showVerifier gated={draft.autonomy === "gated"} />
-      </Field>
-
-      <Field label="Switched off entirely" help={help.disabled_processors}
+      <Field label="Typed //commands" help={help.disabled_processors}
              declared={declared.has("disabled_processors")}>
-        <CheckList items={data.disablable} value={draft.disabled_processors}
-                   onChange={(v) => set("disabled_processors", v)} />
+        <label className="cfg-check">
+          <input type="checkbox"
+                 checked={!(draft.disabled_processors || []).includes("inline_command")}
+                 onChange={(e) => set("disabled_processors",
+                   e.target.checked
+                     ? (draft.disabled_processors || []).filter((x) => x !== "inline_command")
+                     : [...(draft.disabled_processors || []), "inline_command"])} />
+          <span className="cfg-item-name">Execute //commands typed into notes</span>
+          <Info text={(data.disablable.find((d) => d.name === "inline_command") || {}).blurb || ""}
+                label="//commands" />
+        </label>
       </Field>
 
       <Field label="How closely extractions must match your words"
@@ -185,10 +197,8 @@ function VaultTab({ data, onSaved, onError }) {
         </select>
       </Field>
 
-      {[["capture_inbox", "Extracted tasks go to"],
-        ["waiting_inbox", "Things others owe you go to"],
-        ["done_archive", "Completed tasks are archived to"],
-        ["capture_archive", "Processed dumps are filed to"],
+      {[["done_archive", "Completed tasks are archived to"],
+        ["capture_archive", "Capture records folder"],
         ["daily_dir", "Daily notes folder"],
         ["meetings_dir", "Meeting notes folder"]].map(([k, label]) => (
           <Field key={k} label={label} help={help[k]} declared={declared.has(k)}>
@@ -225,8 +235,6 @@ function VaultTab({ data, onSaved, onError }) {
     </div>
   );
 }
-
-const NUMERIC = new Set(["worker_max_tokens", "max_iterations", "max_tool_result_chars"]);
 
 function ProfileCard({ p, fields, onField }) {
   return (

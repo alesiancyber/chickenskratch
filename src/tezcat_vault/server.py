@@ -291,7 +291,7 @@ def list_tasks(folder: str = "", status: str = "open", task_type: str = "",
     Example: list_tasks(status="open") ->
       {"filter": {"status": "open"}, "total": 22,
        "counts_by_type": {"task": 7, "kanban": 4, "research": 4, ...},
-       "tasks": [{"note": "Tasks/Inbox.md", "type": "task", "text": ..., "due": ...}, ...]}
+       "tasks": [{"note": "Captures/2026-07-17.md", "type": "task", "text": ..., "due": ...}, ...]}
     """
     v = get_vault()
     if status not in ("open", "done", "all"):
@@ -341,7 +341,7 @@ def add_task(path: str, text: str, due: str = "", priority: str = "",
     highest/high/medium/low/lowest. If `section` is given the task is added
     at the end of that heading's section, otherwise at the end of the note.
 
-    Example: add_task(path="Tasks/Inbox", text="Renew domain", due="2026-07-25", priority="high")
+    Example: add_task(path="Captures/2026-07-25", text="Renew domain", due="2026-07-25", priority="high")
     """
     _writable(path)
     line = tk.format_task(text, due or None, priority or None,
@@ -389,7 +389,7 @@ def set_task_status(path: str, task_text: str, done: bool = True) -> dict:
     """Mark a task done (or reopen it with done=false). task_text matches the task
     by exact text or unique substring. Completing stamps today's ✅ done date.
 
-    Example: set_task_status(path="Tasks/Inbox", task_text="Renew domain", done=true)
+    Example: set_task_status(path="Captures/2026-07-25", task_text="Renew domain", done=true)
     """
     _writable(path)
     v = get_vault()
@@ -429,7 +429,7 @@ def set_task_due(path: str, task_text: str, due: str = "") -> dict:
     the reschedule verb — the dashboard's week→today move rides on it,
     and every call is one revertible snapshot.
 
-    Example: set_task_due(path="Tasks/Inbox", task_text="Renew domain", due="2026-07-28")
+    Example: set_task_due(path="Captures/2026-07-25", task_text="Renew domain", due="2026-07-28")
     """
     _writable(path)
     if due:
@@ -460,7 +460,7 @@ def set_task_scheduled(path: str, task_text: str, scheduled: str = "") -> dict:
     a judgment, recorded as ⏳. The dashboard's promote/defer verbs ride
     on this; every call is one revertible snapshot.
 
-    Example: set_task_scheduled(path="Tasks/Inbox", task_text="Renew domain", scheduled="2026-07-27")
+    Example: set_task_scheduled(path="Captures/2026-07-25", task_text="Renew domain", scheduled="2026-07-27")
     """
     _writable(path)
     if scheduled:
@@ -494,7 +494,7 @@ def archive_done_tasks(path: str, archive_path: str = "") -> dict:
     editor (no ✅ date) gets today's stamped on, so the archive always
     says when. Removing lines never leaves blank runs behind.
 
-    Example: archive_done_tasks(path="Tasks/Inbox") ->
+    Example: archive_done_tasks(path="Captures/2026-07-25") ->
       {"archived": 3, "archive": "Tasks/Archive.md"}
     """
     v = get_vault()

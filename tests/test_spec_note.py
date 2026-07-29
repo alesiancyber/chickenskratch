@@ -35,7 +35,9 @@ def test_first_pass_seeds_spec_note_once(vault, make_watcher):
     run(w)
     fm, body = md.split_frontmatter(spec_path(vault).read_text())
     assert fm["folders"]["Tasks"] == "task"
-    assert fm["capture_inbox"] == "Tasks/Inbox.md"
+    # the whole consent posture, legible in one key from day one
+    assert fm["policies"]["capture"] == "verified"
+    assert fm["policies"]["grouping"] == "ask"
     assert "yours" in body  # seeded once, then user-owned
     # user edits survive every subsequent pass — never regenerated
     edited = spec_path(vault).read_text().replace("# Vault Spec", "# Vault Spec (mine)")
@@ -48,15 +50,15 @@ def test_spec_note_overrides_are_live_per_pass(vault, make_watcher):
     w = make_watcher(vault, drafter=no_worker, n_max=0)
     run(w)
     fm, body = md.split_frontmatter(spec_path(vault).read_text())
-    fm["waiting_inbox"] = "Tasks/Blocked.md"
+    fm["meetings_dir"] = "Standups"
     fm["exclude"] = ["Private", "Meetings"]
     spec_path(vault).write_text(md.join_frontmatter(fm, body))
 
     cfg = vc.get_config(str(vault))
-    assert cfg.waiting_inbox == "Tasks/Blocked.md"
+    assert cfg.meetings_dir == "Standups"
     assert cfg.exclude == ("Private", "Meetings")
-    run(w)
-    assert w.waiting_inbox == "Tasks/Blocked.md"  # engine picked it up, no restart
+    run(w)  # engine picked it up, no restart (re-reads per pass)
+    assert vc.get_config(str(vault)).meetings_dir == "Standups"
 
 
 async def stamp_drafter(item):
@@ -69,12 +71,13 @@ async def stamp_drafter(item):
 def full_registry_watcher(make_watcher, vault, **kw):
     """A watcher running the DEFAULT registry (needed to observe Spec.md
     disabled_processors) with every worker faked to a no-op."""
-    async def no_tasks(text, today):
-        return []
+    async def no_record(text, today):
+        return {"record": {"kind": "capture", "title": "", "attendees": [],
+                           "summary": ""}, "tasks": []}
     async def no_groups(item):
         return {"groups": []}
-    return make_watcher(vault, drafter=stamp_drafter, capture_extractor=no_tasks,
-                        grouping_drafter=no_groups, **kw)
+    return make_watcher(vault, drafter=stamp_drafter,
+                        record_worker=no_record, grouping_drafter=no_groups, **kw)
 
 
 def test_spec_note_drives_engine_knobs_per_pass(vault, make_watcher, monkeypatch):
@@ -95,8 +98,7 @@ def test_spec_note_drives_engine_knobs_per_pass(vault, make_watcher, monkeypatch
     run(w)
     assert w.n_max == 2
     assert [p.name for p in w.processors] == [
-        "capture", "inbox_extract", "archive_done", "spec_drift", "overlap",
-        "plan_today"]
+        "capture", "spec_drift", "overlap", "plan_today"]
     assert applied == ["spec-picked"]
 
     # a pinned knob wins over the note

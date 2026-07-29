@@ -94,12 +94,36 @@ def test_tree_renders_the_vault_and_stays_blind_to_the_excluded(client, vault):
     assert not any(n.startswith("Private/") for n in notes)
     assert not any(n.startswith(".") for n in notes)   # .git is not a folder
     assert all(n.endswith(".md") for n in notes)
-    # machine surfaces ride along so the rail can ghost them by name
+    # machine surfaces are the engine's backend, not the user's tree:
+    # filtered out entirely (Capture.md is fed by the canvas, Spec.md
+    # edited in the console)
+    assert not any(n.startswith("Harness/") for n in notes)
     assert "Harness" in data["surface_dirs"]
     assert data["truncated"] is False
     # a note that appears is a note the next refetch shows: no cached shape
     (vault / "Tasks/brand new.md").write_text("# new\n")
     assert "Tasks/brand new.md" in client.get("/api/tree").json()["notes"]
+
+
+def test_tree_labels_are_glanceable(client, vault):
+    """The rail's display names: the year dropped from dated stems (the
+    filename keeps it), and a date-ONLY note — a capture or daily —
+    described by its block topics, so "which day did I work detections"
+    is answerable by looking instead of searching."""
+    (vault / "Meetings" / "2026-07-12 Sentinel Detections.md").write_text("# S\n")
+    (vault / "Captures").mkdir(exist_ok=True)
+    (vault / "Captures" / "2026-07-15.md").write_text(
+        "---\ntype: capture\n---\n\n## 09:10 — sentinel detections\n\nx\n"
+        "\n## 14:02 — cloud onboarding\n\ny\n\n## 15:00 — third thing\n\nz\n")
+    (vault / "Captures" / "2026-07-16.md").write_text(
+        "---\ntype: capture\n---\n\n## 09:10\n\nbare, no topic\n")
+    labels = client.get("/api/tree").json()["labels"]
+    assert labels["Meetings/2026-07-12 Sentinel Detections.md"] == "07-12 Sentinel Detections"
+    # date-only: described by its first topics, capped
+    assert labels["Captures/2026-07-15.md"] == "07-15 sentinel detections · cloud onboarding"
+    assert labels["Captures/2026-07-16.md"] == "07-16"
+    # an undated name needs no label at all
+    assert "Home.md" not in labels
 
 
 def test_tree_is_bounded(client, monkeypatch):
@@ -185,28 +209,33 @@ def test_chat_routes_are_wired_and_guarded(client):
 
 def test_canvas_ingest_splits_commands_from_capture(client, vault, monkeypatch):
     """One dump, two classes of change: the //command line executes
-    instantly (I3), the prose rides the capture pipeline — here
-    auto-trusted extraction files the task and the dump survives in
-    git."""
+    instantly (I3), the prose rides the capture pipeline — here a bare
+    task list, fully verifiable, so the record files itself."""
+    import datetime as _dt
+
+    from tests.conftest import record_reply
     from tezcat import commands as cmd_mod
 
     async def fake_azure(args, vault_path):
         return f"- [Ranked hit for {args}](https://learn.microsoft.com/x)"
 
-    async def fake_extract(text, today):
+    async def fake_record(text, today):
         assert "renew the domain" in text and "//azure" not in text
-        return [{"text": "renew the domain", "due": "2026-08-01"}]
+        return record_reply([{"text": "renew the domain", "due": "2026-08-01"}])
 
     monkeypatch.setitem(cmd_mod.INLINE_COMMANDS, "azure", fake_azure)
-    monkeypatch.setattr("tezcat_vault.workers.extract_tasks", fake_extract)
+    monkeypatch.setattr("tezcat_vault.workers.extract_record", fake_record)
     r = client.post("/api/ingest", json={
         "text": "//azure sentinel alert rules\nrenew the domain by friday\n"})
     assert r.status_code == 200
     body = r.json()
     (cmd,) = body["commands"]
     assert cmd["command"] == "azure" and "Ranked hit" in cmd["result"]
-    assert body["summary"]["auto"] == 1
-    assert "renew the domain" in (vault / "Tasks/Inbox.md").read_text()
+    # ≥: the full registry runs here, so other processors may also have
+    # auto-applied housekeeping in the same pass
+    assert body["summary"]["auto"] >= 1
+    filed = (vault / "Captures" / f"{_dt.date.today().isoformat()}.md").read_text()
+    assert "renew the domain 📅 2026-08-01" in filed
 
 
 def test_canvas_command_only_dump_never_touches_capture(client, vault, monkeypatch):
@@ -286,23 +315,28 @@ def test_console_reads_config_and_gates_its_writes(client, vault):
     rest of the server, because a settings page is a write surface."""
     data = client.get("/api/console").json()
     assert {"vault", "models"} <= set(data)
-    assert data["vault"]["values"]["autonomy"] in ("gated", "full")
+    assert data["vault"]["values"]["policies"]["capture"] in (
+        "off", "ask", "verified", "full")
     assert "capture" in {p["name"] for p in data["vault"]["trustable"]}
     # no secret in the payload, ever — only the env var's name and status
     assert "api_key\"" not in client.get("/api/console").text
 
     # writes: same channel hardening as decide/revert/ingest
-    assert client.post("/api/console/vault", content="autonomy=full").status_code == 415
-    assert client.post("/api/console/vault", json={"fields": {"autonomy": "full"}},
+    assert client.post("/api/console/vault", content="n_max=7").status_code == 415
+    assert client.post("/api/console/vault", json={"fields": {"n_max": 7}},
                        headers={"Origin": "https://evil.example"}).status_code == 403
 
     # a rejected setting is a 400 with the reason, not a silent no-op
-    r = client.post("/api/console/vault", json={"fields": {"autonomy": "whenever"}})
+    r = client.post("/api/console/vault",
+                    json={"fields": {"policies": {"capture": "whenever"}}})
     assert r.status_code == 400 and "must be one of" in r.json()["error"]
 
-    r = client.post("/api/console/vault", json={"fields": {"autonomy": "full", "n_max": 7}})
-    assert r.status_code == 200 and set(r.json()["changed"]) == {"autonomy", "n_max"}
-    assert client.get("/api/console").json()["vault"]["values"]["n_max"] == 7
+    levels = dict(data["vault"]["values"]["policies"], capture="full")
+    r = client.post("/api/console/vault",
+                    json={"fields": {"policies": levels, "n_max": 7}})
+    assert r.status_code == 200 and set(r.json()["changed"]) == {"policies", "n_max"}
+    after = client.get("/api/console").json()["vault"]["values"]
+    assert after["n_max"] == 7 and after["policies"]["capture"] == "full"
 
 
 def test_task_line_rewrites_without_touching_the_vault(client, vault):

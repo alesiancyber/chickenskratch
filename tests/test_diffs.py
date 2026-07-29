@@ -61,7 +61,7 @@ def test_a_queued_proposal_previews_as_a_unified_diff(vault, make_watcher):
                            "args": {"path": item["note"], "key": "status", "value": "rewritten"}}]}
 
     w = make_watcher(vault, drafter=rewording_drafter, n_max=1,
-                     disabled=("capture", "inbox_extract", "spec_drift", "grouping", "archive_done"))
+                     disabled=("capture", "spec_drift", "grouping"))
     asyncio.run(w.run_once())
     (p, *_) = proposals.pending(w.proposals_dir)
 

@@ -26,8 +26,11 @@ function loadOpen() {
 }
 
 /* Flat rels in, nested folders out. Maps (not objects) so a folder
-   called "constructor" or "__proto__" is a folder, not a bug. */
-function buildTree(notes) {
+   called "constructor" or "__proto__" is a folder, not a bug.
+   `labels` (from /api/tree) is the glanceable display name — dated
+   stems with the year dropped, date-only notes described by their
+   topics; the rel (and the row's title tooltip) keeps the real name. */
+function buildTree(notes, labels) {
   const root = { dirs: new Map(), files: [] };
   for (const rel of notes) {
     const parts = rel.split("/");
@@ -36,7 +39,10 @@ function buildTree(notes) {
       if (!node.dirs.has(part)) node.dirs.set(part, { dirs: new Map(), files: [] });
       node = node.dirs.get(part);
     }
-    node.files.push({ name: parts[parts.length - 1].replace(/\.md$/, ""), rel });
+    node.files.push({
+      name: labels?.[rel] ?? parts[parts.length - 1].replace(/\.md$/, ""),
+      rel,
+    });
   }
   return root;
 }
@@ -114,12 +120,12 @@ export default function Explorer({ tree, open, onToggle, active, onOpen }) {
     return next;
   }), []);
 
-  const notes = tree?.notes ?? [];
+  const notes = useMemo(() => tree?.notes ?? [], [tree]);
   const q = query.trim().toLowerCase();
   const matches = useMemo(
     () => (q ? notes.filter((rel) => rel.toLowerCase().includes(q)) : notes),
     [notes, q]);
-  const model = useMemo(() => buildTree(matches), [matches]);
+  const model = useMemo(() => buildTree(matches, tree?.labels), [matches, tree]);
   const surfaces = useMemo(() => new Set(tree?.surface_dirs ?? []), [tree]);
 
   // While filtering, folding is noise: show every branch that survived.

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "lint": "eslint src vite.config.js eslint.config.js && htmlhint index.html"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
@@ -21,6 +22,10 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "htmlhint": "^1.9.2",
     "vite": "^6.0.7"
   }
 }

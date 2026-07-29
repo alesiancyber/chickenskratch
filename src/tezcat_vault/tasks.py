@@ -2,13 +2,19 @@
 
 A task is a `- [ ]` / `- [x]` list line; metadata rides in emoji fields:
 due date `📅 YYYY-MM-DD`, scheduled date `⏳ YYYY-MM-DD`, done date
-`✅ YYYY-MM-DD`, created `➕ YYYY-MM-DD`, and priority markers
-(🔺 highest, ⏫ high, 🔼 medium, 🔽 low, ⏬ lowest).
+`✅ YYYY-MM-DD`, created `➕ YYYY-MM-DD`, owner `👤 Name`, and priority
+markers (🔺 highest, ⏫ high, 🔼 medium, 🔽 low, ⏬ lowest).
 
 📅 and ⏳ mean different things and the distinction is load-bearing:
 due is a hard external commitment (rare, never fabricated by the
 harness); scheduled is a plan — "work on this then" — the judgment
 field that promote/defer verbs move.
+
+👤 marks work someone ELSE owes the user ("👤 Nadia" — she owes this).
+It replaces owed-ness-by-location (a task was owed because it sat in
+Tasks/Waiting.md): once owed items live inside the records they came
+from, the line itself has to say so. Not an Obsidian Tasks field — it
+degrades to plain text anywhere else, which is fine.
 """
 
 from __future__ import annotations
@@ -24,6 +30,10 @@ DUE_RE = re.compile(r"📅\s*(\d{4}-\d{2}-\d{2})")
 SCHEDULED_RE = re.compile(r"[⏳⌛]\s*(\d{4}-\d{2}-\d{2})")  # both plugin glyphs parse; ⏳ is written
 DONE_RE = re.compile(r"✅\s*(\d{4}-\d{2}-\d{2})")
 CREATED_RE = re.compile(r"➕\s*(\d{4}-\d{2}-\d{2})")
+# Owner is free text (a name, "the SOC"), so it runs to the next emoji
+# field rather than a date shape. The block ref is split off before any
+# field parsing, so ^ need not be excluded here.
+OWNER_RE = re.compile(r"👤\s*([^📅⏳⌛✅➕🔺⏫🔼🔽⏬]+)")
 
 PRIORITY_MARKS = {"🔺": "highest", "⏫": "high", "🔼": "medium", "🔽": "low", "⏬": "lowest"}
 PRIORITY_EMOJI = {v: k for k, v in PRIORITY_MARKS.items()}
@@ -41,6 +51,7 @@ class Task:
     block_id: str | None = None   # trailing ^ref — the entity-id watermark
     created: str | None = None    # ➕ birth date — stamped at format_task
     scheduled: str | None = None  # ⏳ plan date — the judgment field
+    owner: str | None = None      # 👤 who owes this — owed work, not the user's
 
     def to_dict(self, path: str) -> dict:
         d = {"note": path, "line": self.line_no + 1, "text": self.text, "done": self.done}
@@ -48,6 +59,8 @@ class Task:
             d["due"] = self.due
         if self.scheduled:
             d["scheduled"] = self.scheduled
+        if self.owner:
+            d["owner"] = self.owner
         if self.priority:
             d["priority"] = self.priority
         if self.done_date:
@@ -69,8 +82,13 @@ def parse_task_line(line: str, line_no: int = 0) -> Task | None:
     scheduled = _first(SCHEDULED_RE, body)
     done_date = _first(DONE_RE, body)
     created = _first(CREATED_RE, body)
+    owner_m = OWNER_RE.search(body)
+    owner = owner_m.group(1).strip() if owner_m else None
     priority = next((name for mark, name in PRIORITY_MARKS.items() if mark in body), None)
-    text = DUE_RE.sub("", body)
+    # 👤 strips first: its free-text value runs to the next emoji field,
+    # so it must be removed while those fields are still in place.
+    text = OWNER_RE.sub("", body)
+    text = DUE_RE.sub("", text)
     text = SCHEDULED_RE.sub("", text)
     text = DONE_RE.sub("", text)
     text = CREATED_RE.sub("", text)
@@ -87,6 +105,7 @@ def parse_task_line(line: str, line_no: int = 0) -> Task | None:
         block_id=block_id,
         created=created,
         scheduled=scheduled,
+        owner=owner,
     )
 
 
@@ -110,7 +129,7 @@ def _real_date(value: str, label: str) -> None:
 def format_task(
     text: str, due: str | None = None, priority: str | None = None,
     block_id: str | None = None, created: str | None = "auto",
-    scheduled: str | None = None,
+    scheduled: str | None = None, owner: str | None = None,
 ) -> str:
     """Render a task line. `created="auto"` (the default) stamps today's
     ➕ birth date — format_task is the choke point every harness-born
@@ -118,8 +137,12 @@ def format_task(
     exists globally from day one instead of needing archaeology later.
     Pass created=None to skip. `scheduled` is the ⏳ plan field ("this
     week" captures stamp the week's Sunday); `due` stays the hard
-    commitment."""
+    commitment. `owner` marks owed work (👤, directly after the text —
+    its free-text value parses up to the next emoji field, so it never
+    sits between prose)."""
     parts = [f"- [ ] {text.strip()}"]
+    if owner:
+        parts.append(f"👤 {owner.strip()}")
     if priority:
         emoji = PRIORITY_EMOJI.get(priority.lower())
         if emoji is None:

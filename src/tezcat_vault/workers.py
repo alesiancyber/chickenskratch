@@ -232,6 +232,60 @@ _EXTRACT_TASKS_HEDGES = """\
   or priority, use null.
 """
 
+_EXTRACT_RECORD_PROMPT = """\
+Decompose the dump below into a RECORD and its TASKS. The dump is rough,
+unedited notes ("chicken scratch"); the record is its readable form.
+
+Return ONLY a JSON object of this shape, nothing else:
+{{"record": {{"kind": "meeting or capture", "title": "...", \
+"attendees": ["..."], "summary": "..."}},
+ "tasks": [{{"text": "...", "due": "YYYY-MM-DD or null", "scheduled": "YYYY-MM-DD or null", "priority": "highest|high|medium|low|lowest or null", "owed_by": "name or null"}}]}}
+
+The record:
+- kind "meeting" ONLY when the dump clearly recounts a meeting, call, or
+  conversation among named or implied people. Everything else — task
+  lists, ideas, research scraps, status notes — is kind "capture".
+- title: a short noun phrase naming what this is ("team weekly",
+  "azure baseline sync"). For kind "capture" with no obvious subject,
+  use "".
+- attendees: people present or speaking in a meeting, first names as
+  written. [] when not a meeting or none are named.
+- summary: the dump rewritten as clear, well-formed prose — full
+  sentences, decisions and context preserved, nothing invented. This is
+  a REWRITE of what was said, not commentary on it. Keep every fact,
+  name, number, and reason from the dump; drop only filler. "" when the
+  dump is a bare task list with no prose worth keeping.
+
+The tasks (same rules as task extraction):
+- due is a HARD deadline: only when the text states or clearly implies
+  a real commitment ("by Friday", "urgent — do it today" -> due
+  {today}). Today is {today}.
+- scheduled is a PLAN — "this week" -> {this_sunday}, "next week" ->
+  {next_sunday}, stated intent like "I'll look at it today" -> {today}.
+  Never invent one; never set both from the same phrase.
+- priority: only if stated or strongly implied. Otherwise null.
+- owed_by: set when another person or team owes the reader something
+  ("Nadia will send X" -> owed_by "Nadia"). The reader's own actions
+  have owed_by null.
+- text: the task itself, imperative mood, close to the dump's own words,
+  without repeating the date or priority word.
+- No tasks -> "tasks": [].
+{hedges}
+Dump:
+{text}
+"""
+
+# Small-model hedges: the judgment calls a 4B model gets wrong — invented
+# meetings, embellished summaries, misattributed owed_by.
+_EXTRACT_RECORD_HEDGES = """\
+- When unsure whether it is a meeting, use kind "capture".
+- The summary may ONLY contain facts stated in the dump. When unsure,
+  quote the dump's own wording. Never add conclusions or advice.
+- Set owed_by ONLY when the text names who owes it; when unsure, null.
+- Stay close to the text's own wording; when unsure about due,
+  scheduled, or priority, use null.
+"""
+
 _SCHEMA_FIX_PROMPT = """\
 You maintain a markdown vault. The note below fails its entity schema.
 Draft the minimal fix as tool calls. Allowed tools and their args:
@@ -385,6 +439,53 @@ WORKERS: dict[str, WorkerSpec] = {
             },
         },
     ),
+    "extract_record": WorkerSpec(
+        name="extract_record",
+        prompt=_EXTRACT_RECORD_PROMPT,
+        hedges=_EXTRACT_RECORD_HEDGES,
+        max_tokens=4000,   # the summary is a full rewrite of the dump
+        schema={
+            "type": "object",
+            "required": ["record", "tasks"],
+            "properties": {
+                "record": {
+                    "type": "object",
+                    "required": ["kind"],
+                    "properties": {
+                        "kind": {"enum": ["meeting", "capture"]},
+                        "title": {"type": ["string", "null"]},
+                        "attendees": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "summary": {"type": ["string", "null"]},
+                    },
+                },
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["text"],
+                        "properties": {
+                            "text": {"type": "string", "minLength": 1},
+                            "due": {
+                                "type": ["string", "null"],
+                                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+                            },
+                            "scheduled": {
+                                "type": ["string", "null"],
+                                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+                            },
+                            "priority": {
+                                "enum": ["highest", "high", "medium", "low", "lowest", None]
+                            },
+                            "owed_by": {"type": ["string", "null"]},
+                        },
+                    },
+                },
+            },
+        },
+    ),
     "plan_today": WorkerSpec(
         name="plan_today",
         prompt=_PLAN_TODAY_PROMPT,
@@ -475,18 +576,12 @@ def _real_date_or_none(value) -> str | None:
     return str(value)
 
 
-async def extract_tasks(text: str, today: str) -> list[dict]:
-    """Pull structured tasks out of free text via the extract_tasks worker.
-    Week-granular plan language ("this week", "next week") lands in
-    `scheduled` as that week's Sunday — the ⏳ anchor convention."""
-    day = dt.date.fromisoformat(today)
-    this_sunday = day + dt.timedelta(days=6 - day.weekday())
-    data = await run_worker(WORKERS["extract_tasks"], today=today,
-                            this_sunday=this_sunday.isoformat(),
-                            next_sunday=(this_sunday + dt.timedelta(days=7)).isoformat(),
-                            text=text.strip())
+def _shape_tasks(raw_tasks: list[dict]) -> list[dict]:
+    """The worker's task rows, sanitized the one way every extractor
+    shares: real dates or None, dropped impossible dates surfaced as
+    `dropped_due` (drafters turn that into a forced checkbox)."""
     out = []
-    for t in data["tasks"]:
+    for t in raw_tasks:
         due = _real_date_or_none(t.get("due"))
         scheduled = _real_date_or_none(t.get("scheduled"))
         task = {
@@ -505,3 +600,41 @@ async def extract_tasks(text: str, today: str) -> list[dict]:
             task["dropped_due"] = str(t["scheduled"])  # same forced-review lever
         out.append(task)
     return out
+
+
+def _week_anchors(today: str) -> dict:
+    """The prompt's date context: today plus the ⏳ anchor Sundays
+    ("this week" / "next week" plan language)."""
+    day = dt.date.fromisoformat(today)
+    this_sunday = day + dt.timedelta(days=6 - day.weekday())
+    return {"today": today, "this_sunday": this_sunday.isoformat(),
+            "next_sunday": (this_sunday + dt.timedelta(days=7)).isoformat()}
+
+
+async def extract_tasks(text: str, today: str) -> list[dict]:
+    """Pull structured tasks out of free text via the extract_tasks worker.
+    Week-granular plan language ("this week", "next week") lands in
+    `scheduled` as that week's Sunday — the ⏳ anchor convention."""
+    data = await run_worker(WORKERS["extract_tasks"],
+                            **_week_anchors(today), text=text.strip())
+    return _shape_tasks(data["tasks"])
+
+
+async def extract_record(text: str, today: str) -> dict:
+    """Decompose a dump into {record, tasks} via the extract_record
+    worker — the capture lane's one LLM call. The record's summary is a
+    free rewrite (reviewed, never verified); the tasks are sanitized
+    exactly like extract_tasks' so the drafter holds them to the same
+    fidelity standard."""
+    data = await run_worker(WORKERS["extract_record"],
+                            **_week_anchors(today), text=text.strip())
+    rec = data["record"]
+    return {
+        "record": {
+            "kind": rec.get("kind") or "capture",
+            "title": (rec.get("title") or "").strip(),
+            "attendees": [a.strip() for a in rec.get("attendees") or [] if a.strip()],
+            "summary": (rec.get("summary") or "").strip(),
+        },
+        "tasks": _shape_tasks(data["tasks"]),
+    }

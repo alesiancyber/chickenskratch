@@ -41,7 +41,7 @@ def vault(gitvault):
 
 @pytest.fixture()
 def watcher(vault, make_watcher):
-    return make_watcher(vault, disabled=("archive_done",), drafter=fake_drafter, n_max=3)
+    return make_watcher(vault, drafter=fake_drafter, n_max=3)
 
 
 def run(watcher):
@@ -162,7 +162,7 @@ def test_decisions_only_acts_without_scanning(vault, watcher, make_watcher):
     async def exploding(item):
         raise AssertionError("the decision lane must never draft")
 
-    fast = make_watcher(vault, disabled=("archive_done",), drafter=exploding, n_max=3)
+    fast = make_watcher(vault, drafter=exploding, n_max=3)
     summary = decide(fast, target["id"], decisions_only=True)
     assert summary["approved"] == 1 and summary["drafted"] == 0 and not summary["scanned"]
     # the memo was left untouched, so the next full pass still scans
@@ -173,20 +173,22 @@ def test_an_auto_apply_lands_and_the_next_pass_reads_what_it_wrote(vault, make_w
     """Auto-apply is the one thing that still writes to the vault AFTER
     this pass's scan, so it is what proves the next pass reads the tree
     as the apply left it rather than as the scan found it."""
-    async def faithful(text, today):
-        return [{"text": "buy a car", "due": None, "priority": None, "owed_by": None}]
+    from tests.conftest import record_worker_returning
 
     # this suite's vault revokes auto-apply trust; this test needs it back
     (vault / "Harness/Spec.md").write_text(
-        "---\nauto_apply: [inbox_extract]\n---\n\n# Vault Spec\n")
-    w = make_watcher(vault, capture_extractor=faithful,
-                     disabled=("schema_fix", "grouping", "spec_drift", "archive_done"),
+        "---\npolicies: {capture: verified}\n---\n\n# Vault Spec\n")
+    worker = record_worker_returning(
+        [{"text": "buy a car", "due": None, "priority": None, "owed_by": None}])
+    w = make_watcher(vault, record_worker=worker,
+                     disabled=("schema_fix", "grouping", "spec_drift"),
                      n_max=20)
-    inbox = vault / "Tasks/Inbox.md"
-    inbox.write_text(inbox.read_text().rstrip("\n") + "\nbuy a car\n")
+    (vault / "Harness/Capture.md").write_text("# Capture\n\nbuy a car\n")
     assert run(w)["auto"] == 1        # applied after the scan had already run
-    assert "buy a car" in (vault / "Tasks/Inbox.md").read_text()
-    # the next pass sees the applied text and does not re-extract it
+    import datetime as _dt
+    filed = (vault / "Captures" / f"{_dt.date.today().isoformat()}.md").read_text()
+    assert "buy a car" in filed
+    # the next pass sees the cleared surface and does not re-extract
     assert run(w)["auto"] == 0
 
 
@@ -197,7 +199,7 @@ def test_invalid_drafter_output_never_enters_queue(vault, tmp_path, monkeypatch)
         return {"title": "x", "summary": "y",
                 "apply": [{"tool": "delete_everything", "args": {}}]}
 
-    w = Watcher(str(vault), disabled=("archive_done",), proposals_dir=tmp_path / "p2",
+    w = Watcher(str(vault), proposals_dir=tmp_path / "p2",
                 state_path=tmp_path / "s2.json", drafter=bad_drafter, n_max=2)
     summary = run(w)
     assert summary["drafted"] == 0
@@ -271,17 +273,10 @@ def test_poison_apply_fails_the_proposal_never_the_pass(vault, watcher):
 
 def test_seen_state_is_one_keyed_map(watcher, vault):
     """The extractors' seen-hashes persist as one name-keyed map, so a new
-    extractor needs no engine-side field. Legacy state files (one flat key
-    per extractor) still load — a missed migration would re-draft every
-    extractor's last text once on upgrade."""
+    extractor needs no engine-side field. Empties never persist."""
     assert watcher._seen_from_state({"seen": {"capture": "abc"}}) == {"capture": "abc"}
     assert watcher._seen_from_state(
-        {"capture_seen": "abc", "inbox_seen": "def"}
-    ) == {"capture": "abc", "inbox_extract": "def"}
-    # the new key wins over a stale legacy one, and empties never persist
-    assert watcher._seen_from_state(
-        {"seen": {"capture": "new"}, "capture_seen": "old", "inbox_seen": ""}
-    ) == {"capture": "new"}
+        {"seen": {"capture": "new", "overlap": ""}}) == {"capture": "new"}
 
     watcher.seen = {"capture": "hash-1"}
     watcher._save_state()
@@ -292,11 +287,11 @@ def test_stale_rearms_its_processor_generically(watcher):
     """A stale proposal drops its kind's seen-hash — the re-draft must be
     guaranteed (the 2026-07-24 silent-drop bug). Kinds that keep no
     seen-hash simply have nothing to drop."""
-    watcher.seen = {"capture": "hash-1", "inbox_extract": "hash-2"}
+    watcher.seen = {"capture": "hash-1", "overlap": "hash-2"}
     watcher._notify_stale({"kind": "capture"})
-    assert watcher.seen == {"inbox_extract": "hash-2"}
+    assert watcher.seen == {"overlap": "hash-2"}
     watcher._notify_stale({"kind": "schema_fix"})  # no seen-hash: no-op
-    assert watcher.seen == {"inbox_extract": "hash-2"}
+    assert watcher.seen == {"overlap": "hash-2"}
 
 
 def _spec_with(**kw):
@@ -372,15 +367,14 @@ def test_a_note_written_mid_pass_is_drafted_by_the_next_pass(vault, make_watcher
         mid.write_text("---\ntype: research\n---\n\n# Typed mid-pass\n\ncall the vendor\n")
         return await fake_drafter(item)
 
-    w = make_watcher(vault, disabled=("archive_done",),
-                     drafter=drafter_racing_a_user_edit, n_max=1)
+    w = make_watcher(vault,                      drafter=drafter_racing_a_user_edit, n_max=1)
     run(w)
     assert mid.exists()
     def drafted(wt):
         return {p["drafted_against"]["note"] for p in proposals.pending(wt.proposals_dir)}
 
     assert "Tasks/typed-mid-pass.md" not in drafted(w)   # this pass never saw it
-    w2 = make_watcher(vault, disabled=("archive_done",), drafter=fake_drafter, n_max=50)
+    w2 = make_watcher(vault, drafter=fake_drafter, n_max=50)
     run(w2)
     assert "Tasks/typed-mid-pass.md" in drafted(w2)
 
@@ -388,11 +382,11 @@ def test_a_note_written_mid_pass_is_drafted_by_the_next_pass(vault, make_watcher
 def test_a_cancelled_pass_leaves_its_work_for_the_next_one(vault, make_watcher):
     """A stop request ends the pass before it drafts. The next pass has to
     pick that work up — a stop is a pause, never a silent drop."""
-    w = make_watcher(vault, disabled=("archive_done",), drafter=fake_drafter,
+    w = make_watcher(vault, drafter=fake_drafter,
                      n_max=3, should_cancel=lambda: True)
     summary = run(w)
     assert summary["cancelled"] and summary["drafted"] == 0
-    w2 = make_watcher(vault, disabled=("archive_done",), drafter=fake_drafter, n_max=3)
+    w2 = make_watcher(vault, drafter=fake_drafter, n_max=3)
     assert run(w2)["drafted"] == 3
 
 
@@ -424,20 +418,21 @@ def test_capture_approved_after_disabling_still_resets_the_surface(vault, make_w
     already-drafted work: a pending capture proposal approved after
     `disabled_processors: [capture]` still runs on_applied, so the
     surface resets instead of re-offering the same dump forever."""
+    from tests.conftest import record_worker_returning
     from tezcat.processors import CAPTURE_SKELETON
 
-    async def faithful(text, today):
-        return [{"text": ln, "due": None, "priority": None, "owed_by": None}
-                for ln in text.splitlines() if ln.strip()]
-
+    # the summary keeps it on the queue path (bare lists auto-file now)
+    worker = record_worker_returning(
+        [{"text": "renew the domain", "due": None, "priority": None, "owed_by": None}],
+        summary="The domain needs renewing.")
     (vault / "Harness" / "Capture.md").write_text("renew the domain\n")
-    drafting = make_watcher(vault, capture_extractor=faithful,
-                            disabled=("archive_done",), drafter=fake_drafter)
+    drafting = make_watcher(vault, record_worker=worker,
+                            drafter=fake_drafter)
     run(drafting)
     pending = proposals.pending(drafting.proposals_dir)
     pid = next(p["id"] for p in pending if p["kind"] == "capture")
 
-    deciding = make_watcher(vault, disabled=("capture", "archive_done"),
+    deciding = make_watcher(vault, disabled=("capture",),
                             drafter=fake_drafter)
     summary = decide(deciding, pid, lock_wait=5)
     assert summary["approved"] == 1

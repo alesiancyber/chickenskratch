@@ -71,51 +71,81 @@ def test_the_same_verdict_twice_never_double_applies(vault, wkw):
     assert (vault / "Tasks/Inbox.md").read_text().count("planted task") == 1
 
 
-def test_ingest_feeds_the_capture_pipeline(vault, wkw):
-    """A canvas dump rides the exact editor pipeline: gated append to the
-    capture surface, extraction, and — capture being auto-trusted by
-    default with a passing fidelity verifier — auto-apply + surface
-    reset. The dump itself survives in git (the ingest snapshot)."""
+def test_ingest_files_a_bare_task_dump_without_asking(vault, wkw):
+    """A canvas dump rides the exact editor pipeline: gated append to
+    the capture surface, decomposition, and — a bare task list being
+    fully verifiable (faithful tasks, complete quoted verbatim) — the
+    record files itself and the surface resets. The receipt carries the
+    undo, so the point of action is also the point of revert."""
+    import datetime as _dt
+
+    from tests.conftest import record_worker_returning
     from tezcat_vault.vault import Vault
 
-    async def extractor(text, today):
-        assert "renew the domain" in text
-        return [{"text": "renew the domain", "due": "2026-08-01"}]
-
+    worker = record_worker_returning(
+        [{"text": "renew the domain", "due": "2026-08-01"}])
     result = asyncio.run(service.ingest(
         str(vault), "renew the domain by friday",
-        capture_extractor=extractor,
-        disabled=("inbox_extract", "spec_drift", "schema_fix", "grouping", "archive_done"),
+        record_worker=worker,
+        disabled=("spec_drift", "schema_fix", "grouping"),
         **wkw))
     assert result["summary"]["auto"] == 1
-    assert "renew the domain" in (vault / "Tasks/Inbox.md").read_text()
-    # applied -> the surface reset for the next dump; the dump text is
-    # one `tezcat-revert` away regardless
+    filed_note = vault / "Captures" / f"{_dt.date.today().isoformat()}.md"
+    filed = filed_note.read_text()
+    assert "renew the domain 📅 2026-08-01" in filed
+    assert "> renew the domain by friday" in filed   # verbatim, quoted
     assert "renew the domain" not in (vault / "Harness/Capture.md").read_text()
     assert any("ingest into" in c["subject"] for c in Vault(vault).history(10))
-    # the receipt: what was applied, revertible at the point of action
     (a,) = result["applied"]
-    assert a["note"] == "Tasks/Inbox.md" and a["undo"]
+    assert a["note"] == str(filed_note.relative_to(vault)) and a["undo"]
+    assert not a["unvouched"]                        # everything was checked
     for sha in a["undo"]:
         service.revert(str(vault), sha)
-    assert "renew the domain" not in (vault / "Tasks/Inbox.md").read_text()
+    assert not filed_note.exists() or "renew the domain" not in filed_note.read_text()
 
 
-def test_ingest_queues_when_the_drafter_flags_review(vault, wkw):
-    """needs_review (a dropped impossible date) forces the checkbox even
-    on the auto-trusted path — ingest returns the queued proposal."""
+def test_ingest_queues_a_summarized_record_under_gated(vault, wkw):
+    """The rewrite is unverifiable prose, so under the default posture
+    the dump with a summary waits for the approve verb — and stays
+    durable on the surface until it lands."""
+    import datetime as _dt
 
-    async def extractor(text, today):
-        return [{"text": "call the bank", "dropped_due": "2026-02-30"}]
+    from tests.conftest import record_worker_returning
 
+    worker = record_worker_returning(
+        [{"text": "renew the domain", "due": "2026-08-01"}],
+        summary="The domain lapses Friday; renew it.")
+    kw = dict(record_worker=worker,
+              disabled=("spec_drift", "schema_fix", "grouping"),
+              **wkw)
+    result = asyncio.run(service.ingest(str(vault), "renew the domain by friday", **kw))
+    assert result["summary"]["auto"] == 0 and result["applied"] == []
+    (q,) = result["queued"]
+    assert q["kind"] == "capture"
+    assert "renew the domain" in (vault / "Harness/Capture.md").read_text()
+
+    asyncio.run(service.decide(str(vault), q["id"], "approve", **kw))
+    filed = (vault / "Captures" / f"{_dt.date.today().isoformat()}.md").read_text()
+    assert "The domain lapses Friday; renew it." in filed
+    assert "renew the domain" not in (vault / "Harness/Capture.md").read_text()
+
+
+def test_ingest_reports_a_dropped_date_in_the_issues(vault, wkw):
+    """A sanitized-away impossible date must reach the reviewer's eyes:
+    it rides the queued record proposal's issues list."""
+    from tests.conftest import record_worker_returning
+
+    worker = record_worker_returning(
+        [{"text": "call the bank", "dropped_due": "2026-02-30"}])
     result = asyncio.run(service.ingest(
         str(vault), "call the bank on feb 30",
-        capture_extractor=extractor,
-        disabled=("inbox_extract", "spec_drift", "schema_fix", "grouping", "archive_done"),
+        record_worker=worker,
+        disabled=("spec_drift", "schema_fix", "grouping"),
         **wkw))
     (queued,) = result["queued"]
     assert queued["kind"] == "capture" and queued["needs_review"]
-    assert "call the bank" not in (vault / "Tasks/Inbox.md").read_text()
+    assert any("2026-02-30" in i for i in queued["issues"])
+    assert not (vault / "Captures").exists()  # nothing filed without consent
 
 
 def test_ingest_empty_text_is_a_no_op(vault, wkw):

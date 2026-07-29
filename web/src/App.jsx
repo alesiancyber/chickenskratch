@@ -334,7 +334,7 @@ function StepPicker({ steps, onApprove }) {
   );
 }
 
-function Proposal({ p, health, selected, actedVerdict, onDecide, innerRef }) {
+function Proposal({ p, selected, actedVerdict, onDecide, innerRef }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     if (selected) setOpen(true);
@@ -457,7 +457,7 @@ function usePassTicker(lastPassAt) {
   return `pass ${Math.floor(s / 3600)}h ago`;
 }
 
-function Palette({ open, setOpen, today, changes, health, tree, refetch, runPass,
+function Palette({ open, setOpen, today, changes, tree, refetch, runPass,
                    togglePane, toggleExplorer, toggleFocus, openConsole,
                    azurePrefill, revertLast }) {
   /* The notes today points at: the hot set, first, because they're what
@@ -585,7 +585,6 @@ export default function App() {
   const [selKey, setSelKey] = useState(null);
   const [focusMode, setFocusMode] = useState(
     () => localStorage.getItem("tezcat.focus") === "1");
-  const [view, setView] = useState("today");       // "today" | "week"
   const [movedKeys, setMovedKeys] = useState(() => new Set()); // optimistic ⏳ moves (promote/defer, any tab)
   const [doneKeys, setDoneKeys] = useState(new Set());
   const [canvasSeed, setCanvasSeed] = useState("");
@@ -820,8 +819,8 @@ export default function App() {
       // esc releases the clicked row (and focus mode's dim) everywhere,
       // editor mark included
       if (e.key === "Escape") releaseSel();
-      // the review shortcuts belong to the today view's decision region
-      if (view !== "today") return;
+      // the review shortcuts belong to Today's decision region — which
+      // is pinned now, so they are always live
       // the canvas textarea is always mounted now: never steal its keys
       if (/^(input|textarea|select)$/i.test(e.target.tagName)) return;
       // nor the explorer's: its rows are buttons, and `e` on a focused
@@ -849,7 +848,7 @@ export default function App() {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [paletteOpen, view, visible, acted, selectedPid, decide, undo, openNoteAt,
+  }, [paletteOpen, visible, acted, selectedPid, decide, undo, openNoteAt,
       togglePane, toggleExplorer, releaseSel, consoleOpen]);
 
   /* refetch reconciles: decided proposals leave the queue, done rows
@@ -927,19 +926,10 @@ export default function App() {
       <div className="split" ref={splitRef}
            style={{ gridTemplateColumns: `${frac}fr 6px ${1 - frac}fr` }}>
       <div className="col" id="col-today">
-      {/* Two horizons over one model: Today answers "what needs me
-          now", Week is the runway — and its verb is the move. */}
-      <div className="tabs small">
-        <button className={"tab" + (view === "today" ? " current" : "")}
-                onClick={() => setView("today")}>Today</button>
-        <button className={"tab" + (view === "week" ? " current" : "")}
-                onClick={() => setView("week")}>Week</button>
-      </div>
-
-      {view === "week" ? (
-        <WeekPane today={today} onDone={taskDone}
-                  doneKeys={doneKeys} moved={movedKeys} onMove={planTask} />
-      ) : (
+      {/* Today is PINNED — the one always-on surface, never behind a
+          tab. Week (the runway) lives in the right column's tabs beside
+          the canvas: two horizons over one model, side by side instead
+          of one replacing the other. */}
       <>
       <header className="header">
         <div className="title">Today</div>
@@ -999,6 +989,7 @@ export default function App() {
             <TaskRow key={i} r={r} onDone={taskDone}
                      done={doneKeys.has(r.note + "\u0000" + r.text)}
                      right={<>
+                       {r.owner && <span className="chip">👤 {r.owner}</span>}
                        {r.due && <span className="chip">due {r.due}</span>}
                        {r.waiting_days >= 3 && <span className="chip attention">{r.waiting_days}d</span>}
                      </>} />
@@ -1009,7 +1000,7 @@ export default function App() {
       {(visible.length > 0 || today.stranded.length > 0) && (
         <Section id="review" label="What needs a decision?" verb="decide">
           {visible.map((p) => (
-            <Proposal key={p.id} p={p} health={health}
+            <Proposal key={p.id} p={p}
                       selected={p.id === selectedPid}
                       actedVerdict={acted[p.id]}
                       onDecide={decide}
@@ -1020,9 +1011,10 @@ export default function App() {
               j/k select · a approve · r reject · e edit · u undo
             </div>
           )}
-          {/* Undated action items rotting in old meeting notes: captured
-              but never dispositioned — the decision is to date it, do it,
-              or delete it. Clicking opens the note on the line. */}
+          {/* Undated tasks rotting in old records — meetings, captures,
+              anywhere: captured but never dispositioned — the decision is
+              to date it, do it, or delete it. Clicking opens the note on
+              the line. */}
           <Rows items={today.stranded} fold={5} render={(r, i) => (
             <NoteRow note={r.note} target={r.text} key={i}>
               <span className="grow">{r.text}</span>
@@ -1104,7 +1096,6 @@ export default function App() {
         </Collapsible.Root>
       )}
       </>
-      )}
       </div>
 
       <Splitter onDrag={onDrag} />
@@ -1113,6 +1104,8 @@ export default function App() {
         <div className="tabs small">
           <button className={"tab" + (tab === "canvas" ? " current" : "")}
                   onClick={() => setTab("canvas")}>Canvas</button>
+          <button className={"tab" + (tab === "week" ? " current" : "")}
+                  onClick={() => setTab("week")}>Week</button>
           {openNote && (
             <button className={"tab" + (tab === "note" ? " current" : "")}
                     title={openNote.path} onClick={() => setTab("note")}>
@@ -1136,6 +1129,13 @@ export default function App() {
           <Canvas seed={canvasSeed}
                   onSeedConsumed={() => setCanvasSeed("")}
                   onIngested={() => refetch(["today", "review", "changes"])} />
+        </div>
+
+        <div className={"pane-slot" + (tab === "week" ? "" : " hidden")}>
+          <div className="pane-scroll">
+            <WeekPane today={today} onDone={taskDone}
+                      doneKeys={doneKeys} moved={movedKeys} onMove={planTask} />
+          </div>
         </div>
 
         {openNote && (
@@ -1175,7 +1175,7 @@ export default function App() {
             onOpenNote={openNoteAt} />
 
       <Palette open={paletteOpen} setOpen={setPaletteOpen}
-               today={today} changes={changes} health={health} tree={tree}
+               today={today} changes={changes} tree={tree}
                refetch={refetch} runPass={runPass} togglePane={togglePane}
                toggleExplorer={toggleExplorer} toggleFocus={toggleFocus}
                openConsole={() => setConsoleOpen(true)}

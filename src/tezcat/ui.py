@@ -29,6 +29,7 @@ import argparse
 import asyncio
 import contextlib
 import json
+import re
 import time
 from urllib.parse import urlparse
 
@@ -41,7 +42,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from tezcat_vault import tasks as tk
-from tezcat_vault.vault import Vault, VaultError, VaultLocked
+from tezcat_vault.vault import Vault, VaultError, VaultLocked, read_lossy
 from tezcat_vault.vaultconfig import get_config
 
 from . import (
@@ -199,6 +200,28 @@ def review_model(vault_path: str) -> list[dict]:
 MAX_TREE_NOTES = 5000
 
 
+_DATED_STEM_RE = re.compile(r"^(\d{4})-(\d{2}-\d{2})\s*(.*)$")
+_BLOCK_TOPIC_RE = re.compile(r"^## \d{2}:\d{2} — (.+)$", re.M)
+
+
+def _tree_label(p, stem: str) -> str:
+    """The glanceable name a note renders under in the rail: the year
+    dropped from a dated stem ("2026-07-12 Sentinel Detections" →
+    "07-12 Sentinel Detections" — the filename keeps the year; a list of
+    this year's notes doesn't need it repeated down the column), and a
+    date-ONLY stem (a capture or daily note) described by its own block
+    topics, so "which day did I work detections" is answerable by
+    looking instead of searching."""
+    m = _DATED_STEM_RE.match(stem)
+    if not m:
+        return stem
+    day, rest = m.group(2), m.group(3).strip(" -—")
+    if rest:
+        return f"{day} {rest}"
+    topics = _BLOCK_TOPIC_RE.findall(read_lossy(p))
+    return f"{day} {' · '.join(topics[:2])}" if topics else day
+
+
 def tree_model(vault_path: str) -> dict:
     """The file explorer's view-model: every note the harness can see, as
     flat vault-relative paths. Flat on purpose — nesting is a rendering
@@ -206,18 +229,34 @@ def tree_model(vault_path: str) -> dict:
 
     Exclusions and dot-directories are gone before we ever see a path
     (Vault.iter_notes, one choke point), so Private/ is as invisible here
-    as everywhere else (I4). `surface_dirs` rides along so the client can
-    ghost the machine-rendered folders instead of hard-coding "Harness"."""
+    as everywhere else (I4). The machine surfaces (Harness/) are filtered
+    here too: they are the engine's backend — Capture.md is fed by the
+    canvas and Spec.md is edited in the console — not notes the user
+    navigates to. `surface_dirs` still rides along for the client.
+
+    `labels` maps rel → display name where it differs from the filename
+    (see _tree_label). The content peek it costs is bounded by
+    MAX_TREE_NOTES and only touches date-only stems — the same class of
+    read /api/today already does per request (views are free, I5)."""
     v = _vault(vault_path)
-    notes, truncated = [], False
+    surface_dirs = get_config(vault_path).surface_dirs
+    notes, labels, truncated = [], {}, False
     for p in v.iter_notes():
+        rel = v.rel(p)
+        if rel.split("/")[0] in surface_dirs:
+            continue
         if len(notes) >= MAX_TREE_NOTES:
             truncated = True
             break
-        notes.append(v.rel(p))
+        notes.append(rel)
+        stem = rel.rsplit("/", 1)[-1].removesuffix(".md")
+        label = _tree_label(p, stem)
+        if label != stem:
+            labels[rel] = label
     return {
         "notes": notes,
-        "surface_dirs": sorted(get_config(vault_path).surface_dirs),
+        "labels": labels,
+        "surface_dirs": sorted(surface_dirs),
         "truncated": truncated,
     }
 

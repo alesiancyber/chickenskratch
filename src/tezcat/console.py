@@ -5,7 +5,7 @@ split is not cosmetic — it decides who may change what and how a bad
 change is undone:
 
 - **The vault** (`Harness/Spec.md` frontmatter): how this vault behaves.
-  Autonomy, the trust list, n_max, the folder map, the inboxes. Edits
+  Autonomy, the trust list, n_max, the folder map, the record folders. Edits
   land through the ordinary gated note write, so each one is a git
   snapshot the dashboard can revert, and the engine re-reads them next
   pass — no restart.
@@ -36,6 +36,7 @@ from pathlib import Path
 import yaml
 
 from tezcat_vault import markdown as md
+from tezcat_vault import vaultconfig as vc
 from tezcat_vault.vault import Vault, VaultError
 from tezcat_vault.vaultconfig import SPEC_REL, get_config
 
@@ -52,29 +53,27 @@ MODELS_YAML = Path(DEFAULT_MODELS)
 #
 # What each setting actually changes, in the console's own words. Here
 # rather than in the UI because these describe engine behaviour, and the
-# engine is what has to keep being true — a description of `autonomy`
-# that drifts from what autonomy does is worse than no description.
+# engine is what has to keep being true — a description of a policy
+# level that drifts from what the level does is worse than none.
 FIELD_HELP = {
-    "autonomy": (
-        "How much the harness may do without asking you.\n\n"
-        "gated — a change applies on its own only when a deterministic "
-        "check can vouch for it. Anything involving judgment, and anything "
-        "whose check objects, waits in “What needs a decision?”.\n\n"
-        "full — a standing grant: everything you trust below applies, "
-        "including the judgment lanes no check can vouch for. A failing "
-        "check no longer holds a change back; it applies with the "
-        "objection recorded on the proposal. Every apply is still one "
-        "revertible snapshot, and anything the drafter itself flagged for "
-        "review still waits."),
-    "auto_apply": (
-        "Which processors may act without your verdict. Under gated "
-        "autonomy this only has teeth for processors with a deterministic "
-        "verifier — the others always queue no matter what you tick here. "
-        "Under full autonomy it applies to all of them."),
+    "policies": (
+        "One consent level per background processor — the level IS the "
+        "gate, so nothing here can conflict with a setting elsewhere.\n\n"
+        "off — it doesn't run at all.\n\n"
+        "ask — every proposal waits for your verdict in “What needs a "
+        "decision?”.\n\n"
+        "verified — it applies only what its deterministic check can "
+        "vouch for (your words, nothing invented, the verbatim complete); "
+        "anything else queues. Processors with no check behave as ask.\n\n"
+        "full — a standing grant for this lane: everything applies, with "
+        "any objection recorded on the proposal, and every change one "
+        "revertible snapshot. Anything the drafter itself flagged for "
+        "review still waits, at every level.\n\n"
+        "The preset above just fills these in — the levels are what is "
+        "stored."),
     "disabled_processors": (
-        "Switched off entirely: no scanning, no drafting, nothing queued. "
-        "The rollback flag — reach for this when a processor is doing "
-        "something you don't want while you work out why."),
+        "The //commands kill switch (\"inline_command\"). Processors are "
+        "switched off with their policy level instead."),
     "fidelity": (
         "How closely an auto-applied extraction must match your own words.\n\n"
         "strict — word-for-word: every word in the task must appear in what "
@@ -94,23 +93,21 @@ FIELD_HELP = {
         "this vault. A profile NAME — endpoints and keys stay repo-side, "
         "so a vault can pick a model but never point the harness at a new "
         "server. Empty means the repo default. Re-read every pass."),
-    "capture_inbox": "Where tasks extracted from your dumps are filed.",
-    "waiting_inbox": (
-        "Where things other people owe you are filed — the follow-ups the "
-        "dashboard ages under “What's stalled on someone else?”."),
     "done_archive": (
-        "Where completed tasks are moved out of the working inboxes. Leave "
-        "empty to switch archiving off and let done tasks pile up in place."),
+        "Where completed tasks are moved out of the working task notes. "
+        "Leave empty to switch archiving off and let done tasks pile up "
+        "in place."),
     "capture_archive": (
-        "Where a processed dump is filed, one note per day, before the "
-        "capture surface is cleared. A dump is a record, not just a "
-        "source of tasks \u2014 this is what keeps the narrative around the "
-        "work.\n\nLeave empty and approving an extraction discards "
-        "everything the tasks didn't become."),
+        "Where a dump with no shape worth naming becomes its record \u2014 "
+        "one note per day holding the summary, the formatted tasks, and "
+        "your verbatim text folded beneath. Meeting-shaped dumps become "
+        "notes under the meetings folder instead.\n\nEmpty falls back to "
+        "Captures: the record is the destination, so filing can't be "
+        "switched off."),
     "daily_dir": "The folder your daily notes live in.",
     "meetings_dir": (
-        "The folder your meeting notes live in. Today's meetings and the "
-        "stranded-action-items list both read from here."),
+        "The folder your meeting notes live in. Today's meetings list "
+        "reads from here, and meeting-shaped dumps are filed here."),
     "exclude": (
         "Top-level folders no model ever sees — not the chat pane, not the "
         "workers, not the cloud. The hard privacy boundary, enforced on "
@@ -121,10 +118,9 @@ FIELD_HELP = {
         "fills the gap, and it's what the schema fixer checks against."),
 }
 
-CHOICES = {"autonomy": ("gated", "full"), "fidelity": ("strict", "close")}
-PATHS = ("capture_inbox", "waiting_inbox", "done_archive", "capture_archive",
-         "daily_dir", "meetings_dir")
-LISTS = ("auto_apply", "disabled_processors", "exclude")
+CHOICES = {"fidelity": ("strict", "close")}
+PATHS = ("done_archive", "capture_archive", "daily_dir", "meetings_dir")
+LISTS = ("disabled_processors", "exclude")
 
 # Fields the Models tab edits as controls. Deliberately only scalars the
 # console can set surgically (see yamledit): adding or removing a whole
@@ -155,10 +151,10 @@ def processor_names() -> list[str]:
 
 def _processor_rows() -> list[dict]:
     """How each processor introduces itself, straight off the registry —
-    the only place that knows what it does. `verified` is the one that
-    changes behaviour: under `gated` autonomy, trusting a processor with
-    no deterministic verifier does nothing at all, and a checkbox that
-    silently means nothing is worse than no checkbox."""
+    the only place that knows what it does. `verified` says whether a
+    deterministic check exists, which decides whether the UI offers the
+    `verified` policy level at all — a level that silently means `ask`
+    is worse than one that isn't offered."""
     return [{"name": p.name, "title": p.label, "blurb": p.blurb,
              "verified": p.verify is not None} for p in processors.REGISTRY]
 
@@ -180,9 +176,12 @@ def _spec_fields(vault_path: str) -> dict:
     except Exception:
         fm = {}
     effective = {
-        "autonomy": cfg.autonomy, "fidelity": cfg.fidelity, "n_max": cfg.n_max,
+        "fidelity": cfg.fidelity, "n_max": cfg.n_max,
         "worker": cfg.worker,
-        "auto_apply": list(cfg.auto_apply),
+        # RESOLVED levels, so the UI shows what the engine will actually
+        # do — never a raw map that means something else combined with
+        # keys the user can't see.
+        "policies": {p.name: cfg.policy_for(p.name) for p in processors.REGISTRY},
         "disabled_processors": list(cfg.disabled_processors),
         "exclude": list(cfg.exclude),
         "folders": dict(cfg.folder_types),
@@ -272,17 +271,16 @@ def _check_path(key: str, value: str) -> None:
     p = str(value)
     if p.startswith("/") or ".." in Path(p).parts:
         raise ConfigError(f"{key} must be a path inside the vault, got {p!r}")
-    if key.endswith("_inbox") or key == "done_archive":
-        if not p.endswith(".md"):
-            raise ConfigError(f"{key} must be a note path ending in .md, got {p!r}")
+    if key == "done_archive" and not p.endswith(".md"):
+        raise ConfigError(f"{key} must be a note path ending in .md, got {p!r}")
 
 
 def validate_spec(fields: dict, vault_path: str) -> dict:
     """Reject what the engine would otherwise take and quietly ignore.
 
     This is most of the console's value over editing the frontmatter by
-    hand. `_spec_overrides` is deliberately forgiving — a bad `autonomy:`
-    keeps the old posture, an unknown processor name is reported and
+    hand. `_spec_overrides` is deliberately forgiving — a bad policy
+    level keeps the default, an unknown processor name is reported and
     dropped — because a typo must never break every pass. That is right
     for the engine and useless as feedback: you asked for something and
     nothing happened. Here it is an error with a reason.
@@ -313,7 +311,29 @@ def validate_spec(fields: dict, vault_path: str) -> dict:
                     raise ConfigError(
                         f"no model profile named {name!r} — declared: {sorted(declared)}")
             clean[key] = name
-        elif key in ("auto_apply", "disabled_processors"):
+        elif key == "policies":
+            if not isinstance(value, dict):
+                raise ConfigError("policies must be a processor -> level map")
+            levels = {}
+            for name, level in value.items():
+                if str(name) not in known or str(name) == "inline_command":
+                    raise ConfigError(
+                        f"policies: unknown processor {name!r} — known: "
+                        f"{sorted(known - {'inline_command'})}")
+                if str(level) not in vc.POLICY_LEVELS:
+                    raise ConfigError(
+                        f"policies[{name}] must be one of {list(vc.POLICY_LEVELS)}, "
+                        f"got {level!r}")
+                levels[str(name)] = str(level)
+            # The whole map or nothing: saving `policies` drops the legacy
+            # posture keys (see save_spec), so an unnamed processor would
+            # silently fall to the bare default instead of what the user
+            # sees on screen.
+            missing = sorted(known - {"inline_command"} - set(levels))
+            if missing:
+                raise ConfigError(f"policies must name every processor; missing {missing}")
+            clean[key] = levels
+        elif key == "disabled_processors":
             names = [str(n) for n in (value or [])]
             unknown = [n for n in names if n not in known]
             if unknown:

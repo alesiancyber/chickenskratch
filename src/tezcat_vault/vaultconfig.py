@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import yaml
@@ -23,6 +23,21 @@ _DEFAULT_PATH = Path(__file__).resolve().parents[2] / "config" / "vault.yaml"
 
 SPEC_REL = "Harness/Spec.md"
 
+# The per-processor consent levels, least to most autonomous. See
+# VaultConfig.policies / policy_for().
+POLICY_LEVELS = ("off", "ask", "verified", "full")
+
+
+# The out-of-box consent levels for processors a vault's `policies` map
+# doesn't name: the mechanically-checkable lanes apply what their
+# verifier vouches for; everything else asks. One home, shared by
+# policy_for and the Spec seed.
+DEFAULT_POLICIES = {
+    "capture": "verified",
+    "schema_fix": "verified",
+    "archive_done": "verified",
+}
+
 
 @dataclass(frozen=True)
 class VaultConfig:
@@ -30,32 +45,30 @@ class VaultConfig:
     exclude: tuple[str, ...]
     surfaces: dict[str, str]
     schemas_dir: Path
-    capture_inbox: str = "Tasks/Inbox.md"  # where approved captures land
-    waiting_inbox: str = "Tasks/Waiting.md"  # commitments others made to you (follow-ups)
-    # Where completed tasks get filed out of the working inboxes (the
+    # Where completed tasks get filed out of the working task notes (the
     # archive_done processor). Empty string disables archiving.
     done_archive: str = "Tasks/Archive.md"
-    # Folder holding one dated note per day of processed capture dumps.
-    # A dump is a RECORD, not just a source of tasks: approving its
-    # extraction files the text here before clearing the surface, so the
-    # narrative around the work survives somewhere the user reads.
-    # Empty string disables filing — and then approving discards it.
+    # Folder of dated capture records — where a dump with no shape worth
+    # naming (a bare task list) lives, one note per day: summary if any,
+    # formatted task lines, and the verbatim dump quoted beneath.
+    # Meeting-shaped dumps become notes under meetings_dir instead.
+    # Empty falls back to "Captures": the record IS the destination, so
+    # there is no opting out of filing.
     capture_archive: str = "Captures"
-    # Processors trusted to apply without a human verdict — ONLY honored
-    # for processors that ship a deterministic verifier, and only when it
-    # passes; anything else falls back to the review queue. The trust
-    # list is user-editable per vault in Harness/Spec.md.
-    auto_apply: tuple[str, ...] = ("capture", "inbox_extract", "schema_fix", "archive_done")
-    # Consent posture. "gated" (default): auto-apply requires a passing
-    # deterministic verifier, so judgment always queues and a failing
-    # verifier queues its proposal. "full": a standing human grant,
-    # written per vault in Spec.md — EVERYTHING in auto_apply applies:
-    # verifier-less judgment lanes included, and a failing verifier
-    # applies anyway with its objections recorded on the proposal
-    # (verifier_failures). needs_review still queues, staleness still
-    # guards, and every apply remains one revertible snapshot; reverts
-    # become the negative labels.
-    autonomy: str = "gated"
+    # Per-processor consent policy — THE gating truth, one level per
+    # processor, so there is no second knob for a level to conflict with:
+    #   off      — the processor doesn't run at all
+    #   ask      — every proposal queues for a human verdict
+    #   verified — applies when its deterministic verifier passes;
+    #              a processor with no verifier behaves as ask
+    #   full     — applies regardless; a failing (or absent) verifier's
+    #              objections are recorded on the proposal
+    #              (verifier_failures) — the standing grant, per lane
+    # `needs_review` (a drafter flagging something a human must see)
+    # forces the queue at every level, staleness still guards, and every
+    # apply remains one revertible snapshot; reverts are the negative
+    # labels. Processors the map doesn't name take DEFAULT_POLICIES.
+    policies: dict[str, str] = field(default_factory=dict)
     # How closely auto-applied extractions must match the user's text:
     # "strict" = word-for-word (every output word present in the input);
     # "close"  = grammar/punctuation allowance — added words must be
@@ -91,6 +104,23 @@ class VaultConfig:
         surfaces-aren't-knowledge rule has exactly one home."""
         return frozenset(s.split("/")[0] for s in self.surfaces.values())
 
+    def policy_for(self, name: str) -> str:
+        """One processor's effective consent level (off|ask|verified|full).
+
+        `disabled_processors` is checked FIRST: it is the emergency kill
+        switch ("reach for this while you work out why"), and a seeded
+        `policies` map naming every processor must never render it inert.
+        Then the `policies` map is the truth; a processor it doesn't
+        name takes DEFAULT_POLICIES (ask, when unlisted there too). One
+        resolver, so the engine and the console can never read the same
+        Spec differently."""
+        if name in self.disabled_processors:
+            return "off"
+        level = self.policies.get(name)
+        if level in POLICY_LEVELS:
+            return level
+        return DEFAULT_POLICIES.get(name, "ask")
+
 
 def load_config(path: str | Path | None = None) -> VaultConfig:
     """The repo-side defaults (config/vault.yaml). Missing file falls back
@@ -103,10 +133,10 @@ def load_config(path: str | Path | None = None) -> VaultConfig:
         )
     raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     known = {"folders", "exclude", "surfaces", "schemas_dir",
-             "capture_inbox", "waiting_inbox", "done_archive", "capture_archive"}
+             "done_archive", "capture_archive"}
     ignored = sorted(set(raw) - known)
     if ignored:
-        # Keys like auto_apply/fidelity/n_max are Spec.md-only; silence
+        # Keys like policies/fidelity/n_max are Spec.md-only; silence
         # here would let a user believe an edit took effect. stderr, not
         # stdout: the MCP server's stdout is the JSON-RPC stream.
         print(f"{p.name}: ignoring keys {ignored} — these live in the vault's "
@@ -116,8 +146,6 @@ def load_config(path: str | Path | None = None) -> VaultConfig:
         exclude=tuple(str(e) for e in (raw.get("exclude") or [])),
         surfaces={str(k): str(v) for k, v in (raw.get("surfaces") or {}).items()},
         schemas_dir=p.parent / str(raw.get("schemas_dir") or "schemas"),
-        capture_inbox=str(raw.get("capture_inbox") or "Tasks/Inbox.md"),
-        waiting_inbox=str(raw.get("waiting_inbox") or "Tasks/Waiting.md"),
         done_archive=str(raw.get("done_archive", "Tasks/Archive.md") or ""),
         capture_archive=str(raw.get("capture_archive", "Captures") or ""),
     )
@@ -131,20 +159,19 @@ def _spec_overrides(base: VaultConfig, fm: dict) -> VaultConfig:
         out = replace(out, folder_types={str(k): str(v) for k, v in fm["folders"].items()})
     if isinstance(fm.get("exclude"), list):
         out = replace(out, exclude=tuple(str(e) for e in fm["exclude"]))
-    if isinstance(fm.get("capture_inbox"), str) and fm["capture_inbox"]:
-        out = replace(out, capture_inbox=fm["capture_inbox"])
-    if isinstance(fm.get("waiting_inbox"), str) and fm["waiting_inbox"]:
-        out = replace(out, waiting_inbox=fm["waiting_inbox"])
     if isinstance(fm.get("done_archive"), str):  # empty string = archiving off
         out = replace(out, done_archive=fm["done_archive"].strip())
     if isinstance(fm.get("capture_archive"), str):  # empty string = no filing
         out = replace(out, capture_archive=fm["capture_archive"].strip())
-    if isinstance(fm.get("auto_apply"), list):  # empty list = all queued
-        out = replace(out, auto_apply=tuple(str(n) for n in fm["auto_apply"]))
+    if isinstance(fm.get("policies"), dict):
+        # Junk levels are dropped, not defaulted: an invalid level falls
+        # through to DEFAULT_POLICIES rather than silently meaning
+        # something the user didn't write.
+        out = replace(out, policies={
+            str(k): str(v) for k, v in fm["policies"].items()
+            if str(v) in POLICY_LEVELS})
     if fm.get("fidelity") in ("strict", "close"):
         out = replace(out, fidelity=str(fm["fidelity"]))
-    if fm.get("autonomy") in ("gated", "full"):
-        out = replace(out, autonomy=str(fm["autonomy"]))
     if isinstance(fm.get("worker"), str):
         out = replace(out, worker=fm["worker"].strip())
     if isinstance(fm.get("disabled_processors"), list):

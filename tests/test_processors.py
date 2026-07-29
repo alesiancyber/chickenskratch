@@ -29,14 +29,13 @@ def test_default_registry_order_is_priority_order():
     # plan_today last: a suggestion must never starve real maintenance
     # (//commands are a pass phase before drafting, not a processor)
     assert [p.name for p in processors.REGISTRY] == [
-        "capture", "inbox_extract", "archive_done", "spec_drift", "schema_fix",
-        "overlap", "plan_today", "grouping"]
+        "capture", "spec_drift", "schema_fix", "overlap", "plan_today", "grouping"]
 
 
 def test_disable_is_per_processor_and_unknown_names_fail_loud(vault, make_watcher):
     w = make_watcher(
-        vault, disabled=("schema_fix", "grouping", "spec_drift", "inbox_extract",
-                         "archive_done", "overlap", "plan_today"))
+        vault, disabled=("schema_fix", "grouping", "spec_drift",
+                         "overlap", "plan_today"))
     assert [p.name for p in w.processors] == ["capture"]
     with pytest.raises(ValueError, match="groupnig"):
         processors.registry(disabled=("groupnig",))
@@ -99,26 +98,6 @@ def test_concurrent_pass_is_skipped_by_the_lock(vault, make_watcher):
     assert summary["locked"] is False  # lock released -> pass runs
 
 
-def test_archive_done_end_to_end(vault, make_watcher):
-    """Done tasks in the working inboxes get filed into the archive —
-    deterministic, verified, auto-applied without a checkbox."""
-    inbox = vault / "Tasks/Inbox.md"
-    inbox.write_text(inbox.read_text().rstrip("\n")
-                     + "\n- [x] shipped the thing ✅ 2026-07-20 ^t-ddddddddddd1\n")
-    (vault / "Harness").mkdir(exist_ok=True)
-    (vault / "Harness/Spec.md").write_text(
-        "---\nauto_apply: [archive_done]\n---\n\n# Vault Spec\n")
-    w = make_watcher(vault, registry=(processors.ARCHIVE_DONE,))
-    summary = run(w)
-    assert summary["auto"] == 1
-    assert "[x]" not in inbox.read_text()
-    archive = (vault / "Tasks/Archive.md").read_text()
-    assert "- [x] shipped the thing ✅ 2026-07-20 ^t-ddddddddddd1" in archive
-    # clean next pass: nothing to re-archive
-    (vault / "Home.md").write_text("nudge\n")
-    assert run(w)["auto"] == 0
-
-
 def test_one_mis_encoded_note_does_not_disable_schema_fixing(vault, make_watcher):
     """validate_schema walks with read_lossy, so it reports notes the
     strict read then rejects — and the engine catches scan failures per
@@ -136,20 +115,6 @@ def test_one_mis_encoded_note_does_not_disable_schema_fixing(vault, make_watcher
     notes = [i["note"] for i in processors.scan_schema(w)]
     assert "Meetings/2026-07-02 Good.md" in notes
     assert "Meetings/2026-07-01 Bad.md" not in notes
-
-
-def test_inbox_scan_survives_a_note_that_opens_with_a_horizontal_rule(vault, make_watcher):
-    """The inbox scan used to hand-roll frontmatter stripping by splitting
-    on "---", so a note whose FIRST line is a horizontal rule (no
-    frontmatter at all) lost its opening line before the section walk."""
-    from tezcat import applier
-    inbox = vault / "Tasks" / "Inbox.md"
-    inbox.write_text("---\n\n## Notes\n\ncall the bank about the wire\n")
-    applier.use_vault(str(vault))
-    w = make_watcher(vault)
-    (item,) = processors.scan_inbox(w)
-    assert item["prose"] == ["call the bank about the wire"]
-    assert item["section"] == "Notes"
 
 
 # --------------- plan_today: the judgment lane ---------------
@@ -185,7 +150,10 @@ def test_plan_scan_pools_only_the_undated_unplanned_stamped(vault, make_watcher)
     w = make_watcher(vault, registry=(processors.PLAN_TODAY,), plan_drafter=drafter)
     run(w)
     (item,) = drafter.calls
-    assert [t.block_id for t in item["tasks"]] == ["t-aaaaaaaaaaaa", "t-bbbbbbbbbbbb"]
+    # (Task, rel) tuples: the pool spans notes now, oldest ➕ first
+    # (t-aaaa has a birth date, t-bbbb sorts behind it without one)
+    assert [(t.block_id, rel) for t, rel in item["tasks"]] == [
+        ("t-aaaaaaaaaaaa", "Tasks/Inbox.md"), ("t-bbbbbbbbbbbb", "Tasks/Inbox.md")]
 
     # committed = open tasks due/planned today or earlier, vault-wide.
     # Relative check (the fixture vault has its own overdue tasks): one
@@ -198,6 +166,40 @@ def test_plan_scan_pools_only_the_undated_unplanned_stamped(vault, make_watcher)
         + "- [ ] fresh pool entry ^t-f1f1f1f1f1f1\n")  # re-arms the seen key
     run(w)
     assert drafter.calls[-1]["committed"] == before + 1
+
+
+def test_overlap_scan_survives_a_missing_inbox(vault, make_watcher):
+    """The re-anchor: overlap used to anchor its work item on the
+    capture inbox and return [] when that note couldn't be read. With
+    the inbox retired, that would have silently killed dedupe for good
+    — a missing note reading as an empty vault, the exact class of lie
+    the dead-worker and vault-memo fixes removed."""
+    (vault / "Tasks/Inbox.md").unlink()
+    (vault / "Tasks/A.md").write_text("- [ ] renew the certs ^t-aaaaaaaaaaaa\n")
+    (vault / "Tasks/B.md").write_text("- [ ] renew the certs ^t-bbbbbbbbbbbb\n")
+    w = make_watcher(vault)
+    (item,) = processors.scan_overlap(w)
+    assert item["note"] == "Tasks/A.md"      # anchored on the first pair's note
+    ((a, _ra), (b, _rb)) = item["exact"][0]
+    assert {a.block_id, b.block_id} == {"t-aaaaaaaaaaaa", "t-bbbbbbbbbbbb"}
+
+
+def test_plan_pool_spans_records_and_skips_owed(vault, make_watcher):
+    """plan_today's pool is the walk, not the inbox: a record's undated
+    action items are plannable, and an owed 👤 line never is — planning
+    somebody else's debt as your day is the double-count the partition
+    exists to stop."""
+    (vault / "Tasks/Inbox.md").unlink()
+    (vault / "Meetings" / "2026-07-01 Kickoff.md").write_text(
+        "# Kickoff\n\n## Action items\n\n"
+        "- [ ] write the runbook ➕ 2026-07-01 ^t-aaaaaaaaaaaa\n"
+        "- [ ] pipeline costs 👤 Nadia ➕ 2026-07-01 ^t-bbbbbbbbbbbb\n")
+    w = make_watcher(vault)
+    (item,) = processors.scan_plan(w)
+    ids = {t.block_id for t, _rel in item["tasks"]}
+    assert "t-aaaaaaaaaaaa" in ids
+    assert "t-bbbbbbbbbbbb" not in ids
+    assert item["note"] == "Meetings/2026-07-01 Kickoff.md"  # oldest task's home
 
 
 def test_plan_empty_picks_is_an_answer_not_a_retry(vault, make_watcher):

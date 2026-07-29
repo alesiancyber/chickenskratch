@@ -74,6 +74,10 @@ a { color: inherit; text-decoration: none; }
 #col-canvas > .tabs { flex: none; }
 .pane-slot { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .pane-slot.hidden { display: none; }
+/* A long-list tab inside a pane-slot (Week): its own scroller, same
+   reading measure as the columns. */
+.pane-scroll { overflow-y: auto; min-height: 0; flex: 1; padding: var(--s2) var(--s4) 120px; }
+.pane-scroll > * { max-width: 720px; margin-left: auto; margin-right: auto; }
 
 /* the chain from the column down to the scroller must flex the whole
    way, or the history grows the page instead of scrolling inside it */

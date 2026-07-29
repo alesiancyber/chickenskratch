@@ -47,7 +47,11 @@ const BULLET_RE = /^(\s*)([-*+]) (?!\[.\] )/;
 const DATE_RE = /(📅|✅|➕|⏳|⌛)\s*(\d{4}-\d{2}-\d{2})/g;
 const SCHEDULED_RE = /[⏳⌛]\s*(\d{4}-\d{2}-\d{2})/;
 const BLOCK_REF_RE = /\s+\^([A-Za-z0-9][A-Za-z0-9_-]*)\s*$/;
-const PRIORITY_RE = /[🔺⏫🔼🔽⏬]/g;
+// /u is load-bearing, not pedantry: without it this class decomposes
+// into UTF-16 surrogate halves, and 🔺🔼🔽 share their high surrogate
+// (D83D) with most emoji — 👤 included — so the priority decoration
+// could match HALF of an owner glyph and corrupt the line's rendering.
+const PRIORITY_RE = /[🔺⏫🔼🔽⏬]/gu;
 const WIKILINK_RE = /\[\[([^\]]+)\]\]/g;
 const BOLD_RE = /\*\*([^*]+)\*\*/g;
 const HEADING_RE = /^(#{1,6})\s+/;

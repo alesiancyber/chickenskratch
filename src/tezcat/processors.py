@@ -57,6 +57,17 @@ class ProcessorSpec:
     # (w, item, proposal) -> failure strings. Empty = safe to apply without
     # a human verdict; any failure (or no verifier) = the review queue.
     verify: Callable[[Watcher, dict, dict], list[str]] | None = None
+    # Whether this processor's work item claims its note in the
+    # one-pending-proposal-per-note invariant. True for note-rewriting
+    # processors (two pending diffs against one note would conflict).
+    # False for the CROSS-note lanes (overlap, plan_today): their pool
+    # spans the vault and the item's `note` is a bookkeeping anchor, so
+    # letting it claim a real record note would starve that note's own
+    # processors (grouping, schema) behind a proposal that barely
+    # concerns it. Their steps carry their own staleness instead
+    # (replace_line's exactly-once anchor, set_task_scheduled's
+    # match-by-text), both of which fail loud when the line moved.
+    claims_note: bool = True
     # How this processor introduces itself in the console. A registry entry
     # is the ONLY place that knows what it does, so it says so here rather
     # than the UI keeping a second list that drifts — a new processor
@@ -69,7 +80,14 @@ class ProcessorSpec:
         return self.title or self.name
 
 
-# ---- capture: Harness/Capture.md -> extraction -> inbox/waiting proposal ----
+# ---- capture: Harness/Capture.md -> decomposition -> record proposal ----
+#
+# A dump is a RECORD that happens to contain work (dumps-become-records,
+# phase 1). One worker call decomposes it into {record, tasks}; the
+# proposal files ONE note — a meeting record or a dated capture note —
+# holding the summary rewrite, the task lines (owed ones carry 👤), and
+# the verbatim dump folded beneath. Tasks are never moved to an inbox:
+# location IS provenance, and Today's walk already reads every note.
 
 
 def ensure_capture(w: Watcher) -> None:
@@ -82,24 +100,24 @@ def ensure_capture(w: Watcher) -> None:
 
 def reset_capture(w: Watcher) -> None:
     """After an approved capture lands, clear the surface for the next
-    dump. The text lives on in the proposal file and in git history."""
+    dump. The text lives on, verbatim, inside the record that just
+    landed (and in git history)."""
     w.write_surface(w.capture_rel, CAPTURE_SKELETON,
                     f"clear {w.capture_rel} after capture landed",
                     action="reset_capture_surface")
 
 
 def capture_archive_note(w: Watcher, today: dt.date | None = None) -> str:
-    """Where a processed dump is filed — one note per day, appended to.
+    """The dated capture note — the record for a dump with no shape worth
+    naming. One note per day, appended to.
 
-    Not a heuristic about which LINES were used. Measuring that was tried
-    and abandoned: a dump's dates, owners and priorities leave the text
-    for STRUCTURED FIELDS, so "nadia will send the contract; review it in
-    two weeks" scores lower on textual overlap with its own two tasks
-    than a line that is half prose. There is no threshold that separates
-    them, and every wrong guess in that direction deletes someone's
-    writing.
-
-    So nothing is deleted. The dump moves, whole, and the surface clears.
+    The verbatim always rides in whole, never line surgery. Measuring
+    which lines the tasks "used" was tried and abandoned: a dump's dates,
+    owners and priorities leave the text for STRUCTURED FIELDS, so "nadia
+    will send the contract; review it in two weeks" scores lower on
+    textual overlap with its own two tasks than a line that is half
+    prose. There is no threshold that separates them, and every wrong
+    guess in that direction deletes someone's writing.
     """
     cfg = get_config(w.vault_path)
     folder = (cfg.capture_archive or "").strip("/ ")
@@ -127,18 +145,113 @@ def scan_capture(w: Watcher) -> list[dict]:
     }]
 
 
+def _quote(text: str) -> list[str]:
+    """`text` as blockquote lines: every line `> `-prefixed, blanks a
+    bare `>` so the quote stays one block. The quoting is mechanism, not
+    styling — a quoted line can never match TASK_RE, the command scan,
+    or inbox task intent (render_callout's rule), so the verbatim can
+    never be re-extracted or walked as a duplicate of the tasks built
+    from it."""
+    return [("> " + ln).rstrip() for ln in text.splitlines()]
+
+
+def _verbatim_callout(dump: str, stamp: str) -> list[str]:
+    """The dump, whole, as a collapsed NOTE callout (`[!NOTE]-` folds in
+    Obsidian and the owned editor; anywhere else it renders as a plain
+    blockquote). Phase 0's guarantee carried forward: nothing the user
+    typed is deleted, and checking the rewrite against the source is one
+    unfold, not a git dig."""
+    return [f"> [!NOTE]- Verbatim — {stamp}", *_quote(dump)]
+
+
+def _record_task_lines(tasks: list[dict]) -> list[str]:
+    """Extracted tasks as stamped checkbox lines — the record's live
+    half. Owed items carry 👤 (owed-ness is a field now, not a folder)."""
+    return [
+        tk.format_task(t["text"], t.get("due"), t.get("priority"),
+                       block_id=ids.stamp_id("t"), scheduled=t.get("scheduled"),
+                       owner=t.get("owed_by"))
+        for t in tasks
+    ]
+
+
+def _meeting_record(w: Watcher, record: dict, own: list[dict], owed: list[dict],
+                    dump: str, now: dt.datetime) -> tuple[dict, str]:
+    """(apply step, rel) creating a meeting record note. The path is
+    uniquified at draft time; a collision at apply time (created in the
+    gap) fails the proposal loudly — create_note never overwrites."""
+    cfg = get_config(w.vault_path)
+    date = now.date().isoformat()
+    title = (record["title"] or "meeting").replace("/", "-")
+    rel = f"{cfg.meetings_dir}/{date} {title}.md"
+    if w.vault.resolve(rel).exists():
+        rel = f"{cfg.meetings_dir}/{date} {title} {now.strftime('%H%M')}.md"
+    fm = {"id": ids.stamp_id("m"), "type": "meeting", "date": date,
+          "attendees": record["attendees"]}
+    body: list[str] = [""]
+    if record["summary"]:
+        body += ["## Summary", "", record["summary"], ""]
+    if own:
+        body += ["## Action items", "", *_record_task_lines(own), ""]
+    if owed:
+        body += ["## Waiting on", "", *_record_task_lines(owed), ""]
+    body += [*_verbatim_callout(dump, now.strftime("%H:%M")), ""]
+    content = md.join_frontmatter(fm, "\n".join(body))
+    return {"tool": "create_note", "args": {"path": rel, "content": content}}, rel
+
+
+def _capture_record(w: Watcher, record: dict, own: list[dict], owed: list[dict],
+                    dump: str, now: dt.datetime) -> tuple[dict, str]:
+    """(apply step, rel) appending a timestamped block to the dated
+    capture note — the record for a dump with no shape worth naming
+    ("where does a pure task list live? in the day you dumped it")."""
+    # A blank capture_archive can't opt out anymore: with no inbox, the
+    # dated note is where a shapeless dump LIVES, not a side archive.
+    rel = capture_archive_note(w, now.date()) or f"Captures/{now.date().isoformat()}.md"
+    stamp = now.strftime("%H:%M")
+    # The block heading carries the dump's subject: a daily note whose
+    # filename is only a date needs its content to say what the day was
+    # about — the rail's label reads these topics back, so "which day
+    # did I work detections" is answerable at a glance.
+    title = record["title"].replace("\n", " ").strip()
+    block: list[str] = [f"## {stamp} — {title}" if title else f"## {stamp}"]
+    if record["summary"]:
+        block += ["", record["summary"]]
+    if own or owed:
+        block += ["", *_record_task_lines(own + owed)]
+    block += ["", *_verbatim_callout(dump, stamp)]
+    content = "\n".join(block)
+    if not w.vault.resolve(rel).exists():
+        # append_to_note creates a missing note with the content as-is,
+        # so the daily note's frontmatter rides in with the first block.
+        # (A note created in the draft→apply gap would land this
+        # mid-file: rare, visible on review, one revert.)
+        content = f"---\ntype: capture\ndate: {now.date().isoformat()}\n---\n\n{content}"
+    return {"tool": "append_to_note", "args": {"path": rel, "content": content}}, rel
+
+
 async def draft_capture(w: Watcher, item: dict) -> dict | None:
-    tasks = await w.capture_extractor(item["text"], dt.date.today().isoformat())
+    data = await w.record_worker(item["text"], dt.date.today().isoformat())
     # Processed regardless of outcome: the same text is never
     # re-extracted; editing the surface changes the hash and re-arms.
     w.seen["capture"] = content_hash(item["text"])
-    if not tasks:
-        return None
-    archive = capture_archive_note(w)
+    record, tasks = data["record"], data["tasks"]
     own, owed = _split_owed(tasks)
-    parts = ([f"{len(own)} captured task(s) to {w.capture_inbox}"] if own else []) + (
-        [f"{len(owed)} waiting-on item(s) to {w.waiting_inbox}"] if owed else []
-    )
+    now = dt.datetime.now()
+    if record["kind"] == "meeting":
+        step, rel = _meeting_record(w, record, own, owed, item["text"], now)
+    else:
+        step, rel = _capture_record(w, record, own, owed, item["text"], now)
+    # The task lines are held to extraction fidelity against the dump —
+    # at draft time, into the issues the reviewer reads, because a
+    # record never auto-applies and the checkbox is where warnings
+    # matter. The summary rewrite is deliberately unchecked: prose has
+    # no verifier; the folded verbatim is its check.
+    fidelity = get_config(w.vault_path).fidelity
+    warnings = [f"⚠ {f}" for t in tasks
+                for f in _check_text(t["text"], item, fidelity)]
+    parts = ([f"{len(own)} task(s)"] if own else []) + (
+        [f"{len(owed)} waiting-on item(s)"] if owed else [])
     p = proposals.new_proposal(
         kind="capture",
         note=item["note"],
@@ -150,58 +263,30 @@ async def draft_capture(w: Watcher, item: dict) -> dict | None:
         # the re-arm, silently dropping the task. is_stale normalizes
         # the same way for capture proposals.
         note_content=item["text"],
-        title="Add " + " + ".join(parts),
-        summary=(f"Extracted from {item['note']}; approving adds them, "
-                 + (f"files the dump to {archive}, and clears the surface."
-                    if archive else "and clears the surface.")),
-        issues=_extraction_issues(tasks),
-        apply=[
-            _add_task_step(w.waiting_inbox if t.get("owed_by") else w.capture_inbox, t)
-            for t in tasks
-        ],
+        title=f"File to {rel}" + (f" — {' + '.join(parts)}" if parts else ""),
+        summary=("The dump becomes a record: the summary is a rewrite (check "
+                 "it against the verbatim folded at the record's foot), the "
+                 "tasks live inside the record, and the surface clears."),
+        issues=_extraction_issues(tasks) + warnings,
+        apply=[step],
     )
-    p["dump"] = item["text"]
-    p["archive"] = archive
     return _flag_dropped_dates(p, tasks)
 
 
 def _capture_applied(w: Watcher, p: dict) -> None:
-    """File the dump, then clear the surface.
+    """Clear the surface once its record landed. The record itself
+    carries the dump verbatim (quoted, collapsed), so there is no
+    separate archive write — filing IS the apply step, and clearing
+    without filing is impossible by construction.
 
-    A PARTIAL approval leaves everything in place: clearing would discard
-    the text behind the steps that were NOT approved.
-
-    Otherwise the whole dump is appended to its dated capture note before
-    the surface is blanked. Blanking alone is what used to destroy the
-    narrative around a dump — the decisions, the reasoning, the context
-    that made the tasks mean anything — leaving it only in git and the
-    proposal file, which is to say nowhere the user reads.
-
-    Archiving and clearing are one step on purpose: they must never be
-    separately deselectable, because "clear without filing" is exactly
-    the data loss this exists to stop.
-    """
+    A PARTIAL approval leaves the surface alone: the text behind any
+    declined step is still the only copy."""
     if not w.capture_rel or p.get("partial"):
         return
-    dump, archive = (p.get("dump") or "").strip(), p.get("archive") or ""
-    if dump and archive:
-        stamp = dt.datetime.now().strftime("%H:%M")
-        try:
-            existing = w.vault.read(archive)
-        except VaultError:
-            existing = f"---\ntype: capture\ndate: {dt.date.today().isoformat()}\n---\n\n"
-        w.write_surface(archive, f"{existing.rstrip()}\n\n## {stamp}\n\n{dump}\n",
-                        f"file the capture dump into {archive}",
-                        action="archive_capture")
     reset_capture(w)
 
 
-# ---- shared extraction shaping (capture and inbox_extract) ----
-#
-# Both extractors run the same worker over user text and turn its tasks
-# into the same three things: a reviewable issues list, add_task steps,
-# and an own/owed split. Only WHERE the text comes from and what else
-# the plan does differ, so the shaping lives here once.
+# ---- extraction shaping: worker task rows -> reviewable pieces ----
 
 
 def _split_owed(tasks: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -228,18 +313,6 @@ def _extraction_issues(tasks: list[dict]) -> list[str]:
     return [_task_issue(t) for t in tasks] + _dropped_date_issues(tasks)
 
 
-def _add_task_step(path: str, t: dict) -> dict:
-    """One add_task apply step. A task someone else owes carries their
-    name in the text, so the waiting list reads "who: what"."""
-    return {"tool": "add_task", "args": {
-        "path": path,
-        "text": f"{t['owed_by']}: {t['text']}" if t.get("owed_by") else t["text"],
-        **({"due": t["due"]} if t.get("due") else {}),
-        **({"scheduled": t["scheduled"]} if t.get("scheduled") else {}),
-        **({"priority": t["priority"]} if t.get("priority") else {}),
-    }}
-
-
 def _dropped_date_issues(tasks: list[dict]) -> list[str]:
     return [
         f"⚠ impossible due date {t['dropped_due']!r} was dropped from {t['text']!r} — set it by hand"
@@ -255,114 +328,6 @@ def _flag_dropped_dates(p: dict, tasks: list[dict]) -> dict:
     if any(t.get("dropped_due") for t in tasks):
         p["needs_review"] = True
     return p
-
-
-# ---- inbox_extract: free text typed into the task inbox -> real tasks ----
-
-
-def _inbox_prose(body: str) -> tuple[str, list[str], list[int], list[str]] | None:
-    """First section of the note containing free-text lines (non-blank,
-    not a heading, not a checkbox). Returns (heading, section_lines,
-    prose_indices, prose_lines) or None."""
-    heading = ""
-    sec_lines: list[str] = []
-    sections: list[tuple[str, list[str]]] = []
-    for line in body.splitlines():
-        if line.lstrip().startswith("#") and line.lstrip("#") != line:
-            sections.append((heading, sec_lines))
-            heading, sec_lines = line.lstrip("# ").strip(), []
-        else:
-            sec_lines.append(line)
-    sections.append((heading, sec_lines))
-    for head, lines in sections:
-        if not head:
-            continue  # v1: only prose under a heading
-        idx = [i for i, ln in enumerate(lines) if _is_task_intent(ln)]
-        if idx:
-            return head, lines, idx, [lines[i] for i in idx]
-    return None
-
-
-def _is_task_intent(ln: str) -> bool:
-    """Free text worth extracting: non-blank, not already a checkbox, and
-    not reference material — //command lines, callout/blockquote lines
-    (command results render as callouts), URL lines, and indented
-    continuations are content, never task intent (a //azure result
-    written into the inbox must not be re-extracted as tasks)."""
-    if not ln.strip() or ln.lstrip().startswith("- ["):
-        return False
-    if ln != ln.lstrip():
-        return False  # indented continuation (e.g. a result's "covers:" line)
-    if ln.startswith(">"):
-        return False  # blockquote/callout: quoted reference, not intent
-    return not (is_command_line(ln) or ln.startswith("**//") or "://" in ln)
-
-
-def scan_inbox(w: Watcher) -> list[dict]:
-    """Free text typed straight into the capture inbox — the same promise
-    as Capture.md (write anywhere natural, the harness proposes), scoped
-    v1 to the one note where loose lines are unambiguously task intent."""
-    try:
-        raw = w.vault.read(w.capture_inbox)
-    except VaultError:
-        return []
-    # The real frontmatter parser, not a hand-rolled split on "---": a note
-    # that OPENS with a horizontal rule (no frontmatter at all) made that
-    # split eat its first line, and the section indices below are derived
-    # from whatever body it returned.
-    found = _inbox_prose(md.split_frontmatter(raw)[1])
-    if found is None:
-        return []
-    heading, sec_lines, idx, prose = found
-    if content_hash("\n".join(prose)) == w.seen.get("inbox_extract"):
-        return []  # rejected text is never re-drafted; editing re-arms
-    return [{
-        "kind": "inbox_extract",
-        "note": w.capture_inbox,
-        "content": raw,
-        "vault_sha": w._pass_sha,
-        "section": heading,
-        "sec_lines": sec_lines,
-        "prose_idx": idx,
-        "prose": prose,
-    }]
-
-
-async def draft_inbox(w: Watcher, item: dict) -> dict | None:
-    text = "\n".join(ln.lstrip("- ").strip() for ln in item["prose"])
-    tasks = await w.capture_extractor(text, dt.date.today().isoformat())
-    w.seen["inbox_extract"] = content_hash("\n".join(item["prose"]))
-    if not tasks:
-        return None
-    own, owed = _split_owed(tasks)
-    skip = set(item["prose_idx"])
-    kept = [ln for i, ln in enumerate(item["sec_lines"]) if i not in skip]
-    while kept and not kept[-1].strip():
-        kept.pop()
-    new_lines = [
-        tk.format_task(t["text"], t.get("due"), t.get("priority"),
-                       block_id=ids.stamp_id("t"), scheduled=t.get("scheduled"))
-        for t in own
-    ]
-    content = "\n".join([*kept, *new_lines]).strip("\n")
-    parts = ([f"{len(own)} task(s)"] if own else []) + (
-        [f"{len(owed)} waiting-on item(s) to {w.waiting_inbox}"] if owed else []
-    )
-    p = proposals.new_proposal(
-        kind="inbox_extract",
-        note=item["note"],
-        vault_sha=item["vault_sha"],
-        note_content=item["content"],
-        title=f"Turn {len(item['prose'])} free-text line(s) in {item['note']} into "
-        + " + ".join(parts),
-        summary="Loose lines become stamped tasks in place; existing tasks stay "
-        "byte-identical. Reject and edit by hand if the reading is wrong.",
-        issues=_extraction_issues(tasks),
-        apply=[{"tool": "replace_section", "args": {
-            "path": item["note"], "heading": item["section"], "content": content,
-        }}] + [_add_task_step(w.waiting_inbox, t) for t in owed],
-    )
-    return _flag_dropped_dates(p, tasks)
 
 
 # ---- extraction verifier: the fidelity gate that makes auto-apply safe ----
@@ -441,35 +406,81 @@ def _check_text(produced: str, item: dict, fidelity: str) -> list[str]:
     return _close_check(produced, source_text.splitlines(), source_words)
 
 
-def verify_extraction(w: Watcher, item: dict, proposal: dict) -> list[str]:
-    """Deterministic fidelity check for extraction proposals: every task
-    the model produced must trace to the user's own words (dates and
-    priorities live in structured fields, not text; Spec.md `fidelity`
-    picks strict word-for-word vs a bounded grammar allowance), and any
-    rewritten section must keep every pre-existing task line
-    byte-identical. A failure here doesn't block anything — the proposal
-    just keeps its checkbox."""
+# ---- record verifier: what makes a record auto-fileable ----
+
+_HHMM_HEADING_RE = re.compile(r"^## \d{2}:\d{2}(?: — (?P<topic>.+))?$")
+_RECORD_HEADINGS = {"## Summary", "## Action items", "## Waiting on"}
+
+
+def _verify_record_frontmatter(fm: dict, item: dict) -> list[str]:
+    """The frontmatter's model-filled parts, checked against the dump:
+    attendees must be named in it (id/type/date are code-generated; the
+    title lives in the path, visible and cheap to be wrong about)."""
+    if not fm:
+        return []
+    allowed = {"id", "type", "date", "attendees"}
+    failures = [f"unexpected frontmatter key {k!r}" for k in sorted(set(fm) - allowed)]
+    src = _words(item["text"])
+    for a in fm.get("attendees") or []:
+        if not _words(str(a)) <= src:
+            failures.append(f"attendee {a!r} is not named in the dump")
+    return failures
+
+
+def verify_record(w: Watcher, item: dict, proposal: dict) -> list[str]:
+    """Deterministic checks for a record plan — the gate that decides
+    how autonomous the capture lane gets to be.
+
+    Checkable, and checked: one atomic step; every task line traces to
+    the dump (extraction fidelity); the verbatim rides in COMPLETE,
+    every line quoted; attendees are named in the dump. The summary is
+    the one thing nothing deterministic can vouch for, so any body line
+    that is not a task, a heading, or the quoted verbatim fails as
+    model prose.
+
+    What that buys, per Spec.md posture: a bare task-list dump — no
+    rewrite, faithful tasks, verbatim complete — auto-files even under
+    gated autonomy. A dump that earned a summary queues under gated,
+    and under `autonomy: full` it files anyway with the prose objection
+    on the resolved proposal — the folded verbatim is the human check,
+    one unfold away, and every apply is one revertible snapshot."""
     fidelity = get_config(w.vault_path).fidelity
-    failures = []
-    for step in proposal["apply"]:
-        if step["tool"] == "add_task":
-            failures += _check_text(step["args"]["text"], item, fidelity)
-        elif step["tool"] == "replace_section":
-            new_lines = step["args"]["content"].splitlines()
-            old_tasks = [ln for ln in item.get("sec_lines", []) if ln.lstrip().startswith("- [")]
-            for ln in old_tasks:
-                if ln not in new_lines:
-                    failures.append(f"pre-existing task line dropped or altered: {ln!r}")
-            for ln in new_lines:
-                if ln in old_tasks or not ln.lstrip().startswith("- ["):
-                    continue
-                task = tk.parse_task_line(ln)
-                if task is None:
-                    failures.append(f"unparseable task line {ln!r}")
-                else:
-                    failures += _check_text(task.text, item, fidelity)
-        else:
-            failures.append(f"unexpected tool {step['tool']!r} in an extraction plan")
+    if len(proposal["apply"]) != 1:
+        return ["a record plan must be one atomic step"]
+    step = proposal["apply"][0]
+    if step["tool"] not in ("create_note", "append_to_note"):
+        return [f"unexpected tool {step['tool']!r} in a record plan"]
+    fm, body = md.split_frontmatter(str(step["args"].get("content", "")))
+    failures = _verify_record_frontmatter(fm, item)
+    quoted = set(_quote(item["text"]))
+    seen_quoted: set[str] = set()
+    for ln in body.splitlines():
+        s = ln.strip()
+        if not s:
+            continue
+        task = tk.parse_task_line(ln)
+        if task is not None:
+            failures += _check_text(task.text, item, fidelity)
+            continue
+        if ln.startswith(">"):
+            if ln in quoted:
+                seen_quoted.add(ln)
+            elif not s.startswith("> [!NOTE]-"):
+                failures.append(f"unexpected quoted line: {ln[:60]!r}")
+            continue
+        hm = _HHMM_HEADING_RE.match(s)
+        if hm:
+            # The heading's topic is model text naming the dump's subject
+            # — a label, so it is held to the same fidelity as a task:
+            # its words must trace to the dump, or the record queues.
+            if hm.group("topic"):
+                failures += _check_text(hm.group("topic"), item, fidelity)
+            continue
+        if s in _RECORD_HEADINGS:
+            continue
+        failures.append(f"summary prose no check can vouch for: {s[:60]!r}")
+    failures += [f"verbatim line missing from the record: {q[:60]!r}"
+                 for q in sorted(quoted - seen_quoted)]
     return failures
 
 
@@ -699,67 +710,6 @@ async def draft_grouping(w: Watcher, item: dict) -> dict | None:
     )
 
 
-# ---- archive_done: completed tasks -> the archive note ----
-
-
-def scan_archive(w: Watcher) -> list[dict]:
-    """Done tasks sitting in the working inboxes — the lists whose hygiene
-    the harness owns. Tasks completed inside knowledge notes (meeting
-    action items) stay in place: they're historical record."""
-    cfg = get_config(w.vault_path)
-    if not cfg.done_archive:
-        return []
-    items = []
-    for rel in dict.fromkeys((cfg.capture_inbox, cfg.waiting_inbox)):
-        if rel == cfg.done_archive:
-            continue
-        try:
-            text = w.vault.read(rel)
-        except VaultError:
-            continue
-        # Top-level only, mirroring the archive tool: a done subtask under
-        # an open parent stays with its parent, so it is not archivable work.
-        done = [t for t in tk.iter_tasks(text) if t.done and t.raw.lstrip() == t.raw]
-        if done:
-            items.append({"kind": "archive_done", "note": rel, "content": text,
-                          "vault_sha": w._pass_sha, "archive": cfg.done_archive,
-                          "tasks": [t.text for t in done]})
-    return items
-
-
-async def draft_archive(w: Watcher, item: dict) -> dict | None:
-    """Deterministic draft — no worker; the semantic tool owns the move."""
-    n = len(item["tasks"])
-    return proposals.new_proposal(
-        kind="archive_done",
-        note=item["note"],
-        vault_sha=item["vault_sha"],
-        note_content=item["content"],
-        title=f"Archive {n} done task(s) from {item['note']}",
-        summary=f"Completed tasks move byte-identical to {item['archive']}; "
-        "hand-checked ones gain today's ✅ date.",
-        issues=[f"done: {t}" for t in item["tasks"]],
-        apply=[{"tool": "archive_done_tasks",
-                "args": {"path": item["note"], "archive_path": item["archive"]}}],
-    )
-
-
-def verify_archive(w: Watcher, item: dict, proposal: dict) -> list[str]:
-    """Shape check — the transformation itself is deterministic code (the
-    archive tool), so like a command's verifier this only pins that the
-    plan is exactly one archive step aimed where the scan looked."""
-    plan = proposal["apply"]
-    if len(plan) != 1 or plan[0]["tool"] != "archive_done_tasks":
-        return ["plan must be exactly one archive_done_tasks step"]
-    args = plan[0]["args"]
-    failures = []
-    if args.get("path") != item["note"]:
-        failures.append("plan targets a different note")
-    if args.get("archive_path") != item["archive"]:
-        failures.append("plan targets a different archive")
-    return failures
-
-
 # ---- overlap: duplicates and links across notes ----
 #
 # The pattern: build the boundary in code, let similarity rank inside
@@ -816,7 +766,6 @@ def scan_overlap(w: Watcher) -> list[dict]:
     embedding index and lives in the draft, where async belongs. The
     seen-hash keys on the whole pool, so an unchanged vault never
     re-embeds or re-judges."""
-    cfg = get_config(w.vault_path)
     pool: list[tuple] = []  # (Task, rel)
     for rel, text in w.pass_notes().items():
         for t in tk.iter_tasks(text):
@@ -843,17 +792,17 @@ def scan_overlap(w: Watcher) -> list[dict]:
                 if frozenset((a[0].block_id, b[0].block_id)) in decided:
                     continue
                 exact.append((a, b))
-    try:
-        content = w.vault.read(cfg.capture_inbox)
-    except VaultError:
-        return []
+    # Anchored on the first candidate pair's note (else the pool's first,
+    # for the fuzzy-only case). Used to anchor on the capture inbox and
+    # return [] when it couldn't be read — with the inbox retired, that
+    # would have silently killed overlap for good, a missing note reading
+    # as an empty vault. The real per-step staleness is replace_line's
+    # exactly-once anchor, which fails loud if any target line moved.
+    anchor = exact[0][0][1] if exact else min(rel for _t, rel in pool)
     return [{
         "kind": "overlap",
-        # Anchored on the inbox (capture's dups mostly involve it); the
-        # real per-step staleness is replace_line's exactly-once anchor,
-        # which fails loud if any target line moved.
-        "note": cfg.capture_inbox,
-        "content": content,
+        "note": anchor,
+        "content": w.pass_notes().get(anchor, ""),
         "vault_sha": w._pass_sha,
         "pool": pool,
         "exact": exact[:MAX_OVERLAP_PAIRS],
@@ -897,7 +846,7 @@ async def _fuzzy_candidates(w: Watcher, item: dict) -> list[tuple]:
     return [(a, b) for _s, a, b in scored[:MAX_OVERLAP_PAIRS]]
 
 
-def _overlap_steps(verdicts: list[dict], capture_inbox: str) -> tuple[list, list, list]:
+def _overlap_steps(verdicts: list[dict]) -> tuple[list, list, list]:
     """(apply steps, issues, pairs) from judged verdicts — one step per
     actionable pair, 1:1 with issues so partial approval reads cleanly."""
     steps, issues, pairs = [], [], []
@@ -911,13 +860,8 @@ def _overlap_steps(verdicts: list[dict], capture_inbox: str) -> tuple[list, list
             issues.append(f"duplicate: “{lose.text}” ({lrel}) ≡ kept in {wrel}")
             steps.append({"tool": "replace_line", "args": {
                 "path": lrel, "line_text": lose.raw, "content": ""}})
-        else:  # related
-            # the inbox copy carries the link (it's the transient one);
-            # otherwise the pair's first task does
-            if rb == capture_inbox and ra != capture_inbox:
-                src, srel, dst, drel = tb, rb, ta, ra
-            else:
-                src, srel, dst, drel = ta, ra, tb, rb
+        else:  # related — the pair's first task carries the ⇄ link
+            src, srel, dst, drel = ta, ra, tb, rb
             issues.append(f"related: “{src.text}” ({srel}) ⇄ “{dst.text}” ({drel})")
             steps.append({"tool": "replace_line", "args": {
                 "path": srel, "line_text": src.raw,
@@ -970,8 +914,7 @@ async def draft_overlap(w: Watcher, item: dict) -> dict | None:
     actionable = [v for v in verdicts if v["verdict"] in ("duplicate", "related")]
     if not actionable:
         return None
-    cfg = get_config(w.vault_path)
-    steps, issues, pairs = _overlap_steps(actionable, cfg.capture_inbox)
+    steps, issues, pairs = _overlap_steps(actionable)
     p = proposals.new_proposal(
         kind="overlap",
         note=item["note"],
@@ -995,24 +938,27 @@ MAX_PLAN_PICKS = 3
 
 
 def scan_plan(w: Watcher) -> list[dict]:
-    """The undated pool: open, top-level, stamped inbox tasks carrying
-    neither 📅 nor ⏳ — nothing deterministic can place them, so placing
-    them IS judgment, and judgment always queues (no verifier can vouch
-    for a plan). One work item for the whole pool; the once-a-day
-    cadence rides the seen-hash (keyed on date + pool), so a rejected
-    plan never re-asks until tomorrow or the inbox changes."""
-    cfg = get_config(w.vault_path)
-    try:
-        content = w.vault.read(cfg.capture_inbox)
-    except VaultError:
-        return []
-    pool = [t for t in tk.iter_tasks(content)
-            if not t.done and t.raw.lstrip() == t.raw
-            and not t.due and not t.scheduled and t.block_id]
+    """The undated pool: every open, top-level, stamped task carrying
+    neither 📅 nor ⏳ nor 👤, wherever it lives (the same pool the
+    dashboard's backlog reads). Nothing deterministic can place these,
+    so placing them IS judgment, and judgment always queues (no
+    verifier can vouch for a plan). One work item for the whole pool;
+    the once-a-day cadence rides the seen-hash (keyed on date + pool),
+    so a rejected plan never re-asks until tomorrow or the pool
+    changes."""
+    pool: list[tuple] = []  # (Task, rel)
+    for rel, text in w.pass_notes().items():
+        for t in tk.iter_tasks(text):
+            if (not t.done and t.raw.lstrip() == t.raw and not t.due
+                    and not t.scheduled and not t.owner and t.block_id):
+                pool.append((t, rel))
     if not pool:
         return []
+    # Oldest first — the order the judge reads, and the anchor note is
+    # the oldest task's home.
+    pool.sort(key=lambda x: (x[0].created or "9999", x[1], x[0].block_id))
     today = dt.date.today().isoformat()
-    key = content_hash(today + "\n".join(t.block_id for t in pool))
+    key = content_hash(today + "\n".join(t.block_id for t, _rel in pool))
     if key == w.seen.get("plan_today"):
         return []
     # What's already committed today (due or planned) — the worker needs
@@ -1025,10 +971,11 @@ def scan_plan(w: Watcher) -> list[dict]:
                 continue
             if (t.due and t.due <= today) or (t.scheduled and t.scheduled <= today):
                 committed += 1
+    anchor = pool[0][1]
     return [{
         "kind": "plan_today",
-        "note": cfg.capture_inbox,
-        "content": content,
+        "note": anchor,
+        "content": w.pass_notes().get(anchor, ""),
         "vault_sha": w._pass_sha,
         "tasks": pool,
         "today": today,
@@ -1042,7 +989,7 @@ async def draft_plan(w: Watcher, item: dict) -> dict | None:
     # Asked and answered for this pool+day, whatever the answer: an
     # empty or broken reply must not re-ask every pass.
     w.seen["plan_today"] = item["seen_key"]
-    pool = {t.block_id: t for t in item["tasks"]}
+    pool = {t.block_id: (t, rel) for t, rel in item["tasks"]}
     picks = reply.get("picks") or []
     ids = [str(p.get("id", "")) for p in picks]
     if not ids:
@@ -1052,7 +999,7 @@ async def draft_plan(w: Watcher, item: dict) -> dict | None:
         return None  # broken output dies here, never in the queue
     issues = []
     for p in picks:
-        t = pool[str(p["id"])]
+        t, rel = pool[str(p["id"])]
         reason = str(p.get("reason", "")).strip()
         issues.append(t.text + (f" — {reason}" if reason else ""))
     return proposals.new_proposal(
@@ -1065,8 +1012,11 @@ async def draft_plan(w: Watcher, item: dict) -> dict | None:
         "never a deadline. Approve some, reject the rest: every verdict "
         "teaches the judge your judgment.",
         issues=issues,
+        # Per-step paths: the pool spans notes now, and set_task_scheduled
+        # is its own staleness check (matches by the task's text, fails
+        # loud when the line moved).
         apply=[{"tool": "set_task_scheduled", "args": {
-            "path": item["note"], "task_text": pool[i].text,
+            "path": pool[i][1], "task_text": pool[i][0].text,
             "scheduled": item["today"],
         }} for i in ids],
         entity_ids=ids,
@@ -1078,19 +1028,15 @@ async def draft_plan(w: Watcher, item: dict) -> dict | None:
 CAPTURE = ProcessorSpec(
     "capture", scan_capture, draft_capture,
     render_diff=False, ensure=ensure_capture, on_applied=_capture_applied,
-    verify=verify_extraction,
+    verify=verify_record,
     title="Capture dumps",
-    blurb="Reads whatever you dump into the capture surface and pulls the "
-          "tasks out of it: your own actions go to the task inbox, things "
-          "other people owe you go to the waiting list. The surface is "
-          "cleared once the extraction lands — the text stays in git.",
-)
-INBOX_EXTRACT = ProcessorSpec(
-    "inbox_extract", scan_inbox, draft_inbox, verify=verify_extraction,
-    title="Loose lines in the inbox",
-    blurb="Free text typed straight into the task inbox, turned into real "
-          "task lines with dates and owners. Same promise as the capture "
-          "surface, for the note you were already typing in.",
+    blurb="Turns whatever you dump into the capture surface into a record: "
+          "a meeting note or a dated capture note holding a readable "
+          "rewrite, the tasks it contains (yours, and what others owe you "
+          "marked 👤), and your verbatim dump folded beneath. A bare task "
+          "list files itself once verified; a dump that earned a summary "
+          "asks first — unless Spec.md grants autonomy: full, and then it "
+          "files with the objection on the audit trail.",
 )
 SPEC_DRIFT = ProcessorSpec(
     "spec_drift", scan_spec_drift, draft_spec_drift,
@@ -1112,16 +1058,9 @@ GROUPING = ProcessorSpec(
     blurb="Suggests headings for a long unstructured task list. A judgment "
           "call with no deterministic check behind it, so it always asks.",
 )
-ARCHIVE_DONE = ProcessorSpec(
-    "archive_done", scan_archive, draft_archive, render_diff=False,
-    verify=verify_archive,
-    title="Archive completed tasks",
-    blurb="Moves finished tasks out of the working inboxes into the done "
-          "archive. Tasks you ticked inside a meeting or project note stay "
-          "where they are — there they are a record of what happened.",
-)
 OVERLAP = ProcessorSpec(
     "overlap", scan_overlap, draft_overlap, render_diff=False,
+    claims_note=False,
     title="Duplicate tasks",
     blurb="Finds the same task written twice in different notes and "
           "proposes merging the pair. Exact repeats are matched in code; "
@@ -1129,30 +1068,27 @@ OVERLAP = ProcessorSpec(
 )
 PLAN_TODAY = ProcessorSpec(
     "plan_today", scan_plan, draft_plan, render_diff=False,
+    claims_note=False,
     title="Suggest a day plan",
-    blurb="Once a day, picks a few inbox tasks carrying neither a deadline "
-          "nor a plan date and proposes doing them today. Nothing "
-          "deterministic can place a task, so this always asks.",
+    blurb="Once a day, picks a few backlog tasks carrying neither a deadline "
+          "nor a plan date — wherever they live — and proposes doing them "
+          "today. Nothing deterministic can place a task, so this always asks.",
 )
 
 # Capture first: the user actively feeding the pipeline is never starved
 # out of n_max by a maintenance backlog. archive_done outranks schema/
 # grouping — the one-proposal-per-note invariant means whoever scans a
-# note first claims it, and grouping would claim the inbox (a stamped
+# note first claims it, and grouping would claim a task note (a stamped
 # flat list is a grouping candidate) while done tasks sat unarchived;
-# housekeeping first, then fix what remains. overlap and plan_today
-# anchor on the INBOX note, and grouping treats the inbox (a stamped
-# flat list) as a permanent candidate — so grouping must come AFTER
-# them, or the one-per-note claim starves dedupe and planning forever
-# behind a cosmetic regroup. Within the suggestion lanes: dedupe before
+# housekeeping first, then fix what remains. overlap and plan_today are
+# the cross-note lanes (claims_note=False): their pools span the vault
+# and their anchors claim nothing, so they never contend with the
+# per-note processors. Within the suggestion lanes: dedupe before
 # planning (planning a task that's about to be merged away is wasted
-# judgment); they alternate passes when both want the inbox, because a
-# scan's claim lasts one pass but its seen-hash lasts until the pool
-# changes. (//commands are not processors — they execute in their own
+# judgment). (//commands are not processors — they execute in their own
 # pass phase; see commands.py.)
 REGISTRY: tuple[ProcessorSpec, ...] = (
-    CAPTURE, INBOX_EXTRACT, ARCHIVE_DONE, SPEC_DRIFT, SCHEMA_FIX, OVERLAP,
-    PLAN_TODAY, GROUPING)
+    CAPTURE, SPEC_DRIFT, SCHEMA_FIX, OVERLAP, PLAN_TODAY, GROUPING)
 
 
 def registry(disabled: Sequence[str] = ()) -> tuple[ProcessorSpec, ...]:

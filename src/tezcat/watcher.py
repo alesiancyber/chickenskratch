@@ -83,9 +83,9 @@ SPEC_BODY = """\
 # Vault Spec
 
 The properties above ARE this vault's configuration — the folder→type
-map, the capture/waiting inboxes, and the model-context exclusions.
-Edit them here in any editor; the engine reads this note at the start
-of every pass, no restart needed. Unlike everything else in Harness/,
+map, where records live (meetings_dir, and the dated capture notes),
+and the model-context exclusions. Edit them here in any editor; the
+engine reads this note at the start of every pass, no restart needed. Unlike everything else in Harness/,
 this note is yours: seeded once from the repo defaults, never
 regenerated.
 
@@ -94,20 +94,18 @@ type for untyped notes, and a note's own frontmatter always wins. When
 a new top-level folder appears in the vault, a proposal to map it
 shows up on the dashboard.
 
-auto_apply lists the processors trusted to act without your verdict —
-honored only for mechanical transformations that pass a deterministic
-fidelity check (your words only, existing lines byte-identical); any
-doubt queues for the dashboard (or `tezcat decide`). Judgment calls
-always queue — unless `autonomy: full`.
-
-`autonomy` is the consent posture. `gated` (the default): judgment
-always queues, and a failing verifier queues its proposal. `full`: a
-standing grant — everything in auto_apply applies, verifier or not;
-when a verifier objects, the fix applies anyway with the objections
-recorded on the proposal file. Every apply is still one revertible
-snapshot; the dashboard's changes feed and `tezcat-revert` are the
-audit trail, and a revert is the strongest training signal you can
-give.
+`policies` is the consent map — one level per processor, so nothing
+here can conflict with anything else:
+- `off`: the processor doesn't run;
+- `ask`: every proposal queues for your verdict;
+- `verified`: applies when its deterministic check passes (your words
+  only, verbatim complete); no check, or a failing one, queues;
+- `full`: applies regardless — objections are recorded on the proposal,
+  and the folded verbatim / changes feed is your audit trail.
+Every apply is still one revertible snapshot; `tezcat-revert` (or the
+dashboard's undo) is always one step, and a revert is the strongest
+training signal you can give. The console's autonomy presets just
+pre-select these levels — the map is the only stored truth.
 
 `worker` picks which models.yaml profile drafts proposals — a profile
 NAME, never a URL (endpoints and keys stay in the repo config). `n_max`
@@ -128,14 +126,15 @@ def spec_seed(vault_path: str) -> str:
     base = get_config(vault_path)
     fm = {
         "folders": dict(base.folder_types),
-        "capture_inbox": base.capture_inbox,
-        "waiting_inbox": base.waiting_inbox,
         "done_archive": base.done_archive,
         "exclude": list(base.exclude),
-        "auto_apply": list(base.auto_apply),
-        "autonomy": base.autonomy,
+        # The consent map, every processor named at its resolved level —
+        # a new vault starts with its whole posture legible in one key.
+        "policies": {p.name: base.policy_for(p.name) for p in processors.REGISTRY},
         "fidelity": base.fidelity,
         "worker": base.worker,
+        # Kept for the //commands kill switch ("inline_command") — the
+        # command phase is a pass stage, not a processor with a policy.
         "disabled_processors": list(base.disabled_processors),
         "n_max": base.n_max,
         "daily_dir": base.daily_dir,
@@ -196,11 +195,14 @@ async def draft_overlap_worker(item: dict, pairs: list[tuple]) -> dict:
 
 async def draft_plan_today(item: dict) -> dict:
     """Default plan drafter: one bounded worker call over the undated
-    pool; the reply only ever picks ids (draft_plan validates them)."""
+    pool; the reply only ever picks ids (draft_plan validates them).
+    The pool spans notes, so each line names the record it lives in —
+    "three action items from the Azure meeting, 12 days untouched" is a
+    better prompt than three bare texts."""
     lines = "\n".join(
         f"{t.block_id}: {t.text} — created {t.created or 'unknown'}, "
-        f"priority {t.priority or 'none'}"
-        for t in item["tasks"])
+        f"priority {t.priority or 'none'}, in {rel}"
+        for t, rel in item["tasks"])
     return await wk.run_worker(
         wk.WORKERS["plan_today"], today=item["today"],
         max_picks=processors.MAX_PLAN_PICKS,
@@ -218,7 +220,7 @@ class Watcher:
         disabled: tuple[str, ...] | None = None,
         registry: tuple[ProcessorSpec, ...] | None = None,
         grouping_drafter=None,
-        capture_extractor=None,
+        record_worker=None,
         plan_drafter=None,
         overlap_drafter=None,
         embedder=None,
@@ -243,7 +245,7 @@ class Watcher:
         # bounded run_worker defaults). Processors reach them via `w.`.
         self.drafter = drafter or draft_schema_fix
         self.grouping_drafter = grouping_drafter or draft_grouping
-        self.capture_extractor = capture_extractor or wk.extract_tasks
+        self.record_worker = record_worker or wk.extract_record
         self.plan_drafter = plan_drafter or draft_plan_today
         self.overlap_drafter = overlap_drafter or draft_overlap_worker
         self.embedder = embedder or embed_pool
@@ -280,15 +282,36 @@ class Watcher:
         an unknown processor name raised only after the new vault handle,
         n_max, and surfaces had already landed, leaving the pass running
         half of each config."""
-        disabled = tuple(self._disabled_override if self._disabled_override is not None
-                         else cfg.disabled_processors)
-        # "inline_command" in the disabled list is the commands kill switch —
-        # commands are a pass phase, not a processor, so the name is peeled
-        # off before the registry (which would reject it as unknown).
-        commands_enabled = "inline_command" not in disabled
+        if self._disabled_override is not None:
+            # Explicit constructor/CLI names pin the disabled set outright.
+            disabled = tuple(self._disabled_override)
+            commands_enabled = "inline_command" not in disabled
+            registry_disabled = tuple(n for n in disabled if n != "inline_command")
+        else:
+            # A typo'd name in either consent key must fail LOUD (the
+            # caller degrades to the current configuration and says so):
+            # a policy silently gating nothing is the checkbox lie this
+            # model exists to remove. Known = the default registry plus
+            # anything injected — a test running a subset must not make
+            # the vault's ordinary Spec read as typos.
+            names = {p.name for p in processors.REGISTRY} | {"inline_command"}
+            if self._registry_override is not None:
+                names |= {p.name for p in self._registry_override}
+            unknown = (set(cfg.disabled_processors) | set(cfg.policies)) - names
+            if unknown:
+                raise ValueError(f"unknown processor(s): {sorted(unknown)}")
+            # A processor is off when its resolved level says so (the
+            # disabled_processors kill switch outranks the policies map —
+            # see policy_for). "inline_command" is a pass phase, not a
+            # processor, so its kill switch is read directly.
+            registry_disabled = tuple(
+                p.name for p in processors.REGISTRY
+                if cfg.policy_for(p.name) == "off")
+            commands_enabled = not (
+                "inline_command" in cfg.disabled_processors
+                or cfg.policies.get("inline_command") == "off")
         registry = (self._registry_override if self._registry_override is not None
-                    else processors.registry(  # raises on an unknown name
-                        tuple(n for n in disabled if n != "inline_command")))
+                    else processors.registry(registry_disabled))
         # The engine's own vault handle carries the exclusions (I4): every
         # watcher-side scan — grouping, commands, the Today surface — must
         # be as blind to Private/ as the MCP server's singleton is. Rebuilt
@@ -308,8 +331,6 @@ class Watcher:
         # Capture.md is the only surface left: the canvas's write-ahead
         # log, written before extraction so a dump survives it failing.
         self.capture_rel = cfg.surfaces.get("capture", "")
-        self.capture_inbox = cfg.capture_inbox
-        self.waiting_inbox = cfg.waiting_inbox
 
     # ---- shared machinery processors ride on ----
 
@@ -371,14 +392,9 @@ class Watcher:
 
     @staticmethod
     def _seen_from_state(state: dict) -> dict[str, str]:
-        """The seen-hash map, tolerating state files written before it was
-        one dict: a missed migration would re-draft every extractor's last
-        text once on upgrade."""
-        seen = {k: str(v) for k, v in (state.get("seen") or {}).items() if v}
-        for legacy, name in (("capture_seen", "capture"), ("inbox_seen", "inbox_extract")):
-            if state.get(legacy) and name not in seen:
-                seen[name] = str(state[legacy])
-        return seen
+        """The seen-hash map: processor name -> hash of the text last
+        handed to its extractor."""
+        return {k: str(v) for k, v in (state.get("seen") or {}).items() if v}
 
     @staticmethod
     def _attempts_from_state(state: dict) -> dict[str, int]:
@@ -469,10 +485,9 @@ class Watcher:
 
     async def _draft(self, items: list[tuple[ProcessorSpec, dict]],
                      summary: dict) -> tuple[int, int]:
-        """Draft up to n_max proposals; verified-safe drafts from trusted
-        processors apply immediately. Returns (drafted, auto_applied)."""
+        """Draft up to n_max proposals; drafts whose processor policy and
+        verifier allow it apply immediately. Returns (drafted, auto_applied)."""
         cfg = get_config(self.vault_path)
-        auto_trusted = set(cfg.auto_apply)
         drafted = auto = attempts = 0
         failed: set[str] = set()  # processors whose draft errored this pass
         for proc, item in items:
@@ -528,19 +543,21 @@ class Watcher:
             # one was burning down.
             self.draft_attempts.pop(f"{proc.name}:{self.seen.get(proc.name, '')}", None)
             drafted += 1
-            # Auto-apply: only processors the vault's Spec.md trusts, only
+            # Auto-apply is the processor's POLICY level (Spec.md
+            # `policies`, via policy_for), only
             # against an unmoved note, and never when the drafter itself
             # flagged something a human must see (needs_review). The
-            # consent lanes:
-            # - gated (default): a verifier must pass — verification
-            #   degrades to review, never blocks — and a processor
-            #   without one (the judgment lanes) always queues;
-            # - autonomy: full (the vault's standing, human-written
-            #   grant; I2 amendment): everything in auto_apply applies.
-            #   A failing verifier no longer queues — it applies with
-            #   its failures recorded on the proposal, so the audit
+            # levels:
+            # - ask: every proposal queues;
+            # - verified: its deterministic verifier must pass —
+            #   verification degrades to review, never blocks — and a
+            #   processor without one (the judgment lanes) queues;
+            # - full (the standing, human-written grant; I2 amendment):
+            #   applies regardless — a failing or absent verifier's
+            #   objections are recorded on the proposal, so the audit
             #   trail names exactly what nobody vouched for.
-            if proc.name in auto_trusted and not p.get("needs_review"):
+            level = cfg.policy_for(proc.name)
+            if level in ("verified", "full") and not p.get("needs_review"):
                 failures: list[str] = []
                 if proc.verify is not None:
                     try:
@@ -551,9 +568,9 @@ class Watcher:
                         # failures means. It must never take the pass down
                         # with it.
                         failures = [f"verifier raised {type(e).__name__}: {e}"]
-                elif cfg.autonomy != "full":
-                    continue  # judgment queues under gated autonomy
-                if failures and cfg.autonomy == "full":
+                elif level != "full":
+                    continue  # judgment queues under `verified`
+                if failures and level == "full":
                     p["verifier_failures"] = failures  # applied, on the record
                     failures = []
                 if failures or applier.is_stale(p, self.vault_path):
@@ -787,7 +804,13 @@ class Watcher:
             # is enforced here — not re-implemented in every scan. The
             # seen set also dedupes WITHIN the pass: when two
             # processors both want a note, registry priority wins.
-            seen_notes = {p["drafted_against"]["note"] for p in pending}
+            # Cross-note processors (claims_note=False) stand outside
+            # the invariant in both directions: their anchor note is
+            # bookkeeping, and letting it claim a real record note
+            # would starve that note's own processors behind a
+            # proposal that barely concerns it.
+            seen_notes = {p["drafted_against"]["note"] for p in pending
+                          if getattr(self._by_kind.get(p["kind"]), "claims_note", True)}
             # Registry order is priority order: capture-class first, so
             # the user actively feeding the pipeline is never starved
             # out of n_max by a maintenance backlog.
@@ -806,7 +829,9 @@ class Watcher:
                     print(f"scan failed for {proc.name}: {type(e).__name__}: {e}")
                     continue
                 for item in found:
-                    if item["note"] not in seen_notes:
+                    if not proc.claims_note:
+                        items.append((proc, item))
+                    elif item["note"] not in seen_notes:
                         seen_notes.add(item["note"])
                         items.append((proc, item))
             summary["drafted"], summary["auto"] = await self._draft(items, summary)

@@ -3,8 +3,9 @@
 A model-agnostic maintenance layer for a folder of markdown notes, with
 its own surfaces: dashboard, canvas, editor, file explorer, chat pane.
 The vault is plain markdown, so nothing traps your notes — but tezcat
-is the front end, not a companion to someone else's. You write; the
-harness extracts tasks, fixes structure, answers
+is the front end, not a companion to someone else's. You write chicken
+scratch; the harness files it as structured records with formatted
+tasks (your verbatim text always kept), fixes structure, answers
 typed `//commands` in place, and queues anything needing judgment for a
 one-key verdict on the dashboard. Every mutation is a git commit;
 `tezcat-revert` undoes any of them. Principles and invariants:
@@ -15,7 +16,7 @@ Two classes of change, two contracts:
 | | **Commands** (`//azure query` + Enter) | **Proposals** (capture, schema fixes, grouping) |
 |---|---|---|
 | origin | you typed it | the harness inferred it |
-| trust | intrinsic | your verdict, or verifier + Spec.md `auto_apply` |
+| trust | intrinsic | your verdict, or verifier + a `verified`/`full` policy |
 | result | replaces its own line (callout) in ~settle-time | queued with a diff, decided on the dashboard |
 | staleness | the exact-line anchor; your edit wins | whole-note hash |
 
@@ -32,8 +33,9 @@ config/             models.yaml (profiles/backends/worker), mcp.yaml
 data/               proposals, corpus (training labels), stats, logs
 evals/              agent suite + worker suite (the model-bakeoff gate)
 web/                the owned dashboard (React; built assets served by tezcat-ui)
-research/           plans and what-ifs; owned-surfaces-plan.md is the
-                    operative UI spec, the rest is not canon
+research/           plans and what-ifs; owned-surfaces-plan.md (UI) and
+                    dumps-become-records.md (capture lane) are the
+                    operative specs, the rest is not canon
 testvault/          scratch vault the default config points at
 ```
 
@@ -89,11 +91,19 @@ the renderer alone doesn't.
   replaced in place by ranked Microsoft Learn links a few seconds later.
   Model-free. Commands live in `src/tezcat/commands.py`; adding one is
   an async function plus a registry entry (`//research` is reserved).
-- **`Harness/Capture.md`** — brain-dump anything; tasks get extracted
-  and proposed. Free text in the task inbox gets the same treatment.
-  This is the one surface left, and it is not a view: the canvas commits
-  your dump here *before* extraction runs, so it survives extraction
-  failing.
+- **`Harness/Capture.md`** — brain-dump anything; the dump becomes a
+  **record**: a meeting note (or a dated capture note) holding a
+  readable rewrite, the tasks it contains — owed items marked `👤` —
+  and your verbatim dump quoted, collapsed, beneath. Tasks live in the
+  record (location is provenance; the dashboard walks every note).
+  Autonomy is graded by what `verify_record` can check: a bare task
+  list (faithful tasks, complete verbatim, no rewrite) files itself;
+  a dump that earned a summary queues under the default posture, and
+  at a `full` policy it files with the prose objection on the audit
+  trail — the folded verbatim is the check, one unfold away.
+  This is the one surface left, and it is not a view: the canvas
+  commits your dump here *before* extraction runs, so it survives
+  extraction failing.
 - **Duplicates & links** — the overlap processor compares tasks across
   notes: exact matches pair in code, near-matches through a cached
   embedding index (`EMBED_BASE_URL`/`EMBED_MODEL`; defaults to Ollama's
@@ -113,13 +123,15 @@ the renderer alone doesn't.
   The 6am heartbeat (`config/launchd/com.tezcat.heartbeat.plist`) covers
   the date rollover on a quiet vault.
 - **`Harness/Spec.md`** — the vault's own config, read fresh every
-  pass: `folders` (type map), `capture_inbox`/`waiting_inbox`,
-  `exclude` (e.g. `Private/` — never enters model context),
-  `auto_apply`, `autonomy` (gated|full — `full` is the standing grant
-  that lets verifier-less judgment processors auto-apply; everything
-  stays snapshot-revertible), `fidelity` (strict|close), `worker`
+  pass: `folders` (type map), `meetings_dir`/`capture_archive` (where
+  records live), `exclude` (e.g. `Private/` — never enters model
+  context), `policies` (the consent map: one `off|ask|verified|full`
+  level per processor — the level IS the gate, and the console's
+  autonomy presets just pre-select them; everything stays
+  snapshot-revertible), `fidelity` (strict|close), `worker`
   (models.yaml profile name for the drafting workers), `n_max`,
-  `disabled_processors` (incl. `inline_command`), and `daily_dir`.
+  `disabled_processors` (the `inline_command` kill switch and the
+  per-lane emergency off), and `daily_dir`.
   Renderer choices are repo config, not Spec keys: diffs are always
   unified ```diff and callouts always `NOTE`.
 - **The dashboard** — `uv run tezcat-ui` (127.0.0.1:8399): the primary
@@ -129,11 +141,12 @@ the renderer alone doesn't.
   keyboard review, ⌘K palette, SSE-live off the engine's passes.
   Frontend builds once with `cd web && npm install && npm run build`.
 - **The canvas** — the dashboard's `#canvas` view: dump anything, ⌘↩.
-  `//commands` in the dump execute instantly; the rest is extracted
-  and either auto-filed (verifier passed) or offered as an inline
-  approve/reject — per-task, if you only want some of it — right where
-  you typed it. Same pipeline as Capture.md — the editor path keeps
-  working identically.
+  `//commands` in the dump execute instantly; the rest becomes a
+  record — auto-filed with a revert on the receipt (verifier passed)
+  or offered as an inline approve/reject, right where you typed it. A
+  record is one atomic step: approve files everything, reject files
+  nothing. Same pipeline as Capture.md — the editor path keeps working
+  identically.
 - **The pane** (⌘J) — the chat escape hatch, re-homed: the same Agent
   loop as `tezcat -i`, with tool calls visible as expandable rows and
   write-gated calls as Allow/Deny chips (every verdict recorded to the
@@ -144,8 +157,8 @@ the renderer alone doesn't.
   note by name without it.
 
 Editor notes: tezcat's own surfaces are the front end, and note
-references anywhere in the UI (rows, citations, "filed → Inbox") open
-tezcat's editor — no app-scheme deep links are emitted. The vault is
+references anywhere in the UI (rows, citations, "filed → Captures")
+open tezcat's editor — no app-scheme deep links are emitted. The vault is
 still an ordinary folder of markdown, so any editor can open it —
 that's the format being portable, a byproduct we keep, not a
 compatibility target we design toward. If you do keep an editor open
@@ -163,6 +176,9 @@ uv run tezcat decide <pid> approve|reject    # consent without a UI process
 uv run tezcat-revert            # list snapshots; tezcat-revert <sha> undoes one
 uv run tezcat-ui                # the dashboard server (127.0.0.1:8399)
 uv run tezcat-backends          # list/start/stop local model servers
+./restart.sh                    # bounce every tezcat process onto the current
+                                # code (daemon via launchd kickstart, UI killed
+                                # + relaunched); --build to rebuild first
 uv run tezcat-eval -m <profile>         # agent suite (fixture vault, scored on files)
 uv run tezcat-worker-eval -m <model>    # worker suite: 69 cases × 3 repeats;
                                          # schema_fix scored by the production verifier
@@ -191,9 +207,16 @@ anchored to headings/tasks/lines — whole-file rewrites don't exist.
 
 Read-only filesystem search: `FILES_ROOTS="~" uv run tezcat-files-mcp`.
 
-## Tests
+## Tests & lint
 
 ```sh
-uv run pytest          # ~330 tests, no model, no network
-cd daemon && cargo test
+./check.sh             # every static gate: ruff + eslint + htmlhint
+./check.sh --all       # + pytest (~430 tests, no model) + cargo test
+uv run pytest          # just the python suite
+cd web && npm run lint # just the web lint (also runs in restart.sh --build)
 ```
+
+The web lint is correctness-only, same posture as ruff: `no-undef`
+(a reference to deleted state builds fine and blanks the app at
+runtime — eslint refuses it at build time), unused vars, hooks rules,
+and surrogate-safe regex classes. Style stays unlinted on both sides.

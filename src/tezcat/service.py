@@ -149,13 +149,15 @@ def plan_task(vault_path: str, note: str, text: str, when: str) -> dict:
 
 
 async def ingest(vault_path: str, text: str, **watcher_kw) -> dict:
-    """One capture entry: text in, extraction proposals out. The canvas
-    posts here; typing into Capture.md feeds the same pipeline through
-    the scan — two inputs, one pipeline. The dump lands on the capture
-    surface through the gated surface write (snapshot-bracketed, so it
-    is revertible and survives even if extraction fails), then a full
-    pass extracts now instead of at the next trigger. Returns the pass
-    summary plus the proposals the dump queued."""
+    """One capture entry: text in, a record out — auto-filed when
+    verify_record can vouch for everything (a bare task list), queued
+    when it carries a rewrite (or always, under auto_apply: []). The
+    canvas posts here; typing into Capture.md feeds the same pipeline
+    through the scan — two inputs, one pipeline. The dump lands on the
+    capture surface through the gated surface write (snapshot-bracketed,
+    so it is revertible and survives even if decomposition fails), then
+    a full pass runs now instead of at the next trigger. Returns the
+    pass summary plus what the dump queued and auto-filed."""
     text = text.strip()
     w = Watcher(vault_path, **watcher_kw)
     if not text:

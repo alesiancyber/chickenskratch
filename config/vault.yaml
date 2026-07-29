@@ -1,6 +1,6 @@
 # Vault spec DEFAULTS. The vault describes itself:
 # once a vault has a `Harness/Spec.md`, that note's frontmatter is the
-# live source for folders/inboxes/exclusions (edited like any note,
+# live source for folders/records/exclusions (edited like any note,
 # read every engine pass). This file seeds new vaults and covers the
 # no-vault-resolved case; surface paths and schemas_dir stay here
 # (machine concerns, not note edits).
@@ -15,13 +15,18 @@
 # frontmatter (`type: research` / `type: deliverable`); kanban boards live
 # in Projects/ typed by their kanban-plugin frontmatter; web captures land
 # in Meetings/. The folder map is only the fallback for untyped notes.
+# The working shape: tasks, meetings, notes, research — plus the
+# harness's own record and daily folders. Projects holds kanban boards
+# (typed by their own frontmatter; the map is only the fallback).
 folders:
   Tasks: task
   Meetings: meeting
+  Notes: note
+  Research: research
   Projects: project
   Daily: daily
   Scripts: script
-  Captures: capture   # processed dumps, filed one note per day
+  Captures: capture   # dated capture records, one note per day
 
 # Entity schema files live in config/schemas/<type>.yaml (relative to
 # this file's directory).
@@ -37,11 +42,6 @@ schemas_dir: schemas
 # log, written before extraction so a dump survives extraction failing.
 surfaces:
   capture: Harness/Capture.md
-
-# Where tasks extracted from the capture surface land when their
-# proposal is approved.
-capture_inbox: Tasks/Inbox.md
-waiting_inbox: Tasks/Waiting.md   # follow-ups: things others committed to get you
 
 # Top-level folders that never enter model context. Enforced at the
 # vault layer (resolve/iter_notes), not by prompt convention: reads,

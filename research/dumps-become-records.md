@@ -332,8 +332,8 @@ better prompt than "3 undated tasks".
 
 Deferral count is the one genuinely new signal and the most honest one
 (you keep pushing this — is it real?). It needs somewhere to live;
-`corpus.record_confirm` already logs promote/defer verbs, so the data is
-being written and just isn't read. **Phase 2, not phase 1** — it is
+`corpus.record_reschedule` already logs every ⏳ move with its from/to
+dates and direction, so the data is being written and just isn't read. **Phase 2, not phase 1** — it is
 worth building only once the rest is in place and you can say whether
 the tedium is real.
 
@@ -452,3 +452,213 @@ stale — precisely the class of lie this project keeps removing (see the
 memo, the dead worker, "nothing extractable"). Either freshen the pool
 on query, or on every pass, and **say so when results are known
 partial.** Never present a stale answer as a complete one.
+
+---
+
+# Revision 3 — the record's final shape, and what the code review corrected
+
+*2026-07-28, after reviewing this plan against the code. Two parts: the
+record is a rewrite with its verbatim collapsed beneath it (resolving
+the tension with phase 0), and a set of corrections where this doc
+mis-read the code it plans against.*
+
+## The record is a rewrite; the verbatim rides in it, folded
+
+The tension this resolves: phase 0 concluded, with measurement behind
+it, that no heuristic may reshape a dump — and phase 1's record drafter
+is a reshape. But the chicken scratch is itself the problem being
+solved: the raw dumps are unformatted, unsummarized, and unpleasant to
+return to. So: **both, in one note.** The record's readable half is a
+full rewrite — summary, formatting, real prose — and the dump it was
+made from sits directly beneath it, collapsed:
+
+```
+---
+type: meeting   date: 2026-07-28   attendees: [Alex, Nadia]
+---
+## Summary
+Alex wants a baseline push before the Azure migration…
+
+## Action items
+- [ ] research azure ci/cd ➕ 2026-07-28 ^t-…
+## Waiting on
+- [ ] pipeline costs 👤 Nadia ➕ 2026-07-28 ^t-…
+
+> [!NOTE]- Verbatim — 14:32
+> meeting w team abt azure. alex sez baseline push…
+```
+
+Phase 0's objection was never the rewriting — it was that the verbatim
+survived only in git, where nobody checks. Adjacent-but-collapsed
+dissolves it: checking stops being a review-time act and becomes a
+permanent one-fold-away affordance. It also dissolves the
+links-not-summaries tension rather than violating it: that rule exists
+because a paraphrase you *cannot check* demands trust; a paraphrase
+with its source folded one click below demands none.
+
+**The blockquote is the mechanism, not the styling.** `render_callout`
+already states the precedent: a blockquoted block "can never re-match
+the command scan or read as inbox task intent." The same property
+carries this design — `TASK_RE` requires the line to *start* with
+`- [ ]`, so a `> `-prefixed verbatim is invisible to `_walk`, to
+overlap's pool, and to the extractor. Quoting the verbatim is what
+prevents the duplicate-task hole: a dump containing literal checkbox
+lines is otherwise filed verbatim AND extracted — both copies walked,
+and overlap unable to merge them because the filed copy has no block
+id. **That hole is live today in the phase-0 archive** (Captures/
+notes are knowledge notes, and dumps are appended unquoted). Phase 1
+quotes them; until then it is a known gap, worth a regression test.
+
+**The fold is a view concern, not a file concern.** The file holds a
+plain `> [!NOTE]-` callout — Obsidian happens to fold it, everything
+else renders a blockquote, both fine. Our editor folds it by default:
+livepreview.js's whole contract is decorations painted over unchanged
+bytes, and a fold range over a quote block is exactly that. Small UI
+item, entirely in-idiom.
+
+**Two fidelity standards in one note, never blended.** The summary is
+free prose: it always queues (judgment has no verifier) and wrongness
+costs a glance. The task lines commit the user to work, so they keep
+`verify_extraction`'s standard and are extracted from the *verbatim*,
+never from the summary — a summary that misremembers a topic is
+annoying; a paraphrased task is how "update the jiras" becomes the
+wrong jira. And because the summary rides in on every record, **record
+proposals never auto-apply**, even when the extraction verifier is
+satisfied: approval-per-dump is the only check the prose ever gets.
+*(Superseded same day — see "The autonomy gradient" in the executed
+ledger: the always-queue rule hard-wired a posture that was Spec.md's
+to set. Bare task lists auto-file once verified; the summary objection
+queues under gated and rides the audit trail under `autonomy: full`.)*
+
+The honest cost, stated: within a month the verbatim will mostly stop
+being unfolded — the summary becomes what gets read. That is the same
+trust gradient as auto-apply, and per-dump approval is the control.
+
+A free side benefit: nomic-embed-text over a clean summary places a
+record in similarity space far better than chicken scratch does, so
+phase 2's related-notes gets better exactly where it was going to be
+built.
+
+One mechanical line: the quote transform must handle blank lines (`>`
+continuation, or the callout splits in half) and lines that already
+start with `>`. Trivial — and the kind of thing that silently
+truncates a verbatim if skipped.
+
+## Corrections from reviewing this plan against the code
+
+Where this doc mis-read the code, corrected so phase 1 is budgeted
+honestly:
+
+- **The 👤 partition lives in `_walk`, once.** Owed-ness is excluded
+  from the rest of the dashboard by *note* today (`_time_model` skips
+  `rel == waiting_inbox`; `_backlog` filters to the inbox). Once it is
+  a field on a line inside a record, every consumer of the walk needs
+  the inverse filter — `_time_model`, `_backlog`, `plan_today`'s pool,
+  stranded — or a snoozed "👤 Nadia ⏳ next-week" surfaces as the
+  user's own planned work. Partition once, in `_walk` (or a
+  Task-aware filter it applies), never per call site.
+- **Migration seam:** existing waiting items encode the owner as a
+  text prefix ("Nadia: pipeline costs" — `_add_task_step`); new ones
+  carry 👤. The waiting view reads both for one release, or a one-shot
+  migration rewrites the old form.
+- **overlap does not need pool widening.** Its pool already spans the
+  vault (`scan_overlap` iterates `pass_notes()`) — the earlier "same
+  widening, same reason" was wrong. What actually breaks is narrower:
+  it *anchors* its proposal on `cfg.capture_inbox` and returns `[]`
+  on VaultError, so retiring the inbox and deleting the file kills
+  overlap silently — failure reading as emptiness. `scan_plan` has
+  the same silent `[]`. Re-anchor both; a missing inbox must never
+  read as an empty vault.
+- **plan_today's widening is more than a filter change.** Its proposal
+  anchors staleness on *one* note's content and each apply step
+  carries one path. A multi-note pool means per-step paths and a
+  per-step staleness story — budget it as such.
+- **The embedding cache is one pool by construction.**
+  `Index.update()` *deletes* rows absent from the items passed.
+  overlap owns the cache today (task block-ids); if the query layer
+  freshens with a different item set it silently evicts overlap's
+  vectors, and vice versa. The query layer gets its own cache file, or
+  `update()` splits from pruning — decided before the query worker is
+  written, not after.
+- **Stranded's generalisation drops the filename clock.** Today it
+  derives age from the YYYY-MM-DD filename, and its ordering works "by
+  accident of iter_notes sorting" (its own comment). The attention
+  engine keys on ➕ created, which `format_task` already stamps on
+  every harness-born task.
+- **Sequencing: phase 1 does not ship without age surfacing.** The
+  risk section above says so; revision 2 then moved the attention
+  engine behind the query layer, leaving a window where records
+  accumulate open tasks unwatched. Resolution: the generalised
+  stranded view (open, undated, unplanned, older than N days, grouped
+  by the record it lives in) ships *with* phase 1 — it is ~20 lines
+  over the existing walk — and the query layer later subsumes it as a
+  saved query, exactly as revision 2 argues.
+
+---
+
+## Executed 2026-07-28 — phase 1, as revision 3 specifies
+
+**The grammar:** `👤 owner` in tasks.py — one regex, one `format_task`
+parameter, one `Task` field, surviving `set_line_scheduled` untouched.
+
+**The worker:** `extract_record` (workers.py) — one call decomposes a
+dump into `{record: {kind: meeting|capture, title, attendees, summary},
+tasks}`, with small-model hedges ("when unsure, kind capture"; "the
+summary may only contain facts stated in the dump").
+
+**The drafter:** `draft_capture` now builds ONE atomic apply step — a
+meeting record (`create_note`, frontmatter + Summary + Action items +
+Waiting on + collapsed verbatim) or a timestamped block appended to the
+dated capture note. The verbatim is `> `-quoted, which is mechanism:
+quoted lines can't match TASK_RE, so the duplicate-checkbox hole is
+closed (regression test:
+`test_quoted_verbatim_is_inert_to_the_task_walk`). Task-fidelity
+warnings land in the proposal's issues at draft time.
+`_capture_applied` shrank to `reset_capture`: the record IS the
+archive.
+
+**The autonomy gradient** (supersedes revision 3's "records never
+auto-apply" — user decision, same day: *"if we are keeping verbatim,
+why are we approving everything again?"* Right: the folded verbatim is
+what makes auto-filing safe, and the posture was already Spec.md's to
+set, not code's to hard-wire). `verify_record` checks everything
+deterministic: one atomic step, every task line traces to the dump,
+the verbatim rides in COMPLETE (every quoted line present — a strong,
+byte-level check), attendees named in the dump, and any other body
+line fails as model prose. So:
+- a **bare task-list dump** is fully verifiable → files itself even
+  under gated autonomy (capture is in the default `auto_apply`);
+- a **dump that earned a summary** queues under gated — the rewrite is
+  the one unverifiable part;
+- under **`autonomy: full`** everything files, the prose objection
+  recorded in `verifier_failures` on the resolved proposal (the canvas
+  receipt marks it unvouched), every apply one revertible snapshot.
+`needs_review` remains only for dropped impossible dates — the one
+case that forces eyes in every posture.
+
+**The views:** `_walk` partitions by 👤 (the one choke point); waiting
+is a filter over it (snooze = future ⏳) plus the legacy note for one
+release; backlog and stranded span every record, stranded aging by ➕
+with the filename date as the pre-stamp fallback.
+
+**The re-anchor:** `scan_overlap` and `scan_plan` no longer read the
+inbox (a missing note can't read as an empty vault); plan's pool spans
+the walk, skips 👤, and its steps carry per-note paths. Both are
+`claims_note=False` now — a new ProcessorSpec flag exempting the
+cross-note lanes from the one-proposal-per-note claim, which their
+arbitrary anchors would otherwise weaponize against grouping/schema.
+
+**Clean house (2026-07-29, user decision: pre-adoption, no backwards
+compatibility):** the one-release grace shims are deleted outright —
+`capture_inbox`/`waiting_inbox` keys and every reader, the
+`inbox_extract` lane, the `archive_done` processor (done-in-place IS
+the record's history; the `archive_done_tasks` tool survives for
+deliberate use), `verify_extraction`, the legacy
+`auto_apply`/`autonomy` resolution, the seen-state migration, and the
+legacy capture-skeleton strip set. The testvault's retired surfaces
+(Review/Today/Changes.md), stale Spec, and old Waiting.md are deleted;
+its Spec reseeded in `policies` form.
+
+**Still not done:** the query layer (revision 2, next), related-notes
+similarity (phase 2), and an eval case for extract_record — the
+worker-eval bakeoff should grow one before the local-model swap.

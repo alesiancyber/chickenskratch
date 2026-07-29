@@ -75,9 +75,8 @@ def collect(v: Vault, cfg, pending_decisions: int, today: dt.date | None = None)
     the full sets."""
     today = today or dt.date.today()
     surface_dirs = cfg.surface_dirs
-    open_tasks, boards = _walk(v, surface_dirs)
-    due, planned, this_week, next_week, later = _time_model(
-        open_tasks, today, cfg.waiting_inbox)
+    open_tasks, owed_tasks, boards = _walk(v, surface_dirs)
+    due, planned, this_week, next_week, later = _time_model(open_tasks, today)
     return {
         "date": today.isoformat(),
         "pending_decisions": pending_decisions,
@@ -93,17 +92,16 @@ def collect(v: Vault, cfg, pending_decisions: int, today: dt.date | None = None)
         "this_week": this_week,
         "next_week": next_week,
         "later": later,
-        "backlog": _backlog(open_tasks, cfg.capture_inbox, today),
-        "waiting": _waiting_rows(v, cfg.waiting_inbox, today),
-        "stranded": _stranded_meeting_actions(v, cfg.meetings_dir, today),
+        "backlog": _backlog(open_tasks, today),
+        "waiting": _waiting_rows(owed_tasks, today),
+        "stranded": _stranded(open_tasks, today),
         "meetings": _meetings_today(v, cfg.meetings_dir, today),
         "in_flight": _in_flight(boards),
         "activity": _activity_since_midnight(v, today, surface_dirs),
     }
 
 
-def _time_model(open_tasks: list[tuple[tk.Task, str]], today: dt.date,
-                waiting_inbox: str):
+def _time_model(open_tasks: list[tuple[tk.Task, str]], today: dt.date):
     """(due buckets, planned, this_week, next_week, later). Bucketed so
     old debt can never crowd out the present: overdue is ordered
     freshest-first (ancient overdue is the least actionable).
@@ -117,7 +115,7 @@ def _time_model(open_tasks: list[tuple[tk.Task, str]], today: dt.date,
     - otherwise the earliest of ⏳/📅 files the task into its calendar
       week: this week, next week, or later — `kind` says which field
       placed it, so the row can say "due Thu" vs "planned".
-    The waiting inbox is excluded — region 3 owns that note."""
+"""
     horizon = today + dt.timedelta(days=SOON_DAYS)
     this_sunday = week_end(today)
     next_sunday = this_sunday + dt.timedelta(days=7)
@@ -130,8 +128,6 @@ def _time_model(open_tasks: list[tuple[tk.Task, str]], today: dt.date,
     next_week: list[dict] = []
     later: list[dict] = []
     for task, rel in open_tasks:
-        if rel == waiting_inbox:
-            continue
         d = _safe_date(task.due) if task.due else None
         s = _safe_date(task.scheduled) if task.scheduled else None
         row = {"text": task.text, "due": task.due or "",
@@ -170,15 +166,17 @@ def _time_model(open_tasks: list[tuple[tk.Task, str]], today: dt.date,
     return due, planned, this_week, next_week, later[:50]
 
 
-def _backlog(open_tasks: list[tuple[tk.Task, str]], capture_inbox: str,
+def _backlog(open_tasks: list[tuple[tk.Task, str]],
              today: dt.date, cap: int = 100) -> list[dict]:
-    """The judgment pool: open, top-level inbox tasks with neither a 📅
-    nor a ⏳ — nothing the time model can place. Oldest first (age is
-    the strongest deterministic surfacing signal we have), bounded so a
-    neglected inbox costs one big list, not an unbounded one."""
+    """The judgment pool: every open, top-level task with neither a 📅
+    nor a ⏳ — nothing the time model can place, wherever it lives (a
+    record's action items are as plannable as anything else). Oldest
+    first (age is the strongest deterministic surfacing signal we
+    have), bounded so a neglected vault costs one big list, not an
+    unbounded one."""
     rows = []
     for task, rel in open_tasks:
-        if rel != capture_inbox or task.due or task.scheduled:
+        if task.due or task.scheduled:
             continue
         if task.raw.lstrip() != task.raw:
             continue  # subtasks ride with their parent
@@ -192,9 +190,14 @@ def _backlog(open_tasks: list[tuple[tk.Task, str]], capture_inbox: str,
 
 
 def _walk(v: Vault, surface_dirs: frozenset[str]):
-    """One walk: (open tasks, boards). Kanban cards carry no dates and
-    are reported via their boards, not the task list."""
+    """One walk: (the user's open tasks, open owed items, boards),
+    partitioned by 👤 HERE — the one choke point — so no view downstream
+    can mistake somebody else's debt for the user's work (a snoozed
+    "👤 Nadia ⏳ next-week" must never surface as planned work). Kanban
+    cards carry no dates and are reported via their boards, not the
+    task list."""
     open_tasks: list[tuple[tk.Task, str]] = []
+    owed_tasks: list[tuple[tk.Task, str]] = []
     boards: list[tuple[str, kb.Board]] = []
     for p, rel in v.iter_knowledge_notes(surface_dirs):
         text = read_lossy(p)
@@ -207,56 +210,64 @@ def _walk(v: Vault, surface_dirs: frozenset[str]):
             continue
         for task in tk.iter_tasks(text):
             if not task.done:
-                open_tasks.append((task, rel))
-    return open_tasks, boards
+                (owed_tasks if task.owner else open_tasks).append((task, rel))
+    return open_tasks, owed_tasks, boards
 
 
-def _waiting_rows(v: Vault, waiting_inbox: str, today: dt.date) -> list[dict]:
-    try:
-        text = v.read(waiting_inbox)
-    except VaultError:
-        return []
+def _waiting_rows(owed_tasks: list[tuple[tk.Task, str]],
+                  today: dt.date) -> list[dict]:
+    """The waiting view: a filter over the walk — owed-ness is the 👤
+    field, and the row links to the record the commitment was made in.
+    An owed item whose ⏳ is in the future is snoozed: "chase this then"
+    is the same field as "work on this then", no new mechanism.
+    Longest-waiting first."""
     rows = []
-    for task in tk.iter_tasks(text):
-        if task.done:
-            continue
+    for task, rel in owed_tasks:
+        s = _safe_date(task.scheduled) if task.scheduled else None
+        if s is not None and s > today:
+            continue  # snoozed until its ⏳ arrives
         born = _safe_date(task.created) if task.created else None
         rows.append({
             "text": task.text,
+            "owner": task.owner or "",
             "due": task.due or "",
             # ➕ birth dates stamp at format_task; aging accrues
             "waiting_days": (today - born).days if born else None,
-            "note": waiting_inbox,
+            "note": rel,
         })
+    rows.sort(key=lambda r: -(r["waiting_days"] if r["waiting_days"] is not None else -1))
     return rows
 
 
-def _stranded_meeting_actions(v: Vault, meetings_dir: str, today: dt.date,
-                              max_age_days: int = 7) -> list[dict]:
-    """Open, UNDATED action items in old meeting notes — invisible to the
-    Due section, rotting quietly. Dated ones already surface in Due, and
-    ⏳-planned ones are dispositioned (the stranded row's whole ask), so
-    promoting a stranded row to today retires it here and files it in
-    the time model."""
+def _filename_date(rel: str) -> dt.date | None:
+    """The YYYY-MM-DD a note's filename opens with, if any — the fallback
+    age clock for tasks born before ➕ stamping (old meeting notes)."""
     try:
-        notes = list(v.iter_notes(meetings_dir, recursive=False))
-    except VaultError:
-        return []
+        return dt.date.fromisoformat(rel.rsplit("/", 1)[-1][:10])
+    except ValueError:
+        return None
+
+
+def _stranded(open_tasks: list[tuple[tk.Task, str]], today: dt.date,
+              max_age_days: int = 7) -> list[dict]:
+    """The attention engine, v1: open, undated, unplanned tasks older
+    than N days, WHEREVER they live — invisible to Due and Planned,
+    rotting quietly. Was a meetings-only feature aging by filename; now
+    every record's tasks age by their ➕ created stamp (filename date as
+    the fallback for pre-stamp lines). A task with neither clock is the
+    backlog's business — it can't be aged, only listed.
+
+    Oldest first, stated rather than inherited: the section only folds
+    the first few rows into view, so the order IS which items you get
+    told about."""
     rows = []
-    for p in notes:
-        try:
-            met = dt.date.fromisoformat(p.stem[:10])
-        except ValueError:
+    for task, rel in open_tasks:
+        if task.due or task.scheduled:
             continue
-        if (today - met).days < max_age_days:
+        born = (_safe_date(task.created) if task.created else None) or _filename_date(rel)
+        if born is None or (today - born).days < max_age_days:
             continue
-        for t in tk.iter_tasks(read_lossy(p)):
-            if not t.done and not t.due and not t.scheduled:
-                rows.append({"text": t.text, "age_days": (today - met).days, "note": v.rel(p)})
-    # Oldest first, stated rather than inherited: the section only folds
-    # the first few rows into view, so the order IS which items you get
-    # told about. It came out right by accident of iter_notes sorting
-    # YYYY-MM-DD filenames — an accident a renamed note would end.
+        rows.append({"text": task.text, "age_days": (today - born).days, "note": rel})
     rows.sort(key=lambda r: -r["age_days"])
     return rows
 
@@ -325,10 +336,11 @@ def _due_section_md(due: dict) -> list[str]:
 
 
 def _waiting_row_md(r: dict) -> str:
+    who = f"{r['owner']}: " if r.get("owner") else ""
     due = f" — due {r['due']}" if r["due"] else ""
     days = r["waiting_days"]
     age = f" ({days}d waiting)" if days is not None and days >= WAITING_AGE_MIN else ""
-    return f"- {r['text']}{due}{age} · {_link(r['note'])}"
+    return f"- {who}{r['text']}{due}{age} · {_link(r['note'])}"
 
 
 def _in_flight_row_md(r: dict) -> str:
@@ -370,7 +382,7 @@ def to_markdown(model: dict) -> str:
     stranded = [f"- {r['text']} — {r['age_days']}d old · {_link(r['note'])}"
                 for r in model["stranded"]]
     if stranded:
-        lines += ["", "## Stranded in meetings", *_cap(stranded, 5)]
+        lines += ["", "## Stranded — undated, aging", *_cap(stranded, 5)]
 
     meetings = [f"- {_link(rel)}" for rel in model["meetings"]]
     if meetings:

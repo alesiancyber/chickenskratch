@@ -1,9 +1,11 @@
 # Tezcat philosophy — the vault is the truth
 
 *The constitution of this repo: principles and non-negotiable
-invariants, current as of 2026-07-26 (tezcat is the surface; the
-markdown surfaces retired; one consent channel with two front doors).
-History lives in git, not here.*
+invariants, current as of 2026-07-29 (tezcat is the surface; the
+markdown surfaces retired; one consent channel with two front doors;
+dumps become records; the capture inboxes, the global autonomy keys,
+and their compat shims are deleted outright — pre-adoption, this repo
+keeps no backwards compatibility). History lives in git, not here.*
 
 *Canon maintenance rule: any commit that changes a behavior this
 document asserts updates this document IN THE SAME COMMIT. A stale
@@ -29,6 +31,27 @@ deleted. Other editors can still open the vault, because it is a folder
 of markdown; that portability is a **byproduct of the format, not a
 goal we design toward**, and it never buys another app an affordance
 inside our UI.
+
+**A dump is a record (decided 2026-07-28,
+`research/dumps-become-records.md`).** A capture dump is not a source
+of tasks to be moved somewhere — it is a record that happens to contain
+work. One dump becomes ONE note (a meeting record, or a dated note
+under Captures/) holding a readable rewrite, the formatted task lines
+it contains, and the verbatim dump quoted in a collapsed callout
+beneath — the quoting is mechanism, not styling: a quoted line can
+never re-enter the task walk or the extractors. Tasks stay in the
+record because **location is provenance**: the dashboard walks every
+note, so nothing has to be moved to be seen, and clicking a task opens
+the record it was born in. Owed work is the `👤 owner` field on the
+line, not a folder; the waiting list, the backlog, and the stranded
+(attention) view are all filters over the same walk. The capture and
+waiting inboxes are deleted. Capture autonomy is graded by
+`verify_record`: a bare task
+list is fully checkable (faithful tasks, byte-complete quoted verbatim,
+no stray prose) and files itself under a `verified` policy; a summary
+rewrite is the one unverifiable part, so it queues at `verified` and
+files at `full` with the objection recorded — the folded verbatim is
+the permanent human check, one unfold away.
 
 ## Principles
 
@@ -58,8 +81,9 @@ inside our UI.
    never parses markdown.
 3. **Two classes of change, two contracts.** A **proposal** is a change
    the harness *inferred*: it earns trust (a human verdict — or a
-   deterministic verifier plus Spec.md `auto_apply`, unless its own
-   drafter flagged `needs_review`), waits in the queue under `data/`,
+   deterministic verifier plus a Spec.md policy of `verified` or
+   `full`, unless its own drafter flagged `needs_review`), waits in
+   the queue under `data/`,
    and whole-note staleness guards the diff a human approved. A **command** (`//azure …` + Enter, or the
    canvas equivalent) is a change the user *ordered*: trust is
    intrinsic, nothing queues, no artifact but the git commit, and
@@ -123,24 +147,32 @@ inside our UI.
   consent no longer lives in a file at all, which is a stronger
   guarantee than the old "the file rejects model writes" (a model can
   reach a file it is refused; it cannot reach a localhost-only HTTP
-  channel or a terminal). A processor in Spec.md's `auto_apply` may skip
-  the gate **only** when its deterministic verifier passes and its
-  drafter raised no `needs_review` flag; verification failure degrades
-  to the queue, never blocks. **Amendment (2026-07-26, `autonomy:
-  full`):** a vault may declare `autonomy: full` in its Spec.md — a
-  standing, human-written grant under which EVERYTHING in auto_apply
-  applies: verifier-less judgment lanes included, and a failing
-  verifier no longer queues — it applies with its failures recorded on
-  the proposal (`verifier_failures`), so the audit trail names what
-  nobody vouched for. Consent moves from per-proposal to per-vault; it
-  is still consent, written by the human in a file no model can write.
+  channel or a terminal). A processor at a `verified`
+  policy may skip the gate **only** when its deterministic verifier
+  passes and its drafter raised no `needs_review` flag; verification
+  failure degrades to the queue, never blocks. A `full` policy is the
+  standing, human-written grant, per lane: it applies with a failing
+  (or absent) verifier's objections recorded on the proposal
+  (`verifier_failures`), so the audit trail names what nobody vouched
+  for. It is still consent, written by the human in a file no model
+  can write.
   `needs_review` still queues, staleness still guards, poison plans
   still fail themselves, every apply remains one revertible snapshot —
   and reverts become the negative labels the autonomous mode is
   measured by. Spec.md still
   rejects tool writes (one exception: its `folders` map — typing, not
   trust), so no model can widen its own trust list or flip its own
-  autonomy.
+  autonomy. **Amendment (2026-07-28, `policies`):** consent is
+  declared PER PROCESSOR — one `off|ask|verified|full` level each in
+  Spec.md's `policies` map, resolved by a single resolver
+  (`policy_for`) the engine and the console both read; unnamed
+  processors take DEFAULT_POLICIES, and `disabled_processors` is the
+  emergency kill switch that outranks the map. The level is the gate:
+  there is no second knob for it to conflict with, which retired the
+  "trusted but inert" state the old two-key model allowed. The
+  console's autonomy presets (cautious/standard/autonomous) are UI
+  conveniences that pre-select levels, never a stored setting.
+  Everything else in this invariant is unchanged at every level.
 - **I3 — A typed `//command` is consent, scoped to the exact line it
   was typed on.** It executes in place (Enter terminates the line; a
   final line with no newline is still being typed), outranks pending
@@ -242,9 +274,11 @@ the Host header is the one thing a rebound request cannot fake. The canvas
 (#canvas) is built: a dump splits on the command grammar — //command
 lines execute instantly (I3), the rest rides `ingest()` into the
 capture pipeline, and results settle back as blocks (callouts, inline
-approve/reject — including partial approval of a capture's steps, a
-queue-file trim that keeps the trimmed proposal as the consent
-record), or the quiet auto-filed line. The escape-hatch pane (⌘J) is
+approve/reject, or the quiet auto-filed line with its revert). Partial
+approval — a queue-file trim that keeps the trimmed proposal as the
+consent record — remains for multi-step plans; a capture record is
+deliberately ONE atomic step (its content and its filing are never
+separately deselectable), so for records approval is whole-or-nothing. The escape-hatch pane (⌘J) is
 built per principle 7's contract, and the dashboard's task rows carry
 the human task verbs — check off (`set_task_status`), reschedule
 (`set_task_due`), and plan (`set_task_scheduled`) — each a deliberate
@@ -261,7 +295,11 @@ them: a read-only view-model (`/api/tree` — `iter_notes`, so the
 exclusions and the dot-dir blindness are the vault layer's, not the
 UI's; bounded per I6), collapsed by default, outside the split so it
 never re-proportions the two surfaces. It opens notes in the owned
-editor and owns no verb — creating, renaming, moving, and deleting
+editor and owns no verb; the machine surfaces (Harness/) are filtered
+out of its tree and the palette (2026-07-28) — they are the engine's
+backend, Capture.md fed by the canvas and Spec.md edited in the
+console, not notes the user navigates to. Creating, renaming, moving,
+and deleting
 notes stay with the CLI for now, because each is a vault mutation and a
 new write class is its own decision. Renderer knobs left the vault with
 this build: diffs are always unified ```diff (`applier.preview`) and

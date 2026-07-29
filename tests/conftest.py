@@ -38,6 +38,22 @@ def gitvault(vault):
     return vault
 
 
+def record_reply(tasks, kind="capture", title="", attendees=(), summary=""):
+    """A scripted extract_record reply — the capture lane's decomposition
+    contract ({record, tasks})."""
+    return {"record": {"kind": kind, "title": title,
+                       "attendees": list(attendees), "summary": summary},
+            "tasks": [dict(t) for t in tasks]}
+
+
+def record_worker_returning(tasks, **record_kw):
+    """An async record worker that returns the same decomposition for
+    any dump — the capture suites' stand-in for the worker LLM."""
+    async def worker(text, today):
+        return record_reply(tasks, **record_kw)
+    return worker
+
+
 @pytest.fixture()
 def make_watcher(tmp_path, monkeypatch):
     """Watcher factory: isolated queue/state, corpus recording off. Kwargs

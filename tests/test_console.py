@@ -45,7 +45,8 @@ models:
 def spec_vault(gitvault):
     (gitvault / "Harness").mkdir(exist_ok=True)
     (gitvault / "Harness/Spec.md").write_text(
-        "---\nautonomy: gated\nn_max: 5\n---\n\n# Vault Spec\n\nProse the user owns.\n")
+        "---\npolicies: {capture: verified}\nn_max: 5\n---\n\n"
+        "# Vault Spec\n\nProse the user owns.\n")
     return gitvault
 
 
@@ -58,13 +59,12 @@ def test_a_setting_the_engine_would_shrug_off_is_an_error_here(spec_vault):
     breaks every pass. Correct for the engine, useless as feedback: you
     asked for something and nothing happened. The console says why."""
     for fields, expected in [
-        ({"autonomy": "totally"}, "autonomy must be one of"),
         ({"fidelity": "loose"}, "fidelity must be one of"),
         ({"n_max": 0}, "between 1 and 50"),
         ({"n_max": "lots"}, "whole number"),
-        ({"auto_apply": ["capture", "nonsense"]}, "unknown processor"),
-        ({"capture_inbox": "../escape.md"}, "inside the vault"),
-        ({"capture_inbox": "Tasks/Inbox"}, "ending in .md"),
+        ({"disabled_processors": ["nonsense"]}, "unknown processor"),
+        ({"done_archive": "../escape.md"}, "inside the vault"),
+        ({"done_archive": "Tasks/Archive"}, "ending in .md"),
         ({"surfaces": {}}, "not a console-managed setting"),
     ]:
         with pytest.raises(ConfigError, match=expected):
@@ -138,7 +138,7 @@ def test_which_processors_a_check_can_vouch_for_is_reported(spec_vault, models_y
     verifier does nothing at all. The surface has to say which those are,
     or the checkbox lies."""
     rows = {p["name"]: p for p in console.model(str(spec_vault))["vault"]["trustable"]}
-    assert rows["capture"]["verified"] is True        # verify_extraction
+    assert rows["capture"]["verified"] is True        # verify_record
     assert rows["schema_fix"]["verified"] is True     # verify_schema_fix
     assert rows["grouping"]["verified"] is False      # judgment: always queues
     assert rows["plan_today"]["verified"] is False
@@ -148,8 +148,11 @@ def test_the_read_model_separates_yours_from_inherited(spec_vault, models_yaml):
     """A value shown without saying whether it is set or defaulted invites
     you to 'change' something that was never written down."""
     vault = console.model(str(spec_vault))["vault"]
-    assert vault["values"]["autonomy"] == "gated"
-    assert "autonomy" in vault["declared"] and "n_max" in vault["declared"]
+    # the RESOLVED levels — a partial map filled from the defaults —
+    # never a raw map that means something else than what the engine does
+    assert vault["values"]["policies"]["capture"] == "verified"
+    assert vault["values"]["policies"]["grouping"] == "ask"
+    assert "policies" in vault["declared"] and "n_max" in vault["declared"]
     assert "fidelity" not in vault["declared"]    # inherited from repo defaults
 
 
@@ -158,7 +161,38 @@ def test_a_broken_models_yaml_still_renders_the_console(spec_vault, models_yaml)
     payload = console.model(str(spec_vault))
     assert payload["models"]["error"]             # says so, in place
     assert payload["models"]["text"]              # and hands you the text to fix
-    assert payload["vault"]["values"]["autonomy"] == "gated"   # the rest still works
+    assert payload["vault"]["values"]["policies"]["capture"] == "verified"  # the rest still works
+
+
+def test_saving_policies_is_what_the_engine_reads_back(spec_vault, models_yaml):
+    """The console writes the complete map; the next pass resolves it —
+    one key, one resolver, no second knob to disagree with."""
+    from tezcat import processors as procs
+    from tezcat_vault.vaultconfig import get_config
+
+    levels = {p.name: "ask" for p in procs.REGISTRY}
+    console.save_spec(str(spec_vault), {"policies": {**levels, "capture": "full"}})
+
+    fm = yaml.safe_load((spec_vault / "Harness/Spec.md").read_text().split("---")[1])
+    assert fm["policies"]["capture"] == "full"
+    cfg = get_config(str(spec_vault))
+    assert cfg.policy_for("capture") == "full"
+    assert cfg.policy_for("schema_fix") == "ask"   # the map, not the default
+
+
+def test_policies_validation_rejects_junk_and_partial_maps(spec_vault, models_yaml):
+    from tezcat import processors as procs
+
+    levels = {p.name: "ask" for p in procs.REGISTRY}
+    with pytest.raises(console.ConfigError, match="unknown processor"):
+        console.validate_spec({"policies": {**levels, "nope": "ask"}}, str(spec_vault))
+    with pytest.raises(console.ConfigError, match="must be one of"):
+        console.validate_spec({"policies": {**levels, "capture": "sometimes"}},
+                              str(spec_vault))
+    partial = dict(levels)
+    partial.pop("capture")
+    with pytest.raises(console.ConfigError, match="must name every processor"):
+        console.validate_spec({"policies": partial}, str(spec_vault))
 
 
 # ---- writes ----
@@ -166,19 +200,19 @@ def test_a_broken_models_yaml_still_renders_the_console(spec_vault, models_yaml)
 
 def test_saving_spec_is_one_revertible_snapshot_and_keeps_the_body(spec_vault, models_yaml):
     before = len(Vault(str(spec_vault)).history())
-    result = console.save_spec(str(spec_vault), {"autonomy": "full", "n_max": 9})
-    assert set(result["changed"]) == {"autonomy", "n_max"}
+    result = console.save_spec(str(spec_vault), {"fidelity": "strict", "n_max": 9})
+    assert set(result["changed"]) == {"fidelity", "n_max"}
 
     text = (spec_vault / "Harness/Spec.md").read_text()
     fm = yaml.safe_load(text.split("---")[1])
-    assert fm["autonomy"] == "full" and fm["n_max"] == 9
+    assert fm["fidelity"] == "strict" and fm["n_max"] == 9
     assert "Prose the user owns." in text        # the body is not ours to rewrite
 
     v = Vault(str(spec_vault))
     assert len(v.history()) > before             # snapshot-bracketed like any edit
     v.revert(v.history()[0]["sha"])
-    assert yaml.safe_load(
-        (spec_vault / "Harness/Spec.md").read_text().split("---")[1])["autonomy"] == "gated"
+    assert "fidelity" not in yaml.safe_load(
+        (spec_vault / "Harness/Spec.md").read_text().split("---")[1])
 
 
 def test_configuring_a_vault_that_never_had_a_pass_seeds_the_spec(gitvault, models_yaml):
@@ -187,20 +221,21 @@ def test_configuring_a_vault_that_never_had_a_pass_seeds_the_spec(gitvault, mode
     be a rule nobody could guess, so the console seeds it from the same
     helper the engine uses — one home for what a new vault starts with."""
     assert not (gitvault / "Harness/Spec.md").exists()
-    result = console.save_spec(str(gitvault), {"autonomy": "full"})
-    assert result["seeded"] is True and result["changed"] == ["autonomy"]
+    result = console.save_spec(str(gitvault), {"fidelity": "strict"})
+    assert result["seeded"] is True and result["changed"] == ["fidelity"]
 
     text = (gitvault / "Harness/Spec.md").read_text()
     fm = yaml.safe_load(text.split("---")[1])
-    assert fm["autonomy"] == "full"
+    assert fm["fidelity"] == "strict"
     assert "n_max" in fm and "folders" in fm     # the full seed, not one key
+    assert fm["policies"]["capture"] == "verified"   # the posture, legible
     assert "# Vault Spec" in text                # …over the prose that explains it
 
 
 def test_saving_spec_writes_nothing_when_nothing_changed(spec_vault, models_yaml):
-    console.save_spec(str(spec_vault), {"autonomy": "full"})
+    console.save_spec(str(spec_vault), {"fidelity": "strict"})
     before = len(Vault(str(spec_vault)).history())
-    assert console.save_spec(str(spec_vault), {"autonomy": "full"})["changed"] == []
+    assert console.save_spec(str(spec_vault), {"fidelity": "strict"})["changed"] == []
     assert len(Vault(str(spec_vault)).history()) == before   # no empty commit
 
 
