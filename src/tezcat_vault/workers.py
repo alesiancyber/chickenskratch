@@ -255,6 +255,11 @@ The record:
   a REWRITE of what was said, not commentary on it. Keep every fact,
   name, number, and reason from the dump; drop only filler. "" when the
   dump is a bare task list with no prose worth keeping.
+- EXCEPTION — a dump of speaker-labeled turns ("Name: what they said")
+  is a meeting TRANSCRIPT: kind "meeting", attendees from the speaker
+  labels as written, and the summary is MINUTES, not a rewrite —
+  decisions, agreements, numbers, and who committed to what, in a few
+  short paragraphs. Never retell the conversation turn by turn.
 
 The tasks (same rules as task extraction):
 - due is a HARD deadline: only when the text states or clearly implies
@@ -377,7 +382,55 @@ Tasks (id: text):
 {tasks}
 """
 
+_ANSWER_PROMPT = """\
+Answer the user's question strictly from their own notes below.
+
+Return ONLY a JSON object of this shape, nothing else:
+{{"answer": "...", "sources": ["Path/Note.md", ...]}}
+
+Rules:
+- Answer directly and completely: asked "how many", give the number AND
+  name the items; asked to list, list. Keep it short — a few sentences
+  or a compact list, in plain markdown. No preamble, no "based on your
+  notes".
+- Use ONLY the notes below. When they don't contain the answer, say
+  exactly that in `answer` and return "sources": [].
+- sources: the paths of the notes the answer actually draws on, spelled
+  exactly as given in their === headers, most relevant first.
+{hedges}
+Question: {question}
+
+Notes:
+{notes}
+"""
+
+# Small-model hedges: an under-powered answerer must prefer "the notes
+# don't say" over synthesis — a confident wrong answer about the user's
+# own notes costs more trust than any refusal.
+_ANSWER_HEDGES = """\
+- Quote the notes' own wording; never infer beyond what a note states.
+- When unsure, say the notes don't answer it, with "sources": [].
+"""
+
 WORKERS: dict[str, WorkerSpec] = {
+    "answer": WorkerSpec(
+        name="answer",
+        prompt=_ANSWER_PROMPT,
+        hedges=_ANSWER_HEDGES,
+        # Reads like extract_record: the input is a pack of whole notes,
+        # so both bounds are sized for that, not for a one-line reply.
+        timeout_s=120.0,
+        max_tokens=2000,
+        temperature=0.1,
+        schema={
+            "type": "object",
+            "required": ["answer", "sources"],
+            "properties": {
+                "answer": {"type": "string", "minLength": 1},
+                "sources": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+    ),
     "schema_fix": WorkerSpec(
         name="schema_fix",
         prompt=_SCHEMA_FIX_PROMPT,
@@ -443,7 +496,12 @@ WORKERS: dict[str, WorkerSpec] = {
         name="extract_record",
         prompt=_EXTRACT_RECORD_PROMPT,
         hedges=_EXTRACT_RECORD_HEDGES,
-        max_tokens=4000,   # the summary is a full rewrite of the dump
+        # The one worker whose input is a whole dump: a meeting
+        # transcript makes a prompt tens of thousands of tokens, and 60s
+        # calls "still generating" a hang. Still bounded — WORKER_TIMEOUT_S
+        # overrides either way.
+        timeout_s=180.0,
+        max_tokens=4000,   # rewrite/minutes reply; profiles lift via worker_max_tokens
         schema={
             "type": "object",
             "required": ["record", "tasks"],

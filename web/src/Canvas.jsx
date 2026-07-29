@@ -17,13 +17,13 @@ function stamp() {
   return `Today ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-function Callout({ command, args, result }) {
+function Callout({ command, args, result, onOpenNote }) {
   return (
     <div className="callout">
       <div className="callout-title small">//{command} {args}</div>
       {result == null
-        ? <div className="ghost small">no result — the docs server didn’t answer; try again</div>
-        : <div className="callout-body small">{linkifyBlock(result)}</div>}
+        ? <div className="ghost small">no result — the server didn’t answer; try again</div>
+        : <div className="callout-body small">{linkifyBlock(result, onOpenNote)}</div>}
     </div>
   );
 }
@@ -31,14 +31,14 @@ function Callout({ command, args, result }) {
 /* The latest dump's receipt: where each result went, not the result
    itself. The rows it points at are live on the dashboard column
    beside this one. */
-function Receipt({ last }) {
+function Receipt({ last, onOpenNote }) {
   const stalled = last.workerErrors.length > 0;
   const quiet = !last.error && !last.deferred && !stalled && last.applied === 0
     && last.queued === 0 && last.commands.length === 0;
   return (
     <div className="dump">
       <div className="dump-meta small ghost">{last.when}</div>
-      {last.commands.map((c, i) => <Callout key={i} {...c} />)}
+      {last.commands.map((c, i) => <Callout key={i} {...c} onOpenNote={onOpenNote} />)}
       {last.applied > 0 && (
         <div className="small">
           <span className="applied">✓ {last.applied} filed</span>
@@ -93,7 +93,7 @@ function Receipt({ last }) {
   );
 }
 
-export default function Canvas({ seed, onSeedConsumed, onIngested }) {
+export default function Canvas({ seed, onSeedConsumed, onIngested, onOpenNote }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [last, setLast] = useState(null);
@@ -134,9 +134,17 @@ export default function Canvas({ seed, onSeedConsumed, onIngested }) {
   }, [text, busy, onIngested]);
 
   /* Compose stays put; only the receipt area scrolls (a long //command
-     answer can still run). The input is the point of this surface. */
+     answer can still run). The input is the point of this surface —
+     so a click anywhere on it that isn't a link, a button, or a text
+     selection lands focus in the input. Typing at a surface that LOOKS
+     focused but isn't is how "//ask" ends up firing review shortcuts. */
+  const refocus = (e) => {
+    if (e.target.closest("a, button, textarea")) return;
+    if (window.getSelection?.()?.toString()) return;  // copying a receipt
+    taRef.current?.focus();
+  };
   return (
-    <div className="canvas">
+    <div className="canvas" onClick={refocus}>
       <div className="canvas-compose">
         <textarea
           ref={taRef}
@@ -159,11 +167,11 @@ export default function Canvas({ seed, onSeedConsumed, onIngested }) {
           }}
         />
         <div className="ghost small canvas-hint">
-          {busy ? "…" : "⌘↩ to submit · //azure … runs instantly"}
+          {busy ? "…" : "⌘↩ to submit · //ask and //azure run instantly"}
         </div>
       </div>
       <div className="dump-history">
-        {last && <Receipt last={last} />}
+        {last && <Receipt last={last} onOpenNote={onOpenNote} />}
       </div>
     </div>
   );

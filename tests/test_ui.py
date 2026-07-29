@@ -253,6 +253,44 @@ def test_canvas_command_only_dump_never_touches_capture(client, vault, monkeypat
     assert after == before  # a command-only dump runs no capture pass
 
 
+def test_command_route_runs_one_line_and_returns_the_callout(client, monkeypatch):
+    """The editor's ⌘↩: same executor and callout as the pass's command
+    phase, but the write stays with ⌘S — this route touches no file."""
+    from tezcat import commands
+
+    async def fake(args, vault_path):
+        return "an answer\n\n— [[Tasks/Inbox]]"
+
+    monkeypatch.setitem(commands.INLINE_COMMANDS, "ask", fake)
+    r = client.post("/api/command", json={"line": "//ask what matters most?"})
+    assert r.status_code == 200
+    callout = r.json()["callout"]
+    assert callout.startswith("> [!NOTE] //ask what matters most?")
+    assert "> an answer" in callout
+
+
+def test_command_route_rejects_non_commands_and_reports_transients(client, monkeypatch):
+    from tezcat import commands
+
+    # prose, unknown names, bare commands: 400, named plainly
+    assert client.post("/api/command", json={"line": "just a note line"}).status_code == 400
+    assert client.post("/api/command", json={"line": "//nope args"}).status_code == 400
+
+    async def down(args, vault_path):
+        return None  # the transient contract: worker down, retry is safe
+
+    monkeypatch.setitem(commands.INLINE_COMMANDS, "ask", down)
+    r = client.post("/api/command", json={"line": "//ask anything"})
+    assert r.status_code == 503 and "try again" in r.json()["error"]
+
+
+def test_command_route_honors_the_kill_switch(client, vault):
+    (vault / "Harness/Spec.md").write_text(
+        "---\ndisabled_processors: [inline_command]\n---\n\n# Vault Spec\n")
+    r = client.post("/api/command", json={"line": "//ask anything"})
+    assert r.status_code == 400 and "disabled" in r.json()["error"]
+
+
 def test_cancel_route_marks_the_job_and_takes_the_consent_gate(client):
     """The stop button's channel: a write verb, so it takes the same
     JSON-only gate as decide/revert — and it only accepts known jobs, so

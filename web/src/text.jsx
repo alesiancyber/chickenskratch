@@ -12,10 +12,17 @@
      docs result that renders as dead text defeats the whole feature.
 
    `vault:` links are the exception that navigates rather than leaves:
-   they open the note in our own editor, on the cited line. */
+   they open the note in our own editor, on the cited line.
 
-// markdown link first, so a URL already inside one isn't matched twice
-const LINK_RE = /\[([^\]]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<>"'`]+)/g;
+   [[wikilinks]] are the third form — the vault-native one //ask cites
+   sources in (and models emit unprompted). With an onOpenNote they
+   navigate like vault: links; without one they render as their label,
+   never as dead brackets. */
+
+// markdown link first, so a URL already inside one isn't matched twice;
+// wikilink before bare URL so [[…]] never half-matches
+const LINK_RE =
+  /\[([^\]]+)\]\(([^)\s]+)\)|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|(https?:\/\/[^\s<>"'`]+)/g;
 const VAULT = "vault:";
 // Prose puts punctuation right after a URL; it is never part of the URL.
 const TRAILING = /[.,;:!?)\]}>'"]+$/;
@@ -28,12 +35,25 @@ export function linkify(text, onOpenNote) {
     if (m.index > last) out.push(text.slice(last, m.index));
     last = m.index + m[0].length;
 
-    if (m[3]) {
+    if (m[5]) {
       // bare URL: hand back any trailing punctuation we swallowed
-      const url = m[3].replace(TRAILING, "");
-      last -= m[3].length - url.length;
+      const url = m[5].replace(TRAILING, "");
+      last -= m[5].length - url.length;
       out.push(<a key={key++} href={url} target="_blank" rel="noreferrer"
                   className="doc-link">{url}</a>);
+      continue;
+    }
+
+    if (m[3]) {
+      // [[Note]] / [[Note#^ref]] / [[Note|alias]] — vault-native
+      const [path, frag] = m[3].split("#");
+      const label = m[4] || m[3];
+      // the fragment (a ^ref or a heading) appears literally in the raw
+      // note, so it rides as the editor's find-and-mark target as-is
+      out.push(onOpenNote
+        ? <button key={key++} className="linklike doc-link"
+                  onClick={() => onOpenNote(path.trim(), frag || "")}>{label}</button>
+        : <span key={key++}>{label}</span>);
       continue;
     }
 

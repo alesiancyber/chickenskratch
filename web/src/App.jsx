@@ -462,7 +462,7 @@ function usePassTicker(lastPassAt) {
 
 function Palette({ open, setOpen, today, changes, tree, refetch, runPass,
                    togglePane, toggleExplorer, toggleFocus, openConsole,
-                   azurePrefill, revertLast }) {
+                   azurePrefill, askPrefill, revertLast }) {
   /* The notes today points at: the hot set, first, because they're what
      you're most likely typing at. */
   const notes = useMemo(() => {
@@ -529,6 +529,9 @@ function Palette({ open, setOpen, today, changes, tree, refetch, runPass,
           </Command.Item>
           <Command.Item onSelect={go(azurePrefill)}>
             <span>//azure — search Microsoft Learn</span><span className="ghost small">canvas</span>
+          </Command.Item>
+          <Command.Item onSelect={go(askPrefill)}>
+            <span>//ask — question your notes</span><span className="ghost small">canvas</span>
           </Command.Item>
           {changes?.commits?.length > 0 && (
             <Command.Item onSelect={go(revertLast)}>
@@ -769,6 +772,10 @@ export default function App() {
     setCanvasSeed("//azure ");
     scrollToCol("col-canvas");
   }, []);
+  const askPrefill = useCallback(() => {
+    setCanvasSeed("//ask ");
+    scrollToCol("col-canvas");
+  }, []);
 
   const onDrag = useCallback((clientX) => {
     const el = splitRef.current;
@@ -812,8 +819,16 @@ export default function App() {
       if (e.key === "Escape") releaseSel();
       // the review shortcuts belong to Today's decision region — which
       // is pinned now, so they are always live
-      // the canvas textarea is always mounted now: never steal its keys
-      if (/^(input|textarea|select)$/i.test(e.target.tagName)) return;
+      // …but NEVER while the user is typing. The canvas textarea and the
+      // pane input match on tagName; CodeMirror does NOT — its editing
+      // surface is a contenteditable div, so without these two checks
+      // every j/k/a/r/e/u typed into a note fired a review shortcut AND
+      // preventDefault ate the character ("//ask" lost its k to the
+      // selection-move, and a stray `a` could approve a selected
+      // proposal).
+      if (/^(input|textarea|select)$/i.test(e.target.tagName)
+          || e.target.isContentEditable
+          || e.target.closest?.(".cm-editor")) return;
       // nor the explorer's: its rows are buttons, and `e` on a focused
       // tree row must not fire the review shortcut for a different note
       if (e.target.closest?.(".explorer")) return;
@@ -1128,7 +1143,8 @@ export default function App() {
           </header>
           <Canvas seed={canvasSeed}
                   onSeedConsumed={() => setCanvasSeed("")}
-                  onIngested={() => refetch(["today", "review", "changes"])} />
+                  onIngested={() => refetch(["today", "review", "changes"])}
+                  onOpenNote={openNoteAt} />
         </div>
 
         <div className={"pane-slot" + (tab === "week" ? "" : " hidden")}>
@@ -1179,7 +1195,8 @@ export default function App() {
                refetch={refetch} runPass={runPass} togglePane={togglePane}
                toggleExplorer={toggleExplorer} toggleFocus={toggleFocus}
                openConsole={() => setConsoleOpen(true)}
-               azurePrefill={azurePrefill} revertLast={revertLast} />
+               azurePrefill={azurePrefill} askPrefill={askPrefill}
+               revertLast={revertLast} />
     </div>
     </SelectRow.Provider>
     </OpenNote.Provider>

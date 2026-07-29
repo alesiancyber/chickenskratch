@@ -408,6 +408,36 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
             out.update(await engine.run(service.ingest(vault_path, "\n".join(rest))))
         return JSONResponse(out)
 
+    async def command_route(request):
+        """⌘↩ on a //command line in the note editor: execute it NOW and
+        hand back the rendered callout — the same executor, kill switch,
+        and callout the pass's command phase uses, so the two submit
+        gestures (canvas ⌘↩, editor ⌘↩) mean the same thing. The buffer
+        splice stays client-side and ⌘S stays the write: writing the
+        file here would change it under an open buffer and force the
+        stale-hash reload that discards edits (the /api/task/line
+        rationale). I3 trust: the user typed the order; nothing queues."""
+        body, err = await guard_write(request)
+        if err:
+            return err
+        parsed = commands.parse(str(body.get("line", "")).rstrip())
+        if not parsed:
+            return JSONResponse({"error": "not a runnable //command line"},
+                                status_code=400)
+        name, args = parsed
+        try:
+            # Await-bound (worker/MCP calls), same as the canvas's inline
+            # command execution — fine on this loop.
+            result = await service.run_command(vault_path, name, args)
+        except ValueError as e:      # unknown command, or the kill switch
+            return JSONResponse({"error": str(e)}, status_code=400)
+        if result is None:           # transient: worker down — retry is safe
+            return JSONResponse(
+                {"error": "no result — the server didn’t answer; try again"},
+                status_code=503)
+        return JSONResponse({"callout": commands.render_callout(
+            {"command": name, "args": args}, result)})
+
     async def note_get_route(request):
         """Read a note into the owned editor. A read, so no consent gate —
         but still 404s through VaultError for anything excluded or absent,
@@ -698,6 +728,7 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         Route("/api/task/due", task_due_route, methods=["POST"]),
         Route("/api/task/plan", task_plan_route, methods=["POST"]),
         Route("/api/task/line", task_line_route, methods=["POST"]),
+        Route("/api/command", command_route, methods=["POST"]),
         Route("/api/console", console_route),
         Route("/api/console/vault", console_spec_route, methods=["POST"]),
         Route("/api/console/models", console_models_route, methods=["POST"]),

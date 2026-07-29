@@ -30,14 +30,22 @@ function statusLine(state, ephemeral) {
   return "saved";
 }
 
+/* ⌘↩ = submit to the harness, everywhere. The canvas taught the hand;
+   here it runs the //command line under the caret through the same
+   executor the pass uses (/api/command) and splices the callout into
+   the buffer — a DOCUMENT edit, so ⌘S is still the one write and the
+   file is never changed under the open buffer. */
+
 export default function NoteEditor({ path, target, seq, planDates, visible = true,
                                      onClose }) {
   const host = useRef(null);
   const view = useRef(null);
   const baseHash = useRef("");
   const saveRef = useRef(() => {});
+  const runLineRef = useRef(() => {});
   const [state, setState] = useState("loading");   // loading|clean|dirty|saving|error|conflict
   const [ephemeral, setEphemeral] = useState(false);
+  const [cmdBusy, setCmdBusy] = useState(false);   // a ⌘↩ command in flight
   const [error, setError] = useState("");
 
   const save = useCallback(async () => {
@@ -59,6 +67,28 @@ export default function NoteEditor({ path, target, seq, planDates, visible = tru
     }
   }, [path]);
   saveRef.current = save;
+
+  /* Run the //command on `line` and replace it with the returned
+     callout. The document is live under the round trip, so the splice
+     only lands if the line still says what we sent (the plan-chips
+     stale-guard); a keystroke that landed meanwhile owns the line. */
+  const runLine = useCallback(async (line) => {
+    setCmdBusy(true);
+    setError("");
+    try {
+      const { callout } = await postJSON("/api/command", { line: line.text });
+      const v = view.current;
+      if (v) {
+        const now = v.state.doc.lineAt(Math.min(line.from, v.state.doc.length));
+        if (now.text === line.text)
+          v.dispatch({ changes: { from: now.from, to: now.to, insert: callout } });
+      }
+    } catch (e) {
+      setError(String(e.message || e));   // shown in the banner; save state untouched
+    }
+    setCmdBusy(false);
+  }, []);
+  runLineRef.current = runLine;
 
   /* Scroll the target into view and mark it. Two kinds arrive: a
      dashboard row passes its task text (a substring of the raw line
@@ -123,6 +153,14 @@ export default function NoteEditor({ path, target, seq, planDates, visible = tru
           history(),
           keymap.of([
             { key: "Mod-s", preventDefault: true, run: () => { saveRef.current(); return true; } },
+            // ⌘↩ on a //command line runs it now; any other line falls
+            // through to the default keymap untouched
+            { key: "Mod-Enter", run: (view) => {
+                const line = view.state.doc.lineAt(view.state.selection.main.head);
+                if (!/^\/\//.test(line.text)) return false;
+                runLineRef.current(line);
+                return true;
+              } },
             ...defaultKeymap, ...historyKeymap,
           ]),
           markdown(),
@@ -173,7 +211,7 @@ export default function NoteEditor({ path, target, seq, planDates, visible = tru
         <span className="spacer" />
         <span className={"small " + (state === "conflict" || state === "error"
           ? "attention" : "ghost")}>
-          {statusLine(state, ephemeral)}
+          {cmdBusy ? "running //command…" : statusLine(state, ephemeral)}
         </span>
         {state === "conflict"
           ? <button className="decide approve" onClick={reload}>Reload</button>

@@ -15,8 +15,13 @@ note is executed on the next engine pass and replaced in place by its
 result, rendered as a markdown callout. Enter is the submit key: a
 final line with no newline after it is still being typed. Only KNOWN
 command names match, so prose and code comments starting with // are
-never touched. LLM-backed commands (future) write directly too — the
+never touched. LLM-backed commands (//ask) write directly too — the
 user is actively watching the spot where the output lands.
+
+Two fast lanes share this grammar and executor: the canvas splits
+command lines out of a dump and runs them instantly, and the note
+editor's ⌘↩ runs the line under the caret via /api/command — one
+submit gesture meaning the same thing on every surface.
 """
 
 from __future__ import annotations
@@ -80,10 +85,29 @@ async def _azure_docs(args: str, vault_path: str) -> str | None:
     return "\n".join(kept).strip() or None
 
 
+async def _ask(args: str, vault_path: str) -> str | None:
+    """//ask: answer a question from the vault's own notes — the first
+    LLM-backed command (query.py: deterministic retrieval, one bounded
+    worker call, sources cited as [[links]]). None = transient failure
+    (worker down or junk reply): in a note the line stays armed and
+    retries next scan; on the canvas the receipt says to try again.
+    The question is the user's ORDER (I3), so nothing queues — and the
+    result is an answer written where they asked it, never a vault
+    mutation beyond that."""
+    from tezcat_vault.vault import VaultError
+
+    from . import query
+    try:
+        return await query.ask(vault_path, args)
+    except VaultError:
+        return None
+
+
 # command name -> async (args, vault_path) -> result markdown | None.
 # //research is reserved for a future web-crawling command.
 INLINE_COMMANDS: dict[str, Callable[[str, str], Awaitable[str | None]]] = {
     "azure": _azure_docs,
+    "ask": _ask,
 }
 
 
