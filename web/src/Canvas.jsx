@@ -156,8 +156,11 @@ export default function Canvas({ seed, onSeedConsumed, onIngested, onOpenNote })
           onInput={(e) => {
             e.target.style.height = "auto";
             // capped: a long dump grows the box, but never past the point
-            // where it would swallow the receipt underneath
-            e.target.style.height = Math.min(e.target.scrollHeight, 260) + "px";
+            // where it would swallow the receipt underneath. Half the
+            // viewport, not a fixed 260px — the canvas is the page's
+            // main surface now and should spend the room it has.
+            e.target.style.height = Math.min(
+              e.target.scrollHeight, Math.round(window.innerHeight * 0.5)) + "px";
           }}
           onKeyDown={(e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {

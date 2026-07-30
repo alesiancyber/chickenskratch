@@ -5,7 +5,7 @@ import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getJSON, postJSON } from "./api.js";
 import {
-  calloutFoldField, livePreview, planDatesField, setPlanDates, setTarget,
+  calloutField, livePreview, planDatesField, setPlanDates, setTarget,
   targetField, vaultTheme,
 } from "./livepreview.js";
 
@@ -38,7 +38,7 @@ function statusLine(state, ephemeral) {
    file is never changed under the open buffer. */
 
 export default function NoteEditor({ path, target, seq, planDates, visible = true,
-                                     onClose }) {
+                                     refresh = 0, onClose }) {
   const host = useRef(null);
   const view = useRef(null);
   const baseHash = useRef("");
@@ -146,6 +146,38 @@ export default function NoteEditor({ path, target, seq, planDates, visible = tru
     }
   }, [path]);
 
+  /* Hot-sync: a write landed on this note from OUTSIDE the buffer — a
+     task checked on Today, an approved proposal, a revert, an engine
+     apply. A clean buffer takes the disk version, so the dashboard's
+     checkmark and the editor's can never disagree; a dirty buffer is
+     the user's and stays theirs (the save-time hash guard remains the
+     arbiter). The splice is minimal — common prefix/suffix trimmed —
+     so a checked box is a one-character change that moves neither the
+     caret nor the scroll. Our own saves echo back through the same
+     event; they no-op on the hash. */
+  const syncFromDisk = useCallback(async () => {
+    if (stateRef.current !== "clean") return;
+    try {
+      const data = await getJSON(`/api/note?path=${encodeURIComponent(path)}`);
+      const v = view.current;
+      if (!v || data.hash === baseHash.current || stateRef.current !== "clean") return;
+      const old = v.state.doc.toString();
+      let from = 0;
+      const next = data.text;
+      while (from < old.length && from < next.length && old[from] === next[from]) from++;
+      let oldTo = old.length, newTo = next.length;
+      while (oldTo > from && newTo > from && old[oldTo - 1] === next[newTo - 1]) {
+        oldTo--; newTo--;
+      }
+      baseHash.current = data.hash;
+      v.dispatch({ changes: { from, to: oldTo, insert: next.slice(from, newTo) } });
+      setState("clean");   // the dispatch above marked the buffer dirty
+    } catch { /* transient read failure: the buffer stands */ }
+  }, [path]);
+  useEffect(() => {
+    if (refresh) syncFromDisk();
+  }, [refresh, syncFromDisk]);
+
   /* One EditorView for the component's life; switching notes replaces
      the document rather than tearing the editor down, so scroll position
      and focus behave and we don't churn DOM. */
@@ -172,7 +204,7 @@ export default function NoteEditor({ path, target, seq, planDates, visible = tru
           livePreview,
           targetField,
           planDatesField,
-          calloutFoldField,
+          calloutField,
           vaultTheme,
           EditorView.lineWrapping,
           placeholder("Empty note."),

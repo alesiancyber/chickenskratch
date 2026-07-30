@@ -250,8 +250,8 @@ function WeekPane({ today, onDone, doneKeys, moved, onMove }) {
     + today.later.length + today.backlog.length === 0;
   return (
     <>
+      {/* no title: the tab above already says Week */}
       <header className="header">
-        <div className="title">This week</div>
         <div className="date">plan by week — days are for deadlines</div>
       </header>
       {empty && <div className="empty-state title">Nothing on the runway.</div>}
@@ -436,9 +436,13 @@ function AutoRow({ a, reverted, onRevert }) {
 }
 
 /* Both columns are always mounted now, so "go to X" means scroll it
-   into view rather than swap the page. */
+   into view rather than swap the page. The columns pin their tab strips
+   and scroll inside a pane-scroll, so that inner scroller is the thing
+   to move when one exists. */
 function scrollToCol(which) {
-  document.getElementById(which)?.scrollTo({ top: 0, behavior: "smooth" });
+  const col = document.getElementById(which);
+  (col?.querySelector(".pane-slot:not(.hidden) .pane-scroll") ?? col)
+    ?.scrollTo({ top: 0, behavior: "smooth" });
   if (which === "col-canvas")
     document.querySelector(".canvas-input")?.focus();
 }
@@ -569,7 +573,7 @@ function Palette({ open, setOpen, today, changes, tree, refetch, runPass,
 
 export default function App() {
   const { today, review, changes, health, tree, error, live, lastPassAt, activity,
-          workerError, clearWorkerError, refetch } = useDashboard();
+          workerError, clearWorkerError, vaultEvent, refetch } = useDashboard();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [paneOpen, setPaneOpen] = useState(false);
@@ -595,6 +599,7 @@ export default function App() {
   // unsaved edits) — still one note at a time; opening another replaces it.
   const [openNote, setOpenNote] = useState(null);   // {path, target, seq} | null
   const [tab, setTab] = useState("canvas");         // "canvas" | "note"
+  const [leftTab, setLeftTab] = useState("today");  // "today" | "week"
 
   const openNoteAt = useCallback((path, target = "") => {
     setOpenNote((prev) => ({ path, target, seq: (prev?.seq ?? 0) + 1 }));
@@ -758,6 +763,16 @@ export default function App() {
   const planDates = useMemo(
     () => ({ today: today?.date ?? "", week: today?.due?.this_sunday ?? "" }),
     [today?.date, today?.due?.this_sunday]);
+
+  /* A write that plausibly touched the OPEN note tells the editor to
+     hot-sync its (clean) buffer — checking a task on Today must check
+     it in the editor too. Events that can't name a note (revert, a
+     whole pass) count as "maybe yours": the editor's hash check makes
+     the false alarms free. */
+  const editorRefresh = useMemo(() => (
+    vaultEvent && openNote && (!vaultEvent.note || vaultEvent.note === openNote.path)
+      ? vaultEvent.n : 0
+  ), [vaultEvent, openNote]);
 
   const runPass = useCallback(() => { postJSON("/api/pass").catch(() => {}); }, []);
   const stopPass = useCallback(() => { cancelJob("pass").catch(() => {}); }, []);
@@ -950,13 +965,22 @@ export default function App() {
       <div className="split" ref={splitRef}
            style={{ gridTemplateColumns: `${frac}fr 6px ${1 - frac}fr` }}>
       <div className="col" id="col-today">
-      {/* Today is PINNED — the one always-on surface, never behind a
-          tab. Week (the runway) lives in the right column's tabs beside
-          the canvas: two horizons over one model, side by side instead
-          of one replacing the other. */}
-      <>
+      {/* Two horizons over one model, in the attention column where both
+          belong: Today (the default) and Week (the runway) as tabs. The
+          right column stays the work surface — canvas and the open note
+          — so planning never displaces the place you're typing. */}
+      <div className="tabs small">
+        <button className={"tab" + (leftTab === "today" ? " current" : "")}
+                onClick={() => setLeftTab("today")}>Today</button>
+        <button className={"tab" + (leftTab === "week" ? " current" : "")}
+                onClick={() => setLeftTab("week")}>Week</button>
+      </div>
+      {/* Both stay mounted (hidden by class): Rows' unfold state and the
+          Collapsible sections survive a tab flip. */}
+      <div className={"pane-slot" + (leftTab === "today" ? "" : " hidden")}>
+      <div className="pane-scroll">
+      {/* no title: the tab above already says Today — the date IS the header */}
       <header className="header">
-        <div className="title">Today</div>
         <div className="date">{dateStr}</div>
         {pending > 0 && (
           <div className="needs-you" style={{ marginTop: "var(--s2)" }}>
@@ -1056,14 +1080,40 @@ export default function App() {
           the note it landed on), revertible as a decision (its own
           commits), "unvouched" marking applies the verifier objected
           to. This is where canvas dumps land too — the one history.
+          Folded closed like Reference: an audit trail is for when you
+          come asking, not a region competing with the four questions.
           Absent entirely when the harness has been quiet. */}
       {(today.recent_auto ?? []).length > 0 && (
-        <Section id="auto" label="What changed without you?" verb="audit">
-          {today.recent_auto.map((a) => (
-            <AutoRow key={a.id} a={a}
-                     reverted={revertedAuto.has(a.id)} onRevert={revertAuto} />
-          ))}
-        </Section>
+        <Collapsible.Root asChild>
+          <section id="auto" className="reference">
+            <Collapsible.Trigger asChild>
+              {/* Folded like Reference: the audit is there when you go
+                  looking, never clutter when you aren't. The one thing
+                  that must not hide behind the fold is an unvouched
+                  apply — the verifier's objection stays on the closed
+                  row, so collapsing the section can't collapse the
+                  warning. */}
+              <button className="row reference-toggle">
+                <span className="caret">▸</span>
+                <span className="grow small">What changed without you?</span>
+                {today.recent_auto.some((a) => a.unvouched) && (
+                  <span className="chip attention">
+                    {today.recent_auto.filter((a) => a.unvouched).length} unvouched
+                  </span>
+                )}
+                <span className="ghost small">
+                  {today.recent_auto.length} change{today.recent_auto.length > 1 ? "s" : ""} · audit
+                </span>
+              </button>
+            </Collapsible.Trigger>
+            <Collapsible.Content>
+              {today.recent_auto.map((a) => (
+                <AutoRow key={a.id} a={a}
+                         reverted={revertedAuto.has(a.id)} onRevert={revertAuto} />
+              ))}
+            </Collapsible.Content>
+          </section>
+        </Collapsible.Root>
       )}
 
       {/* Below the fold on purpose: nothing here answers a question or
@@ -1119,7 +1169,15 @@ export default function App() {
           </section>
         </Collapsible.Root>
       )}
-      </>
+      </div>
+      </div>
+
+      <div className={"pane-slot" + (leftTab === "week" ? "" : " hidden")}>
+        <div className="pane-scroll">
+          <WeekPane today={today} onDone={taskDone}
+                    doneKeys={doneKeys} moved={movedKeys} onMove={planTask} />
+        </div>
+      </div>
       </div>
 
       <Splitter onDrag={onDrag} />
@@ -1128,8 +1186,6 @@ export default function App() {
         <div className="tabs small">
           <button className={"tab" + (tab === "canvas" ? " current" : "")}
                   onClick={() => setTab("canvas")}>Canvas</button>
-          <button className={"tab" + (tab === "week" ? " current" : "")}
-                  onClick={() => setTab("week")}>Week</button>
           {openNote && (
             <button className={"tab" + (tab === "note" ? " current" : "")}
                     title={openNote.path} onClick={() => setTab("note")}>
@@ -1156,19 +1212,13 @@ export default function App() {
                   onOpenNote={openNoteAt} />
         </div>
 
-        <div className={"pane-slot" + (tab === "week" ? "" : " hidden")}>
-          <div className="pane-scroll">
-            <WeekPane today={today} onDone={taskDone}
-                      doneKeys={doneKeys} moved={movedKeys} onMove={planTask} />
-          </div>
-        </div>
-
         {openNote && (
           <div className={"pane-slot" + (tab === "note" ? "" : " hidden")}>
             <Suspense fallback={<div className="ghost small">opening…</div>}>
               <NoteEditor path={openNote.path} target={openNote.target}
                           seq={openNote.seq} visible={tab === "note"}
-                          planDates={planDates} onClose={closeNote} />
+                          planDates={planDates} refresh={editorRefresh}
+                          onClose={closeNote} />
             </Suspense>
           </div>
         )}

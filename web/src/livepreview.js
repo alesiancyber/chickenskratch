@@ -185,29 +185,18 @@ class PlanChips extends WidgetType {
 
 /* Callout folding. The default comes from the marker (`-` starts
    collapsed); clicking the header toggles, and the toggle is remembered
-   per block in a state field — positions map through edits, so typing
-   above a folded verbatim doesn't spring it open. Like every rule here
-   it is a view decision: the bytes on disk never change. */
+   per block — positions map through edits, so typing above a folded
+   verbatim doesn't spring it open. Like every rule here it is a view
+   decision: the bytes on disk never change.
+
+   This layer lives in a StateField, not the view plugin, because a
+   folded block is a `block: true` replace decoration — those change
+   vertical layout, and CodeMirror refuses them from plugins ("block
+   decorations may not be specified via plugins"). One field owns the
+   toggles AND the decorations built from them; the plugin just skips
+   the lines this field has claimed. */
 export const toggleCallout = StateEffect.define({
   map: (pos, changes) => changes.mapPos(pos),
-});
-
-export const calloutFoldField = StateField.define({
-  create: () => new Set(),
-  update(set, tr) {
-    let next = set;
-    if (tr.docChanged) {
-      next = new Set();
-      for (const p of set) next.add(tr.changes.mapPos(p));
-    }
-    for (const e of tr.effects) {
-      if (e.is(toggleCallout)) {
-        if (next === set) next = new Set(set);
-        next.has(e.value) ? next.delete(e.value) : next.add(e.value);
-      }
-    }
-    return next;
-  },
 });
 
 /* The callout's header: caret + type when open (the title text stays
@@ -255,6 +244,83 @@ class CalloutHead extends WidgetType {
   }
 }
 
+/* Every callout's decorations, from (doc, selection, toggles) alone —
+   the field recomputes only when one of those moved. `blocks` rides
+   along so the view plugin can skip the claimed lines. A caret anywhere
+   inside a block forces the raw source — nothing is hidden that the
+   caret can't reach. */
+function calloutCompute(doc, selection, toggles) {
+  const marks = [];
+  const blocks = [];
+  const active = new Set();
+  for (const r of selection.ranges) {
+    const from = doc.lineAt(r.from).number;
+    const to = doc.lineAt(r.to).number;
+    for (let n = from; n <= to; n++) active.add(n);
+  }
+  for (let n = 1; n <= doc.lines; n++) {
+    const line = doc.line(n);
+    const m = CALLOUT_RE.exec(line.text);
+    if (!m) continue;
+    let end = line;
+    while (end.number < doc.lines) {
+      const nxt = doc.line(end.number + 1);
+      if (!QUOTE_PREFIX_RE.test(nxt.text)) break;
+      end = nxt;
+    }
+    blocks.push({ from: line.from, to: end.to });
+    let blockLive = false;
+    for (let k = line.number; k <= end.number && !blockLive; k++)
+      if (active.has(k)) blockLive = true;
+    const folded = (m[2] === "-") !== toggles.has(line.from);
+    const bodyLines = end.number - line.number;
+    if (folded && !blockLive && bodyLines > 0) {
+      marks.push(Decoration.replace({
+        widget: new CalloutHead(m[1], m[3], bodyLines, line.from, true),
+        block: true,
+      }).range(line.from, end.to));
+    } else {
+      marks.push(Decoration.line({ class: "cm-callout-title" }).range(line.from));
+      if (!active.has(line.number))
+        marks.push(Decoration.replace({
+          widget: new CalloutHead(m[1], "", bodyLines, line.from, false),
+        }).range(line.from, line.from + line.text.length - m[3].length));
+      for (let k = line.number + 1; k <= end.number; k++) {
+        const b = doc.line(k);
+        marks.push(Decoration.line({ class: "cm-callout" }).range(b.from));
+        const q = QUOTE_PREFIX_RE.exec(b.text);
+        if (!active.has(k) && q && q[0].length)
+          marks.push(Decoration.replace({}).range(b.from, b.from + q[0].length));
+      }
+    }
+    n = end.number;   // the body is claimed; resume past it
+  }
+  return { deco: RangeSet.of(marks, true), blocks };
+}
+
+export const calloutField = StateField.define({
+  create: (state) => ({ toggles: new Set(),
+                        ...calloutCompute(state.doc, state.selection, new Set()) }),
+  update(value, tr) {
+    let toggles = value.toggles;
+    if (tr.docChanged) {
+      toggles = new Set();
+      for (const p of value.toggles) toggles.add(tr.changes.mapPos(p));
+    }
+    for (const e of tr.effects) {
+      if (e.is(toggleCallout)) {
+        if (toggles === value.toggles) toggles = new Set(toggles);
+        toggles.has(e.value) ? toggles.delete(e.value) : toggles.add(e.value);
+      }
+    }
+    // tr.newDoc/newSelection, never tr.state: a field reading the new
+    // state mid-computation is a re-entrancy error waiting to happen
+    if (!tr.docChanged && !tr.selection && toggles === value.toggles) return value;
+    return { toggles, ...calloutCompute(tr.newDoc, tr.newSelection, toggles) };
+  },
+  provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
+});
+
 /* A list marker reads as a bullet, not as the hyphen you typed. Same
    deal as the checkbox: the file still says "- ". */
 class Bullet extends WidgetType {
@@ -292,11 +358,10 @@ function build(view) {
   const active = activeLines(state);
   const fmEnd = frontmatterEnd(state.doc);
   const dates = state.field(planDatesField, false) || { today: "", week: "" };
-  const foldToggles = state.field(calloutFoldField, false) || new Set();
+  const callouts = state.field(calloutField, false)?.blocks ?? [];
   const marks = [];
   const add = (from, to, deco) => marks.push(deco.range(from, to));
   const hide = (from, to) => add(from, to, Decoration.replace({}));
-  let calloutUntil = 0;   // last line number of an open callout's body
 
   for (const { from: vFrom, to: vTo } of view.visibleRanges) {
     let pos = vFrom;
@@ -313,46 +378,9 @@ function build(view) {
         continue;
       }
 
-      /* callouts: title line + every following quoted line is one block.
-         Folded, the whole block is a single header row; open, the header
-         replaces just the `> [!NOTE]-` machinery and the body renders as
-         a styled quote. A caret anywhere inside forces the raw source —
-         nothing is hidden that the caret can't reach. */
-      const callout = line.number > calloutUntil && CALLOUT_RE.exec(text);
-      if (callout) {
-        let end = line;
-        while (end.number < state.doc.lines) {
-          const nxt = state.doc.line(end.number + 1);
-          if (!QUOTE_PREFIX_RE.test(nxt.text)) break;
-          end = nxt;
-        }
-        let blockLive = false;
-        for (let n = line.number; n <= end.number && !blockLive; n++)
-          if (active.has(n)) blockLive = true;
-        const folded = (callout[2] === "-") !== foldToggles.has(line.from);
-        const bodyLines = end.number - line.number;
-        if (folded && !blockLive && bodyLines > 0) {
-          add(line.from, end.to, Decoration.replace({
-            widget: new CalloutHead(callout[1], callout[3], bodyLines, line.from, true),
-            block: true,
-          }));
-          pos = end.to + 1;
-          continue;
-        }
-        add(line.from, line.from, Decoration.line({ class: "cm-callout-title" }));
-        if (!live)
-          add(line.from, line.from + text.length - callout[3].length,
-              Decoration.replace({
-                widget: new CalloutHead(callout[1], "", bodyLines, line.from, false),
-              }));
-        calloutUntil = end.number;
-        pos = line.to + 1;
-        continue;
-      }
-      if (line.number <= calloutUntil) {
-        add(line.from, line.from, Decoration.line({ class: "cm-callout" }));
-        const q = QUOTE_PREFIX_RE.exec(text);
-        if (!live && q && q[0].length) hide(line.from, line.from + q[0].length);
+      /* callout blocks belong to calloutField (block decorations must
+         come from a state field) — skip every line it has claimed */
+      if (callouts.some((b) => line.from >= b.from && line.from <= b.to)) {
         pos = line.to + 1;
         continue;
       }
@@ -471,9 +499,10 @@ export const livePreview = ViewPlugin.fromClass(
     update(u) {
       // selection matters as much as content: moving the caret is what
       // reveals and re-hides syntax — and a fold toggle redraws too
+      // (the claimed-lines skip must track the field's blocks)
       if (u.docChanged || u.selectionSet || u.viewportChanged
-          || u.startState.field(calloutFoldField, false)
-             !== u.state.field(calloutFoldField, false))
+          || u.startState.field(calloutField, false)
+             !== u.state.field(calloutField, false))
         this.decorations = build(u.view);
     }
   },

@@ -55,11 +55,12 @@ a { color: inherit; text-decoration: none; }
 /* the reading measure survives the split: text never runs full-bleed */
 .col > * { max-width: 720px; margin-left: auto; margin-right: auto; }
 
-/* The right column is furniture + a scroller, not one long page: its tab
+/* Both columns are furniture + a scroller, not one long page: the tab
    strip and whichever surface is showing (the canvas compose box, the
    editor header) stay put, and only the content beneath them moves.
-   Scrolling a result out of the way must never take the input with it. */
-#col-canvas {
+   Scrolling a result out of the way must never take the input with it,
+   and flipping Today/Week must never lose the tab strip. */
+#col-canvas, #col-today {
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -70,8 +71,8 @@ a { color: inherit; text-decoration: none; }
    its content width — which put the tab strip in the middle. Asking for
    full width restores the alignment while the max-width still caps a
    wide column. */
-#col-canvas > * { width: 100%; }
-#col-canvas > .tabs { flex: none; }
+#col-canvas > *, #col-today > * { width: 100%; }
+#col-canvas > .tabs, #col-today > .tabs { flex: none; }
 .pane-slot { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .pane-slot.hidden { display: none; }
 /* A long-list tab inside a pane-slot (Week): its own scroller, same
@@ -550,7 +551,9 @@ section { margin-bottom: var(--s5); }
   border: 0; outline: none; resize: none;
   background: none; color: var(--ink);
   font: inherit; line-height: var(--leading);
-  min-height: 96px;
+  /* a real writing surface, not a form field: the week tab and the
+     audit region left this column, so the input takes the room */
+  min-height: 34vh;
   padding: 0;
   caret-color: var(--accent);
 }

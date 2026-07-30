@@ -73,6 +73,17 @@ export function useDashboard() {
   // signal because a pass that drafted nothing looks identical to a quiet
   // vault — and a dump that never got extracted must not read as one.
   const [workerError, setWorkerError] = useState(null);
+  // The last write the stream reported: {note, reason, n}. The dashboard
+  // lists refetch on their own; this is for the note EDITOR, which must
+  // hot-sync a clean buffer when a write lands on the note it is showing
+  // (a task checked on Today, an approved proposal, a revert) — two
+  // renderings of one file must not disagree about a checkbox. note is ""
+  // when the event can't name one (revert, a whole engine pass): "maybe
+  // yours" — the editor's content-hash check makes a false alarm free.
+  const [vaultEvent, setVaultEvent] = useState(null);
+  const bumpVaultEvent = useCallback((note, reason) => {
+    setVaultEvent((v) => ({ note, reason, n: (v?.n ?? 0) + 1 }));
+  }, []);
   const alive = useRef(true);
   /* Refetches overlap: pass_complete and vault_changed can land together,
      and each fires parallel requests. Sequence numbers are per KEY, so
@@ -137,6 +148,7 @@ export function useDashboard() {
     es.addEventListener("pass_complete", () => {
       setActivity(IDLE);
       setLastPassAt(new Date());
+      bumpVaultEvent("", "pass");      // auto-applies name no note
       refetch();                       // a pass can touch everything
     });
     es.addEventListener("vault_changed", (e) => {
@@ -144,16 +156,17 @@ export function useDashboard() {
       // The tree moves whenever a note can appear or vanish — which is
       // everything except a checked task, the one change that provably
       // only rewrites a line inside a note that already existed.
-      const reason = (() => { try { return JSON.parse(e.data).reason; } catch { return ""; } })();
-      if (reason === "task_done" || reason === "reschedule") refetch(["today", "review"]);
-      else refetch(reason === "revert"
+      const d = (() => { try { return JSON.parse(e.data); } catch { return {}; } })();
+      bumpVaultEvent(d.note || "", d.reason || "");
+      if (d.reason === "task_done" || d.reason === "reschedule") refetch(["today", "review"]);
+      else refetch(d.reason === "revert"
         ? ["today", "review", "changes", "tree"]
         : ["today", "review", "tree"]);
     });
     return () => { alive.current = false; es.close(); };
-  }, [refetch]);
+  }, [refetch, bumpVaultEvent]);
 
-  return { ...state, live, lastPassAt, activity, workerError,
+  return { ...state, live, lastPassAt, activity, workerError, vaultEvent,
            clearWorkerError: () => setWorkerError(null), refetch };
 }
 
