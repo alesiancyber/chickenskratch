@@ -764,6 +764,20 @@ export default function App() {
     () => ({ today: today?.date ?? "", week: today?.due?.this_sunday ?? "" }),
     [today?.date, today?.due?.this_sunday]);
 
+  /* Wikilink clicks inside the editor. Harness-written links carry the
+     full rel ("Meetings/2026-07-17 team weekly" — the vault adds .md);
+     a hand-typed [[bare name]] resolves against the tree the way any
+     wiki would. Misses fall through as-is and surface the vault's own
+     "no such note" hint. */
+  const openWiki = useCallback((name, frag = "") => {
+    const notes = tree?.notes ?? [];
+    const lower = name.toLowerCase();
+    const rel = notes.find((r) => r.toLowerCase() === `${lower}.md`)
+      ?? notes.find((r) => noteName(r).toLowerCase() === lower)
+      ?? name;
+    openNoteAt(rel, frag);
+  }, [tree, openNoteAt]);
+
   /* A write that plausibly touched the OPEN note tells the editor to
      hot-sync its (clean) buffer — checking a task on Today must check
      it in the editor too. Events that can't name a note (revert, a
@@ -1218,7 +1232,7 @@ export default function App() {
               <NoteEditor path={openNote.path} target={openNote.target}
                           seq={openNote.seq} visible={tab === "note"}
                           planDates={planDates} refresh={editorRefresh}
-                          onClose={closeNote} />
+                          onOpenNote={openWiki} onClose={closeNote} />
             </Suspense>
           </div>
         )}

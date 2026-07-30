@@ -268,18 +268,22 @@ function calloutCompute(doc, selection, toggles) {
       if (!QUOTE_PREFIX_RE.test(nxt.text)) break;
       end = nxt;
     }
-    blocks.push({ from: line.from, to: end.to });
     let blockLive = false;
     for (let k = line.number; k <= end.number && !blockLive; k++)
       if (active.has(k)) blockLive = true;
     const folded = (m[2] === "-") !== toggles.has(line.from);
     const bodyLines = end.number - line.number;
     if (folded && !blockLive && bodyLines > 0) {
+      blocks.push({ from: line.from, to: end.to });   // plugin skips it all
       marks.push(Decoration.replace({
         widget: new CalloutHead(m[1], m[3], bodyLines, line.from, true),
         block: true,
       }).range(line.from, end.to));
     } else {
+      // Open: only the TITLE line is claimed — the body lines flow
+      // through the plugin's normal inline rules, so a [[source]] cited
+      // inside a callout renders (and clicks) like one anywhere else.
+      blocks.push({ from: line.from, to: line.to });
       marks.push(Decoration.line({ class: "cm-callout-title" }).range(line.from));
       if (!active.has(line.number))
         marks.push(Decoration.replace({
@@ -334,6 +338,30 @@ class Bullet extends WidgetType {
     return dot;
   }
 }
+
+/* Wikilinks NAVIGATE — the accent and pointer cursor were a promise
+   this extension keeps. Click resolution goes through the document
+   position, not the span's text: syntax highlighting can split a link
+   across spans, but the position always lands inside exactly one
+   [[…]] match on its line. `onOpen(path, target)` gets the link with
+   alias stripped and any #fragment as the reveal target. */
+export const wikilinkClick = (onOpen) => EditorView.domEventHandlers({
+  click: (e, view) => {
+    if (!e.target.closest?.(".cm-wikilink")) return false;
+    const pos = view.posAtDOM(e.target, 0);
+    const line = view.state.doc.lineAt(pos);
+    WIKILINK_RE.lastIndex = 0;
+    for (let m; (m = WIKILINK_RE.exec(line.text)) !== null; ) {
+      const from = line.from + m.index;
+      if (pos >= from && pos <= from + m[0].length) {
+        const [path, frag = ""] = m[1].split("|")[0].split("#");
+        if (path.trim()) onOpen(path.trim(), frag.trim());
+        return true;
+      }
+    }
+    return false;
+  },
+});
 
 /* Lines the caret touches: those render as raw markdown so the syntax
    is editable. Everything else gets the rendered treatment. */

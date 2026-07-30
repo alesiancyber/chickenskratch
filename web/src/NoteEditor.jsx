@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getJSON, postJSON } from "./api.js";
 import {
   calloutField, livePreview, planDatesField, setPlanDates, setTarget,
-  targetField, vaultTheme,
+  targetField, vaultTheme, wikilinkClick,
 } from "./livepreview.js";
 
 /* The owned note editor. CodeMirror 6, because the vault is portable
@@ -38,9 +38,12 @@ function statusLine(state, ephemeral) {
    file is never changed under the open buffer. */
 
 export default function NoteEditor({ path, target, seq, planDates, visible = true,
-                                     refresh = 0, onClose }) {
+                                     refresh = 0, onOpenNote, onClose }) {
   const host = useRef(null);
   const view = useRef(null);
+  // The editor is built once; wikilink clicks read the CURRENT handler.
+  const openNoteRef = useRef(onOpenNote);
+  openNoteRef.current = onOpenNote;
   const baseHash = useRef("");
   const saveRef = useRef(() => {});
   const runLineRef = useRef(() => {});
@@ -202,6 +205,7 @@ export default function NoteEditor({ path, target, seq, planDates, visible = tru
           ]),
           markdown(),
           livePreview,
+          wikilinkClick((p, frag) => openNoteRef.current?.(p, frag)),
           targetField,
           planDatesField,
           calloutField,
