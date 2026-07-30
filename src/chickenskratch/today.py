@@ -3,7 +3,7 @@
 A dashboard is a VIEW, not a mutation: it proposes attention, never
 changes, so it needs none of the trust machinery — no verdict, no
 verifier, no staleness. Wrongness costs a glance. `collect` feeds
-/api/today; `to_markdown` is what `tezcat today` prints. v1 is pure
+/api/today; `to_markdown` is what `chickenskratch today` prints. v1 is pure
 tier-0 code over the existing parsers; a triage worker (ranking,
 nudges) is a later, separately-evaled layer that must earn its place
 over this deterministic core.
@@ -19,7 +19,7 @@ output.
 The date is the only clock input, so within a day the view is a pure
 function of vault state; the activity count excludes Harness/-only
 commits so the harness's own writes never inflate it. The 6am heartbeat
-pass (config/launchd/com.tezcat.heartbeat.plist) covers the date
+pass (config/launchd/com.chickenskratch.heartbeat.plist) covers the date
 rollover on a quiet vault.
 """
 
@@ -27,10 +27,10 @@ from __future__ import annotations
 
 import datetime as dt
 
-from tezcat_vault import kanban as kb
-from tezcat_vault import markdown as md
-from tezcat_vault import tasks as tk
-from tezcat_vault.vault import Vault, VaultError, read_lossy
+from chickenskratch_vault import kanban as kb
+from chickenskratch_vault import markdown as md
+from chickenskratch_vault import tasks as tk
+from chickenskratch_vault.vault import Vault, VaultError, read_lossy
 
 SOON_DAYS = 3   # "due soon" horizon (the Today view's forward glance)
 MAX_ROWS = 8    # per section; the rest folds behind a "+N more"
@@ -376,7 +376,7 @@ def _in_flight_row_md(r: dict) -> str:
 
 
 def to_markdown(model: dict) -> str:
-    """Pure function of the view-model: what `tezcat today` prints, the
+    """Pure function of the view-model: what `chickenskratch today` prints, the
     headless view for when the dashboard isn't running. Never written
     into the vault."""
     today = dt.date.fromisoformat(model["date"])
@@ -391,7 +391,7 @@ def to_markdown(model: dict) -> str:
 
     if model["pending_decisions"]:
         lines += ["", f"⚠ **{model['pending_decisions']} pending decision(s) — "
-                      f"the dashboard, or `tezcat decide <id> approve`**"]
+                      f"the dashboard, or `chickenskratch decide <id> approve`**"]
 
     lines += ["", "## Due", *_due_section_md(model["due"])]
 
@@ -424,7 +424,7 @@ def to_markdown(model: dict) -> str:
 
     if model["activity"]:
         lines += ["", f"_{model['activity']} vault change(s) since midnight "
-                      f"— `tezcat changes`_"]
+                      f"— `chickenskratch changes`_"]
 
     return "\n".join(lines) + "\n"
 

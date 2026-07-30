@@ -10,7 +10,7 @@ import asyncio
 import threading
 import time
 
-from tezcat import engine
+from chickenskratch import engine
 
 
 def test_a_blocking_coroutine_leaves_the_calling_loop_free():
@@ -33,7 +33,7 @@ def test_a_blocking_coroutine_leaves_the_calling_loop_free():
         return where, len(ticks)
 
     where, ticks = asyncio.run(scenario())
-    assert where == "tezcat-engine", "the pass ran on the caller's thread"
+    assert where == "chickenskratch-engine", "the pass ran on the caller's thread"
     assert ticks > 10, f"the calling loop only ticked {ticks}x — it was blocked"
     engine.shutdown()
 

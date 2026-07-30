@@ -21,11 +21,11 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from tezcat_vault import ids
-from tezcat_vault import markdown as md
-from tezcat_vault import tasks as tk
-from tezcat_vault.vault import VaultError
-from tezcat_vault.vaultconfig import SPEC_REL, get_config
+from chickenskratch_vault import ids
+from chickenskratch_vault import markdown as md
+from chickenskratch_vault import tasks as tk
+from chickenskratch_vault.vault import VaultError
+from chickenskratch_vault.vaultconfig import SPEC_REL, get_config
 
 from . import applier, grouping, proposals
 
@@ -559,7 +559,7 @@ def verify_schema_fix(w: Watcher, item: dict, proposal: dict) -> list[str]:
     every step must target the drafted note — the worker authors full
     tool args, and "nothing touched but the target" is only provable
     when the target is pinned in code, not in the prompt."""
-    from tezcat_vault import server
+    from chickenskratch_vault import server
 
     for step in proposal["apply"]:
         target = step.get("args", {}).get("path")
@@ -648,7 +648,7 @@ def scan_schema(w: Watcher) -> list[dict]:
     """Deterministic work items per nonconforming note, validated over
     the pass's shared note cache (Harness/ and Private/ never enter it);
     coverage dedupe and sha stamping are engine context."""
-    from tezcat_vault import server
+    from chickenskratch_vault import server
 
     items = []
     for row in server.nonconforming_rows(w.pass_notes().items()):
@@ -858,7 +858,7 @@ async def _fuzzy_candidates(w: Watcher, item: dict) -> list[tuple] | None:
     know the difference between "no candidates" and "couldn't look":
     only an answered pool may stamp the seen-hash, or an embedder
     outage silences the fuzzy lane until the pool happens to change."""
-    from tezcat.embeddings import cosine
+    from chickenskratch.embeddings import cosine
 
     pool = item["pool"]
     texts = {t.block_id: t.text for t, _rel in pool}

@@ -7,9 +7,9 @@ import fcntl
 
 import pytest
 
-from tezcat import applier, processors, proposals
-from tezcat.processors import ProcessorSpec
-from tezcat_vault.vault import Vault
+from chickenskratch import applier, processors, proposals
+from chickenskratch.processors import ProcessorSpec
+from chickenskratch_vault.vault import Vault
 
 
 @pytest.fixture()
@@ -104,7 +104,7 @@ def test_one_mis_encoded_note_does_not_disable_schema_fixing(vault, make_watcher
     PROCESSOR, so one latin-1 note used to silently kill schema fixing
     entirely, every pass. The bad note loses its fix; the others keep
     theirs."""
-    from tezcat import applier
+    from chickenskratch import applier
     (vault / "Meetings").mkdir(exist_ok=True)
     (vault / "Meetings" / "2026-07-01 Bad.md").write_bytes(
         "---\ntype: meeting\n---\n# Caf\xe9 sync\n".encode("latin-1"))

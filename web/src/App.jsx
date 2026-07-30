@@ -597,8 +597,8 @@ export default function App() {
   // Closed unless you've said otherwise: the dashboard is the surface,
   // the rail is the escape hatch for "I know where that note lives".
   const [explorerOpen, setExplorerOpen] = useState(
-    () => localStorage.getItem("tezcat.explorer") === "1");
-  const [frac, setFrac] = useSplit("tezcat.split");
+    () => localStorage.getItem("chickenskratch.explorer") === "1");
+  const [frac, setFrac] = useSplit("chickenskratch.split");
   const splitRef = useRef(null);
   const [acted, setActed] = useState({});          // pid -> "approve" | "reject"
   const [toast, setToast] = useState(null);        // {label, undo: [shas]}
@@ -607,7 +607,7 @@ export default function App() {
   // when focus mode is on, the dimming of everything else. Esc clears.
   const [selKey, setSelKey] = useState(null);
   const [focusMode, setFocusMode] = useState(
-    () => localStorage.getItem("tezcat.focus") === "1");
+    () => localStorage.getItem("chickenskratch.focus") === "1");
   const [movedKeys, setMovedKeys] = useState(() => new Set()); // optimistic ⏳ moves (promote/defer, any tab)
   const [doneKeys, setDoneKeys] = useState(new Set());
   const [canvasSeed, setCanvasSeed] = useState("");
@@ -673,7 +673,7 @@ export default function App() {
     releaseSel();
   }, [releaseSel]);
   const toggleFocus = useCallback(() => setFocusMode((v) => {
-    localStorage.setItem("tezcat.focus", v ? "0" : "1");
+    localStorage.setItem("chickenskratch.focus", v ? "0" : "1");
     return !v;
   }), []);
 
@@ -807,7 +807,7 @@ export default function App() {
   const stopPass = useCallback(() => { cancelJob("pass").catch(() => {}); }, []);
   const togglePane = useCallback(() => setPaneOpen((v) => !v), []);
   const toggleExplorer = useCallback(() => setExplorerOpen((v) => {
-    localStorage.setItem("tezcat.explorer", v ? "0" : "1");
+    localStorage.setItem("chickenskratch.explorer", v ? "0" : "1");
     return !v;
   }), []);
   const azurePrefill = useCallback(() => {
@@ -963,7 +963,7 @@ export default function App() {
     <div className={"shell" + (focusMode && selKey ? " focus" : "")}>
       <Console open={consoleOpen} onClose={() => setConsoleOpen(false)} />
       <nav className="topnav small">
-        <span className="brand">tezcat</span>
+        <span className="brand">chickenskratch</span>
         <span className="nav-spacer" />
         <Activity activity={activity} onStop={stopPass} />
         <span className="ghost">{live ? ticker : "reconnecting"}</span>

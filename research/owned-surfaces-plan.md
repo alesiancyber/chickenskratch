@@ -46,7 +46,7 @@ commands = inline execute; proposals = rich diff + approve/reject.
    working as intended: deletions wait for the phase that proves them.)
 4. **Doc rot that lies to the user**: `changes.py` HEADER text renders
    "revert from the web UI's ↺ Changes" into every vault — the UI it
-   names doesn't exist (should say `tezcat-revert`). Same stale "web
+   names doesn't exist (should say `chickenskratch-revert`). Same stale "web
    UI" references in `changes.py`/`revert.py`/`backends.py` docstrings.
    Fix wording now; Phase 2 re-points Changes.md at the dashboard.
 
@@ -101,7 +101,7 @@ commands = inline execute; proposals = rich diff + approve/reject.
 - **Server**: FastAPI/Starlette, in-process imports of the engine (the
   applier idiom), bound to 127.0.0.1 only. The flock pass lock already
   serializes it against the daemon and CLI. Launched by launchd next to
-  tezcatd; a dead UI process degrades to the editor path, never blocks
+  chickenskratchd; a dead UI process degrades to the editor path, never blocks
   the engine (per-stage failure isolation applies to the UI too).
 - **Reads**: JSON view-models — today.collect(), pending proposals with
   structured diff payloads (the promoted diff computation, not HTML),
@@ -120,7 +120,7 @@ commands = inline execute; proposals = rich diff + approve/reject.
    + health over SSE. Zero new write surface (I5: views need no trust
    machinery). This phase is where the design budget goes — it decides
    whether "alive" is real before any risk exists.
-   **BUILT 2026-07-25** (`tezcat-ui` + `web/`): Starlette JSON
+   **BUILT 2026-07-25** (`chickenskratch-ui` + `web/`): Starlette JSON
    view-models + SSE over the pass's event log (data/events-*.jsonl,
    engine-authored, UI-tailed); React+Radix+cmdk frontend built to
    static assets; POST rejected everywhere, enforced by test. The

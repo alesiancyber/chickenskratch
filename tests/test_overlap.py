@@ -8,8 +8,8 @@ import asyncio
 
 import pytest
 
-from tezcat import processors, proposals
-from tezcat.processors import _linked_line
+from chickenskratch import processors, proposals
+from chickenskratch.processors import _linked_line
 
 
 @pytest.fixture()
@@ -132,7 +132,7 @@ def test_a_down_judge_leaves_the_pool_armed(vault, make_watcher):
     stamp used to land before the call, so a down worker read as a
     handled pool: the UI said "retries next pass" while nothing ever
     would until a task happened to change."""
-    from tezcat_vault.vault import VaultError
+    from chickenskratch_vault.vault import VaultError
 
     sim = {"t-inbox0000002": [1.0, 0.0, 0.0], "t-wait00000001": [1.0, 0.0, 0.0]}
 

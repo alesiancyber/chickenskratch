@@ -28,7 +28,7 @@ from pathlib import Path
 
 from openai import AsyncOpenAI
 
-from tezcat_vault.vault import atomic_write_text
+from chickenskratch_vault.vault import atomic_write_text
 
 from .bootstrap import ROOT, vault_digest
 from .proposals import content_hash

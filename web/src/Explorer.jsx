@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
    folders are open, how wide the filter is — are view state in
    localStorage, never anything the vault would have to hold. */
 
-const OPEN_KEY = "tezcat.explorer.open";
+const OPEN_KEY = "chickenskratch.explorer.open";
 
 function loadOpen() {
   try {

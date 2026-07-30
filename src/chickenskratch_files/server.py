@@ -8,7 +8,7 @@ Traversal skips hidden dirs, node_modules/__pycache__, and macOS bulk
 dirs, and every walk runs under a time budget so a huge tree returns
 partial results instead of hanging.
 
-Run: FILES_ROOTS="~" tezcat-files-mcp
+Run: FILES_ROOTS="~" chickenskratch-files-mcp
 """
 
 from __future__ import annotations

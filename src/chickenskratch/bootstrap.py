@@ -69,7 +69,7 @@ def resolve_worker_env(config: Config) -> None:
     """Fill WORKER_* env from the `worker:` profile in models.yaml, unless
     already set — shell/.env always wins. Makes models.yaml the single
     declaration of which model the background workers run on; the env vars
-    remain the transport because tezcat_vault must stay harness-free."""
+    remain the transport because chickenskratch_vault must stay harness-free."""
     if not config.worker:
         return
     prof = config.profile(config.worker)  # fail-loud: a declared worker needs its key
@@ -89,7 +89,7 @@ def apply_worker_profile(name: str, config: Config | None = None) -> bool:
     that config filled are re-pointed (a user's explicit WORKER_MODEL
     still wins), and a bad name warns and keeps the current worker: a
     Spec.md typo must degrade, never break every pass."""
-    from tezcat_vault import workers
+    from chickenskratch_vault import workers
 
     config = config or load_config(DEFAULT_MODELS)
     try:
@@ -129,16 +129,16 @@ def load_runtime(
 ) -> tuple[Config, str, list[ServerSpec]]:
     """Resolve (config, vault, server specs) with standard precedence.
 
-    Vault precedence: explicit arg > $TEZCAT_VAULT_PATH > `vault:` in
+    Vault precedence: explicit arg > $CHICKENSKRATCH_VAULT_PATH > `vault:` in
     models.yaml. Raises SystemExit with a usable message when unset.
     """
     load_env_file()
     config = load_config(config_path or DEFAULT_MODELS)
     resolve_worker_env(config)
-    vault = vault or os.environ.get("TEZCAT_VAULT_PATH") or config.vault
+    vault = vault or os.environ.get("CHICKENSKRATCH_VAULT_PATH") or config.vault
     if not vault:
         raise SystemExit(
-            "No vault configured: pass --vault, set TEZCAT_VAULT_PATH, "
+            "No vault configured: pass --vault, set CHICKENSKRATCH_VAULT_PATH, "
             "or set `vault:` in config/models.yaml"
         )
     vault = str(Path(vault).expanduser().resolve())

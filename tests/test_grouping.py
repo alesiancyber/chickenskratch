@@ -6,8 +6,8 @@ import asyncio
 
 import pytest
 
-from tezcat import grouping, proposals
-from tezcat_vault.vault import Vault
+from chickenskratch import grouping, proposals
+from chickenskratch_vault.vault import Vault
 
 STAMPED_LIST = """# Braindump
 

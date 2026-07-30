@@ -1,7 +1,7 @@
 # Subtraction ledger — the markdown surfaces, after Obsidian stopped being a surface
 
 *Scoping doc, 2026-07-26. Follows the deep-link removal in the same
-day's owned-surfaces amendment. Question asked: now that tezcat is the
+day's owned-surfaces amendment. Question asked: now that chickenskratch is the
 front end, do `Harness/Review.md`, `Today.md`, `Changes.md`, and
 `Capture.md` still earn their code? Nothing here is executed.*
 
@@ -42,7 +42,7 @@ degrades to nothing.
 
 **Cheap mitigation, and the reason this tier is "free":** keep
 `today.to_markdown` and `changes.render` as *renderers* and hang them
-off the CLI (`tezcat today`, `tezcat changes` — ~15 lines each,
+off the CLI (`chickenskratch today`, `chickenskratch changes` — ~15 lines each,
 printing to stdout). Then nothing is lost, ~40 lines of surface-write
 machinery still dies, and the per-pass cost goes away regardless. The
 expensive part was never the renderer — it was writing into the vault,
@@ -73,13 +73,13 @@ are **untouched** — the UI already resolves through `_act` under the
 same pass lock. This deletes a *channel*, not the decision machinery.
 
 **What you lose — say it plainly:** approving becomes possible only
-while `tezcat-ui` is running. Right now a checkbox works from any
+while `chickenskratch-ui` is running. Right now a checkbox works from any
 editor, on any machine that syncs the vault, with the engine catching up
 later. That asynchrony is genuinely useful (phone → synced vault →
 checkbox → next pass applies) and it is not an Obsidian feature, it's a
 *file* feature.
 
-**Mitigation if you want it gone anyway:** `tezcat decide <pid>
+**Mitigation if you want it gone anyway:** `chickenskratch decide <pid>
 approve|reject` (~20 lines through `service.decide`). Consent then lives
 in two places we own — dashboard and CLI — and never in another app.
 
@@ -120,19 +120,19 @@ These are formats we took, per the 07-26 decision. They live in the
 user's notes, so changing them means rewriting the vault for ~zero code
 savings:
 
-- `📅 YYYY-MM-DD` / `✅` task syntax — `tezcat_vault/tasks.py`
+- `📅 YYYY-MM-DD` / `✅` task syntax — `chickenskratch_vault/tasks.py`
 - `kanban-plugin: board` frontmatter — `kanban.py`, `grouping.py`,
   `today.py`, `server.py`
 - `[[wikilinks]]` and `^t-…` block ids — `today.py:_link`, `ids.py`
 - `> [!NOTE]` callouts — `commands.py:render_callout`
 
 **Recommendation: keep all of it, reframe none of it as compatibility.**
-These are tezcat's formats now; that they're also Obsidian's is the
+These are chickenskratch's formats now; that they're also Obsidian's is the
 byproduct. (`> [!NOTE]` renders fine as a blockquote anywhere, and the
 emoji dates are a reasonable format on their own merits.)
 
 The one genuine artifact worth changing is the **package name
-`src/tezcat_vault/`** — 86 references across 38 files. Purely
+`src/chickenskratch_vault/`** — 86 references across 38 files. Purely
 mechanical, zero behavior, high symbolic value now that the name asserts
 something we've explicitly abandoned. Do it alone, in its own commit, or
 not at all.
@@ -146,7 +146,7 @@ not at all.
 2. **Defer Tier 2** until you've lived on the dashboard for a week and
    know whether you miss checking a box from a synced editor. If you
    don't, take it — it's the only change here that removes a *concept*
-   rather than lines. Pair it with `tezcat decide` in the same commit.
+   rather than lines. Pair it with `chickenskratch decide` in the same commit.
 3. **Never Tier 3.**
 4. **Tier 4 is a rename**, not a subtraction. Cosmetic, cheap, separate.
 
@@ -162,13 +162,13 @@ scenario the checkbox channel defended. Both tiers taken.
 **Deleted:** `Watcher._render`, `_diff_block`, `_read_decisions`,
 `DECISION_RE`, `_sweep_late_decisions`, `_render_surfaces`,
 `_render_surface`, `_render_changes`, `_render_today`, `_worker_status`
-(watcher.py: 824 → 646 lines); tezcatd's `--fast-file`/`--fast-cmd`/
+(watcher.py: 824 → 646 lines); chickenskratchd's `--fast-file`/`--fast-cmd`/
 `--fast-interval-ms` lane and both loops' arms for it; the
 `--decisions-only` CLI flag; `review`/`today`/`changes` from
 `config/vault.yaml` surfaces.
 
 **Kept, re-homed:** `today.to_markdown` and `changes.render` are now
-what `tezcat today` and `tezcat changes` print. `tezcat decide <pid>
+what `chickenskratch today` and `chickenskratch changes` print. `chickenskratch decide <pid>
 approve|reject` is consent with no UI process — it goes through
 `service.decide`, so it takes the same pass lock and the same `_act` as
 the dashboard button.
@@ -185,7 +185,7 @@ content conventions (Tier 4).
    `?? Tasks/new.md` no matter what changed inside it, so a `//command`
    typed into a brand-new note never fired. Fixed by hashing untracked
    files into the fingerprint; regression test in `test_resilience.py`.
-2. **A stale flag must fail, not be ignored.** tezcatd now *rejects*
+2. **A stale flag must fail, not be ignored.** chickenskratchd now *rejects*
    `--fast-file` (unknown flag) rather than accepting and ignoring it —
    a leftover launchd plist that silently dropped the lane would leave
    someone believing checkbox decisions still worked.

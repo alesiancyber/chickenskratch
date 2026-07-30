@@ -33,7 +33,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from tezcat_vault.vault import atomic_write_text
+from chickenskratch_vault.vault import atomic_write_text
 
 from .bootstrap import ROOT
 

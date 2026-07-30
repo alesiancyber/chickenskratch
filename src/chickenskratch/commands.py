@@ -8,7 +8,7 @@ user ORDERED by typing it: trust is intrinsic, nothing queues, and
 staleness is scoped to the one line the order anchors on —
 replace_line's exactly-once anchor IS the staleness check. Both classes
 share the same substrate: gated vault tools, snapshot-per-mutation,
-the changes log, tezcat-revert.
+the changes log, chickenskratch-revert.
 
 A line starting with a known //command at column 0 of any non-surface
 note is executed on the next engine pass and replaced in place by its
@@ -94,7 +94,7 @@ async def _ask(args: str, vault_path: str) -> str | None:
     The question is the user's ORDER (I3), so nothing queues — and the
     result is an answer written where they asked it, never a vault
     mutation beyond that."""
-    from tezcat_vault.vault import VaultError
+    from chickenskratch_vault.vault import VaultError
 
     from . import query
     try:

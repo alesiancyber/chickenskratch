@@ -109,7 +109,7 @@ class Vault:
             p = p.with_suffix(".md")
         top = p.relative_to(self.root).parts
         if top and top[0].lower() in self._exclude_lower:
-            raise VaultError(f"{top[0]}/ is excluded from tezcat access (vault.yaml exclude)")
+            raise VaultError(f"{top[0]}/ is excluded from chickenskratch access (vault.yaml exclude)")
         if must_exist and not p.exists():
             hint = self._suggest(rel_path)
             raise VaultError(f"Note not found: {rel_path}" + (f". Did you mean: {hint}?" if hint else ""))
@@ -196,7 +196,7 @@ class Vault:
         one process would wait on itself; the timeout at least turns that
         from a hang into a diagnosable error."""
         digest = hashlib.sha1(str(self.root).encode()).hexdigest()[:12]
-        lock_path = Path(tempfile.gettempdir()) / f"tezcat-vault-{digest}.lock"
+        lock_path = Path(tempfile.gettempdir()) / f"chickenskratch-vault-{digest}.lock"
         with open(lock_path, "w") as f:
             deadline = time.monotonic() + timeout
             while True:
@@ -237,7 +237,7 @@ class Vault:
             self._git("init", "-q")
         if self._git("config", "user.email").returncode != 0:
             self._git("config", "user.email", "harness@local")
-            self._git("config", "user.name", "tezcat")
+            self._git("config", "user.name", "chickenskratch")
         _ensured_repos.add(str(self.root))
 
     def commit_if_dirty(self, message: str) -> bool:
@@ -347,9 +347,9 @@ _vault: Vault | None = None
 def get_vault() -> Vault:
     global _vault
     if _vault is None:
-        root = os.environ.get("TEZCAT_VAULT_PATH")
+        root = os.environ.get("CHICKENSKRATCH_VAULT_PATH")
         if not root:
-            raise VaultError("TEZCAT_VAULT_PATH is not set")
+            raise VaultError("CHICKENSKRATCH_VAULT_PATH is not set")
         _vault = Vault(
             root,
             chat_id=os.environ.get("HARNESS_CHAT_ID", ""),

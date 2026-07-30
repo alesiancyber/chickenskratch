@@ -1,4 +1,4 @@
-"""tezcat vault MCP server.
+"""chickenskratch vault MCP server.
 
 Exposes semantic tools (tasks, kanban, meeting notes) alongside general
 note tools (search, read, section edits) over a folder of markdown. Any
@@ -6,7 +6,7 @@ MCP client can use this server; the harness in this repo is just one of
 them. Every mutation is bracketed by git snapshots so changes are
 always revertible.
 
-Run: TEZCAT_VAULT_PATH=/path/to/vault tezcat-vault-mcp
+Run: CHICKENSKRATCH_VAULT_PATH=/path/to/vault chickenskratch-vault-mcp
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from .vault import VaultError, get_vault, read_lossy
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True)
 
-mcp = FastMCP("tezcat-vault")
+mcp = FastMCP("chickenskratch-vault")
 
 # Daily- and meeting-note folders come from the vault spec (`daily_dir`,
 # `meetings_dir`), so Foam's dailyNotes.directory and this harness can
@@ -133,7 +133,7 @@ def _writable(path: str, spec_key: str | None = None) -> str:
             raise VaultError(
                 f"{rel} is machine-managed and not tool-writable. Config is "
                 "the user's own Spec.md edit; decisions happen on the "
-                "dashboard or via `tezcat decide`, never through a tool.")
+                "dashboard or via `chickenskratch decide`, never through a tool.")
     return path
 
 
@@ -779,7 +779,7 @@ def create_meeting_note(title: str, date: str = "", attendees: str = "") -> dict
 
 
 def main() -> None:
-    get_vault()  # fail fast if TEZCAT_VAULT_PATH is bad
+    get_vault()  # fail fast if CHICKENSKRATCH_VAULT_PATH is bad
     mcp.run()
 
 

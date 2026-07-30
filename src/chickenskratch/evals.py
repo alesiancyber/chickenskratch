@@ -4,7 +4,7 @@ Each case gets a pristine copy of evals/vault (date placeholders like
 {tomorrow} resolved at copy time), runs its turns through the real Agent
 loop, and is scored by checking the resulting files and structures —
 never by trusting the model's prose. Run when swapping models, editing
-the system prompt, or changing tools:   tezcat-eval -m qwen3-27b
+the system prompt, or changing tools:   chickenskratch-eval -m qwen3-27b
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ from pathlib import Path
 import anyio
 import yaml
 
-from tezcat_vault import kanban as kb
-from tezcat_vault import tasks as tk
+from chickenskratch_vault import kanban as kb
+from chickenskratch_vault import tasks as tk
 
 from .agent import Agent
 from .bootstrap import DEFAULT_MCP, DEFAULT_MODELS, ROOT
@@ -188,7 +188,7 @@ def run_checks(case, vault, answer, before, subs) -> list[str]:
 # --------------- runner ---------------
 
 async def run_case(case: dict, profile, subs: dict[str, str]) -> dict:
-    tmp = Path(tempfile.mkdtemp(prefix="tezcat-eval-"))
+    tmp = Path(tempfile.mkdtemp(prefix="chickenskratch-eval-"))
     vault = tmp / "vault"
     copy_fixture(EVALS / "vault", vault, subs)
 
@@ -291,7 +291,7 @@ async def run_all(cases: list[dict], profile) -> list[dict]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="tezcat-eval", description="Run the eval suite against a model profile")
+    parser = argparse.ArgumentParser(prog="chickenskratch-eval", description="Run the eval suite against a model profile")
     parser.add_argument("-m", "--model", help="profile name from models.yaml (default: config default)")
     parser.add_argument("-k", "--filter", help="only run cases whose name contains this substring")
     parser.add_argument("--include-network", action="store_true", help="include cases tagged 'network'")

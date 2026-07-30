@@ -291,7 +291,7 @@ function ModelsTab({ data, onSaved, onError, refresh }) {
     setBusy(true);
     try {
       const r = await postJSON(path, body);
-      onSaved(note + (r.restart ? " — restart tezcat-ui to load it" : " — live next pass"));
+      onSaved(note + (r.restart ? " — restart chickenskratch-ui to load it" : " — live next pass"));
     } catch (e) { onError(String(e.message || e)); }
     setBusy(false);
   };
@@ -356,7 +356,7 @@ function ModelsTab({ data, onSaved, onError, refresh }) {
 
       {data.backends.length > 0 && (
         <p className="ghost small">
-          Local backends startable with <span className="mono">tezcat-backends</span>:{" "}
+          Local backends startable with <span className="mono">chickenskratch-backends</span>:{" "}
           {data.backends.join(", ")}
         </p>
       )}
@@ -396,7 +396,7 @@ function Backups({ file, onSaved, onError }) {
   const restore = async (stamp) => {
     try {
       await postJSON("/api/console/models/restore", { stamp });
-      onSaved(`Restored ${file.name} from ${stamp} — restart tezcat-ui to load it`);
+      onSaved(`Restored ${file.name} from ${stamp} — restart chickenskratch-ui to load it`);
     } catch (e) { onError(String(e.message || e)); }
   };
   return (

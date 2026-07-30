@@ -3,21 +3,21 @@
 Verified auto-apply means the harness edits the vault without asking, so
 this exists to answer for it. A rendered view of the vault's own git log:
 every row is one snapshot commit, so revert (the dashboard's ↺, or
-`tezcat-revert`) always applies. Rendered by `tezcat changes` and
+`chickenskratch-revert`) always applies. Rendered by `chickenskratch changes` and
 /api/changes — never written into the vault, and deliberately never a
 revert checkbox: destructive actions don't ride text files.
 """
 
 from __future__ import annotations
 
-from tezcat_vault.vault import Vault
+from chickenskratch_vault.vault import Vault
 
 HEADER = """\
 # Changes
 
 _Recent vault snapshots, newest first — everything the harness (or you,
 between passes) committed. Every row is one git commit; undo from the
-dashboard, or `tezcat-revert <sha>` in a terminal. Rows made inside a
+dashboard, or `chickenskratch-revert <sha>` in a terminal. Rows made inside a
 chat turn carry its chat id._
 """
 

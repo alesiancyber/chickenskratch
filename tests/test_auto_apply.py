@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import record_worker_returning
-from tezcat import proposals
-from tezcat.processors import CAPTURE_SKELETON
+from chickenskratch import proposals
+from chickenskratch.processors import CAPTURE_SKELETON
 
 TODAY = _dt.date.today().isoformat()
 
@@ -238,7 +238,7 @@ def test_schema_fix_aimed_at_another_note_is_never_a_proposal(vault, make_watche
 def test_verify_pins_the_target_note_as_defense_in_depth():
     """Layer two of the path pin: even if a cross-note plan reached the
     auto-apply gate some other way, the verifier refuses to vouch."""
-    from tezcat.processors import verify_schema_fix
+    from chickenskratch.processors import verify_schema_fix
 
     item = {"note": "Meetings/Sync.md", "content": MEETING_NO_ID}
     plan = {"apply": [{"tool": "append_to_note",
@@ -308,7 +308,7 @@ def test_stale_capture_re_arms_instead_of_vanishing(vault, make_watcher):
 def _judgment_spec(needs_review=False):
     """A verifier-less processor (the judgment shape: grouping, overlap,
     plan_today) drafting one add_task step."""
-    from tezcat.processors import ProcessorSpec
+    from chickenskratch.processors import ProcessorSpec
 
     def scan(w):
         return [{"kind": "judgment", "note": "Home.md", "vault_sha": w._pass_sha,
@@ -350,7 +350,7 @@ def test_full_policy_applies_the_judgment_lanes(vault, make_watcher):
     assert summary["auto"] == 1
     assert proposals.pending(w.proposals_dir) == []
     assert "judged task" in (vault / "Tasks/Judged.md").read_text()
-    from tezcat_vault.vault import Vault
+    from chickenskratch_vault.vault import Vault
     assert any("Judged" in c["subject"] for c in Vault(vault).history(5))
 
 
@@ -377,7 +377,7 @@ def test_full_policy_outranks_a_failing_verifier_and_records_it(vault, make_watc
     queues — the record files with the verifier's objections persisted
     on the resolved proposal, so the audit trail names exactly what
     nobody vouched for."""
-    from tezcat import processors as procs
+    from chickenskratch import processors as procs
 
     (vault / "Harness/Spec.md").write_text(
         "---\npolicies: {capture: full}\n---\n\n# Vault Spec\n")
@@ -398,7 +398,7 @@ def test_policies_grant_autonomy_per_lane(vault, make_watcher):
     """The policy map is per-processor: capture at `full` files a
     summarized record on its own, while plan_today at `ask` still queues
     its picks — no global switch flipped, no conflicting second knob."""
-    from tezcat import processors as procs
+    from chickenskratch import processors as procs
 
     (vault / "Harness/Spec.md").write_text(
         "---\npolicies: {capture: full, plan_today: ask}\n---\n\n# Vault Spec\n")
@@ -425,7 +425,7 @@ def test_full_policy_files_a_summarized_record_with_the_objection(vault, make_wa
     """The autonomous posture end to end: the prose objection rides
     verifier_failures on the resolved proposal, the folded verbatim is
     the human check, and the apply is one revertible snapshot."""
-    from tezcat import processors as procs
+    from chickenskratch import processors as procs
 
     (vault / "Harness/Spec.md").write_text(
         "---\npolicies: {capture: full}\n---\n\n# Vault Spec\n")
@@ -447,14 +447,14 @@ def test_auto_applies_record_their_own_undo(vault, make_watcher):
     """The autonomy audit loop: an auto-applied record carries the
     harness commits it made, and reverting them reverts the decision —
     without hunting the git log."""
-    from tezcat import service
+    from chickenskratch import service
 
     w = make_watcher(vault, record_worker=faithful, disabled=FOCUS, n_max=20)
     dump(vault, "buy a car")
     assert run(w)["auto"] == 1
     (rec,) = [_json.loads(f.read_text()) for f in w.proposals_dir.glob("p-*.json")]
     assert rec["status"] == "auto" and rec["undo"]
-    from tezcat_vault.vault import Vault
+    from chickenskratch_vault.vault import Vault
     subjects = {c["sha"]: c["subject"] for c in Vault(vault).history(10)}
     assert all(subjects[sha].startswith("harness:") for sha in rec["undo"])
 

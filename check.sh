@@ -4,7 +4,7 @@
 #   ./check.sh          # the static gates: ruff + eslint + htmlhint
 #   ./check.sh --all    # + pytest and cargo test (the slow half)
 #
-# Model-behavior gates (tezcat-eval, tezcat-worker-eval) stay separate
+# Model-behavior gates (chickenskratch-eval, chickenskratch-worker-eval) stay separate
 # on purpose: they need a live model and answer a different question
 # ("is this model good enough"), not "is this code broken".
 set -euo pipefail

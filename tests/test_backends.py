@@ -3,8 +3,8 @@
 import sys
 import time
 
-from tezcat.backends import BackendManager, _pid_alive
-from tezcat.profiles import BackendSpec
+from chickenskratch.backends import BackendManager, _pid_alive
+from chickenskratch.profiles import BackendSpec
 
 
 def spec(name="dummy", command=None):

@@ -1,7 +1,7 @@
 [project]
-name = "tezcat"
+name = "chickenskratch"
 version = "0.1.0"
-description = "Tezcat: a maintenance layer and its own surfaces over a folder of markdown"
+description = "Chickenskratch: a maintenance layer and its own surfaces over a folder of markdown"
 requires-python = ">=3.12"
 dependencies = [
     "anyio>=4.0",       # imported directly (mcp_client timeouts), not just via mcp
@@ -14,22 +14,22 @@ dependencies = [
 ]
 
 [project.scripts]
-tezcat = "tezcat.cli:main"
-tezcat-eval = "tezcat.evals:main"
-tezcat-worker-eval = "tezcat.worker_evals:main"
-tezcat-watch = "tezcat.watcher:main"
-tezcat-revert = "tezcat.revert:main"
-tezcat-ui = "tezcat.ui:main"
-tezcat-backends = "tezcat.backends:main"
-tezcat-vault-mcp = "tezcat_vault.server:main"
-tezcat-files-mcp = "tezcat_files.server:main"
+chickenskratch = "chickenskratch.cli:main"
+chickenskratch-eval = "chickenskratch.evals:main"
+chickenskratch-worker-eval = "chickenskratch.worker_evals:main"
+chickenskratch-watch = "chickenskratch.watcher:main"
+chickenskratch-revert = "chickenskratch.revert:main"
+chickenskratch-ui = "chickenskratch.ui:main"
+chickenskratch-backends = "chickenskratch.backends:main"
+chickenskratch-vault-mcp = "chickenskratch_vault.server:main"
+chickenskratch-files-mcp = "chickenskratch_files.server:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tezcat_vault", "src/tezcat", "src/tezcat_files"]
+packages = ["src/chickenskratch_vault", "src/chickenskratch", "src/chickenskratch_files"]
 
 [dependency-groups]
 dev = [

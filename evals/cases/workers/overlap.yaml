@@ -1,5 +1,5 @@
 # Judgment cases for the overlap worker (duplicate/related/distinct over
-# candidate task pairs). Run live:  uv run tezcat-worker-eval -k overlap
+# candidate task pairs). Run live:  uv run chickenskratch-worker-eval -k overlap
 #
 # Case schema (worker: overlap):
 #   pairs:  submitted candidates, [{a, b, a_text, b_text, a_note, b_note}]

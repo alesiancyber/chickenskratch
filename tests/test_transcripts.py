@@ -4,7 +4,7 @@ verify_record's quoted set, and the staleness hash all see one
 "Speaker: turn" line per turn — never cue timings. Anything not clearly
 transcript-shaped passes through byte-identical."""
 
-from tezcat.capture import CAPTURE_SKELETON, capture_text, normalize_transcript
+from chickenskratch.capture import CAPTURE_SKELETON, capture_text, normalize_transcript
 
 VTT = """WEBVTT
 

@@ -5,7 +5,7 @@ worker LLM, same philosophy as FakeOpenAI.
 
 Decisions arrive as `decisions=[(pid, verdict)]` — the one consent
 channel. It is exactly what service.decide hands the engine for a
-dashboard button or `tezcat decide`, so these tests exercise the
+dashboard button or `chickenskratch decide`, so these tests exercise the
 production path."""
 
 import asyncio
@@ -13,10 +13,10 @@ import json
 
 import pytest
 
-from tezcat import proposals
-from tezcat.watcher import Watcher
-from tezcat_vault import vaultconfig as vc
-from tezcat_vault.vault import Vault
+from chickenskratch import proposals
+from chickenskratch.watcher import Watcher
+from chickenskratch_vault import vaultconfig as vc
+from chickenskratch_vault.vault import Vault
 
 
 async def fake_drafter(item):
@@ -88,7 +88,7 @@ def test_an_unchanged_vault_keeps_draining_its_backlog(vault, watcher):
 
 def test_approve_applies_and_records(vault, watcher, monkeypatch):
     recorded = []
-    monkeypatch.setattr("tezcat.watcher.record_dashboard", lambda p, d, **k: recorded.append((p["id"], d)))
+    monkeypatch.setattr("chickenskratch.watcher.record_dashboard", lambda p, d, **k: recorded.append((p["id"], d)))
     run(watcher)
     target = proposals.pending(watcher.proposals_dir)[0]
     note = target["drafted_against"]["note"]
@@ -108,7 +108,7 @@ def test_approve_applies_and_records(vault, watcher, monkeypatch):
 
 def test_reject_records_without_touching_vault(vault, watcher, monkeypatch):
     recorded = []
-    monkeypatch.setattr("tezcat.watcher.record_dashboard", lambda p, d, **k: recorded.append(d))
+    monkeypatch.setattr("chickenskratch.watcher.record_dashboard", lambda p, d, **k: recorded.append(d))
     run(watcher)
     target = proposals.pending(watcher.proposals_dir)[0]
     before = (vault / target["drafted_against"]["note"]).read_text()
@@ -193,7 +193,7 @@ def test_an_auto_apply_lands_and_the_next_pass_reads_what_it_wrote(vault, make_w
 
 
 def test_invalid_drafter_output_never_enters_queue(vault, tmp_path, monkeypatch):
-    monkeypatch.setattr("tezcat.watcher.record_dashboard", lambda *a, **k: None)
+    monkeypatch.setattr("chickenskratch.watcher.record_dashboard", lambda *a, **k: None)
 
     async def bad_drafter(item):
         return {"title": "x", "summary": "y",
@@ -211,8 +211,8 @@ def test_a_seenless_lane_parks_on_its_budget_not_forever(vault, tmp_path, monkey
     so parking must ride the budget slot itself. Before the slot check
     in _draft, a plan that always failed its schema burned one worker
     call per pass forever — while the log claimed it had parked."""
-    monkeypatch.setattr("tezcat.watcher.record_dashboard", lambda *a, **k: None)
-    from tezcat import watcher as watcher_mod
+    monkeypatch.setattr("chickenskratch.watcher.record_dashboard", lambda *a, **k: None)
+    from chickenskratch import watcher as watcher_mod
     calls = []
 
     async def bad_drafter(item):
@@ -259,9 +259,9 @@ def test_typed_json_values_apply_cleanly(vault, watcher):
     """The 2026-07-23 wedge, first half: a drafter emitting a typed JSON
     value (null) in update_frontmatter must apply as that value, not
     crash yaml.safe_load."""
-    from tezcat import applier
+    from chickenskratch import applier
     applier.use_vault(str(vault))
-    from tezcat_vault import server
+    from chickenskratch_vault import server
 
     p = proposals.new_proposal(
         kind="schema_fix", note="Home.md", vault_sha="",
@@ -329,8 +329,8 @@ def test_stale_rearms_its_processor_generically(watcher):
 
 def _spec_with(**kw):
     """A one-off processor whose scan/draft always produce one proposal."""
-    from tezcat import proposals as pr
-    from tezcat.processors import ProcessorSpec
+    from chickenskratch import proposals as pr
+    from chickenskratch.processors import ProcessorSpec
 
     def scan(w):
         # the REAL note text, or the proposal is stale before it is decided
@@ -452,7 +452,7 @@ def test_capture_approved_after_disabling_still_resets_the_surface(vault, make_w
     `disabled_processors: [capture]` still runs on_applied, so the
     surface resets instead of re-offering the same dump forever."""
     from tests.conftest import record_worker_returning
-    from tezcat.processors import CAPTURE_SKELETON
+    from chickenskratch.processors import CAPTURE_SKELETON
 
     # the summary keeps it on the queue path (bare lists auto-file now)
     worker = record_worker_returning(

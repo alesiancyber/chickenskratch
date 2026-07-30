@@ -1,10 +1,10 @@
-//! tezcatd — the headless trigger.
+//! chickenskratchd — the headless trigger.
 //!
 //! Deliberately dumb: watch one directory tree, wait for it to go quiet,
-//! run one command (`uv run tezcat-watch`). Every ounce of engine
+//! run one command (`uv run chickenskratch-watch`). Every ounce of engine
 //! intelligence stays in Python — the pass lock over there serializes
 //! concurrent triggers, so this daemon needs no coordination with anything.
-//! If this binary disappears, `tezcat-watch` by hand or cron does the
+//! If this binary disappears, `chickenskratch-watch` by hand or cron does the
 //! same job; nothing depends on it.
 //!
 //! Trigger model: events as the trigger, fingerprint as the truth.
@@ -107,28 +107,28 @@ struct Config {
 }
 
 const USAGE: &str = "\
-tezcatd — watch the vault, wait for quiet, run one engine pass
+chickenskratchd — watch the vault, wait for quiet, run one engine pass
 
-USAGE: tezcatd --vault <path> [--repo <path>] [--cmd \"uv run tezcat-watch\"]
+USAGE: chickenskratchd --vault <path> [--repo <path>] [--cmd \"uv run chickenskratch-watch\"]
                [--settle-secs 3] [--poll] [--interval-secs 5] [--tick-ms 300]
 
-  --vault             vault to watch (or TEZCAT_VAULT_PATH env)
+  --vault             vault to watch (or CHICKENSKRATCH_VAULT_PATH env)
   --repo              working directory for the pass command (default: cwd)
-  --cmd               pass command, whitespace-split (default: uv run tezcat-watch)
+  --cmd               pass command, whitespace-split (default: uv run chickenskratch-watch)
   --settle-secs       quiet time required before a pass fires (default 3)
   --poll              use the fallback timer loop instead of filesystem events
   --interval-secs     [poll mode] seconds between tree scans (default 5)
   --tick-ms           [poll mode] sleep granularity (default 300)
 
 Note: there is no --fast-file/--fast-cmd decision lane. Decisions arrive
-through the dashboard or `tezcat decide`, neither of which needs a file
+through the dashboard or `chickenskratch decide`, neither of which needs a file
 watcher.";
 
 impl Config {
     fn parse(mut args: impl Iterator<Item = String>) -> Result<Config, String> {
-        let mut vault = env::var("TEZCAT_VAULT_PATH").ok().map(PathBuf::from);
+        let mut vault = env::var("CHICKENSKRATCH_VAULT_PATH").ok().map(PathBuf::from);
         let mut repo = env::current_dir().map_err(|e| e.to_string())?;
-        let mut cmd = "uv run tezcat-watch".to_string();
+        let mut cmd = "uv run chickenskratch-watch".to_string();
         let mut interval = 5u64;
         let mut settle = 3u64;
         let mut tick = 300u64;
@@ -147,7 +147,7 @@ impl Config {
                 other => return Err(format!("unknown flag {other}\n\n{USAGE}")),
             }
         }
-        let vault = vault.ok_or(format!("--vault (or TEZCAT_VAULT_PATH) is required\n\n{USAGE}"))?;
+        let vault = vault.ok_or(format!("--vault (or CHICKENSKRATCH_VAULT_PATH) is required\n\n{USAGE}"))?;
         if !vault.is_dir() {
             return Err(format!("vault directory not found: {}", vault.display()));
         }
@@ -166,7 +166,7 @@ impl Config {
 
 fn log(msg: &str) {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-    println!("tezcatd[{secs}] {msg}");
+    println!("chickenskratchd[{secs}] {msg}");
 }
 
 fn run_cmd(cmd: &[String], repo: &Path) {
@@ -316,7 +316,7 @@ mod tests {
     use super::*;
 
     fn temp_vault(tag: &str) -> PathBuf {
-        let dir = env::temp_dir().join(format!("tezcatd-test-{}-{tag}", process::id()));
+        let dir = env::temp_dir().join(format!("chickenskratchd-test-{}-{tag}", process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("Daily")).unwrap();
         fs::create_dir_all(dir.join(".obsidian")).unwrap();
@@ -379,7 +379,7 @@ mod tests {
         let cfg = Config::parse(
             vec!["--vault".to_string(), dir.to_string_lossy().into_owned()].into_iter(),
         ).unwrap();
-        assert_eq!(cfg.cmd.join(" "), "uv run tezcat-watch");
+        assert_eq!(cfg.cmd.join(" "), "uv run chickenskratch-watch");
         assert!(!cfg.poll, "events are the default; --poll is the fallback");
         let _ = fs::remove_dir_all(&dir);
     }

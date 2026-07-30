@@ -14,8 +14,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from tezcat_vault import workers
-from tezcat_vault.vault import VaultError
+from chickenskratch_vault import workers
+from chickenskratch_vault.vault import VaultError
 
 
 def fake_client(content: str | None = None, raises: Exception | None = None):

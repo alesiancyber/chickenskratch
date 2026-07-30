@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from tezcat_vault.markdown import split_frontmatter
+from chickenskratch_vault.markdown import split_frontmatter
 
 SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
 _SLASH_RE = re.compile(r"^/([\w-]+)\s*(.*)\Z", re.S)

@@ -6,8 +6,8 @@ import subprocess
 
 import pytest
 
-import tezcat_vault.vault as vault_mod
-from tezcat_vault import server
+import chickenskratch_vault.vault as vault_mod
+from chickenskratch_vault import server
 
 
 def test_list_and_read(vault):

@@ -27,7 +27,7 @@ from pathlib import Path
 
 import httpx
 
-from tezcat_vault.vault import atomic_write_text
+from chickenskratch_vault.vault import atomic_write_text
 
 from .bootstrap import ROOT
 from .profiles import BackendSpec
@@ -177,9 +177,9 @@ class BackendManager:
 def main() -> None:
     """CLI for the declared local model backends.
 
-        tezcat-backends              # list backends + reachability
-        tezcat-backends start mlx-worker
-        tezcat-backends stop mlx-worker
+        chickenskratch-backends              # list backends + reachability
+        chickenskratch-backends start mlx-worker
+        chickenskratch-backends stop mlx-worker
     """
     import argparse
     import asyncio
@@ -188,7 +188,7 @@ def main() -> None:
     from .profiles import load_config
 
     parser = argparse.ArgumentParser(
-        prog="tezcat-backends",
+        prog="chickenskratch-backends",
         description="List, start, or stop the model backends declared in models.yaml",
     )
     parser.add_argument("action", nargs="?", choices=["list", "start", "stop"], default="list")

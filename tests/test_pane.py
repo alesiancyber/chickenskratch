@@ -4,7 +4,7 @@ verdict a corpus row WITH its trajectory, transcripts scratch."""
 
 import asyncio
 
-from tezcat import pane
+from chickenskratch import pane
 
 
 class FakeProfile:

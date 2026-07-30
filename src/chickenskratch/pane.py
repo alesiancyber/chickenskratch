@@ -2,7 +2,7 @@
 
 The frozen chat escape hatch, homed where its tool activity is
 visible — principle 7's second home, under the same contract as the
-CLI: this module hosts the SAME Agent loop `tezcat` runs (same
+CLI: this module hosts the SAME Agent loop `chickenskratch` runs (same
 profile resolution, same server allowlists, same write gate, same
 skills), with its hooks pointed at an event queue instead of a
 terminal:
@@ -28,7 +28,7 @@ import asyncio
 import dataclasses
 import uuid
 
-from tezcat_vault import ids
+from chickenskratch_vault import ids
 
 from .corpus import record_confirm
 from .fanout import Fanout

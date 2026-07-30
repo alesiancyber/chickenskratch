@@ -43,7 +43,7 @@ def _ensure_loop() -> asyncio.AbstractEventLoop:
             return _loop
         loop = asyncio.new_event_loop()
         thread = threading.Thread(
-            target=_serve, args=(loop,), name="tezcat-engine", daemon=True)
+            target=_serve, args=(loop,), name="chickenskratch-engine", daemon=True)
         thread.start()
         _loop, _thread = loop, thread
         return loop

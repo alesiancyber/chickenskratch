@@ -2,7 +2,7 @@
 the same emoji shape as the dates; it replaces "a task is owed because
 it sits in Tasks/Waiting.md" (dumps-become-records, phase 1)."""
 
-from tezcat_vault import tasks as tk
+from chickenskratch_vault import tasks as tk
 
 
 def test_owner_round_trips_through_format_and_parse():

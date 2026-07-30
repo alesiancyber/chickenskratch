@@ -2,7 +2,7 @@
 
 import pytest
 
-from tezcat_files import server
+from chickenskratch_files import server
 
 
 @pytest.fixture()

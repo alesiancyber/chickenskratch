@@ -16,14 +16,14 @@
 servers:
   vault:
     transport: stdio
-    command: ["{python}", "-m", "tezcat_vault.server"]
+    command: ["{python}", "-m", "chickenskratch_vault.server"]
     env:
-      TEZCAT_VAULT_PATH: "{vault}"
+      CHICKENSKRATCH_VAULT_PATH: "{vault}"
     enabled: true
 
   files:
     transport: stdio
-    command: ["{python}", "-m", "tezcat_files.server"]
+    command: ["{python}", "-m", "chickenskratch_files.server"]
     env:
       FILES_ROOTS: "~"       # colon-separated allowlist of searchable dirs
     enabled: true

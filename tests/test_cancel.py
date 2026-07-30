@@ -12,9 +12,9 @@ import asyncio
 
 import pytest
 
-from tezcat import cancel, proposals, service
-from tezcat.agent import CANCELLED_TEXT, CANCELLED_TOOL_TEXT
-from tezcat.watcher import Watcher
+from chickenskratch import cancel, proposals, service
+from chickenskratch.agent import CANCELLED_TEXT, CANCELLED_TOOL_TEXT
+from chickenskratch.watcher import Watcher
 
 
 @pytest.fixture(autouse=True)
@@ -28,7 +28,7 @@ def clean_flags():
 
 @pytest.fixture()
 def wkw(tmp_path, monkeypatch):
-    monkeypatch.setattr("tezcat.watcher.record_dashboard", lambda *a, **k: None)
+    monkeypatch.setattr("chickenskratch.watcher.record_dashboard", lambda *a, **k: None)
     return {"proposals_dir": tmp_path / "proposals", "state_path": tmp_path / "state.json"}
 
 
@@ -97,8 +97,8 @@ def test_the_pass_is_the_only_job_here():
 def _agent(responses, should_cancel):
     """Same scripted fakes test_agent_guarantees uses, with a stop token."""
     from tests.test_agent_guarantees import FakeMCP, FakeOpenAI
-    from tezcat.agent import Agent
-    from tezcat.profiles import Profile
+    from chickenskratch.agent import Agent
+    from chickenskratch.profiles import Profile
 
     agent = Agent(Profile(name="fake", model="fake"), servers=[],
                   should_cancel=should_cancel)

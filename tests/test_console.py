@@ -12,9 +12,9 @@ import json
 import pytest
 import yaml
 
-from tezcat import config_store, console
-from tezcat.config_store import ConfigError
-from tezcat_vault.vault import Vault
+from chickenskratch import config_store, console
+from chickenskratch.config_store import ConfigError
+from chickenskratch_vault.vault import Vault
 
 
 @pytest.fixture()
@@ -109,7 +109,7 @@ def test_every_processor_and_setting_explains_itself(spec_vault, models_yaml):
     you to already know what they do. Descriptions live on the registry
     entry and beside the setting's own rules, so a new processor arrives
     explained — or arrives visibly unexplained, which this catches."""
-    from tezcat import processors
+    from chickenskratch import processors
 
     vault = console.model(str(spec_vault))["vault"]
     assert {p["name"] for p in vault["trustable"]} == {p.name for p in processors.REGISTRY}
@@ -167,8 +167,8 @@ def test_a_broken_models_yaml_still_renders_the_console(spec_vault, models_yaml)
 def test_saving_policies_is_what_the_engine_reads_back(spec_vault, models_yaml):
     """The console writes the complete map; the next pass resolves it —
     one key, one resolver, no second knob to disagree with."""
-    from tezcat import processors as procs
-    from tezcat_vault.vaultconfig import get_config
+    from chickenskratch import processors as procs
+    from chickenskratch_vault.vaultconfig import get_config
 
     levels = {p.name: "ask" for p in procs.REGISTRY}
     console.save_spec(str(spec_vault), {"policies": {**levels, "capture": "full"}})
@@ -181,7 +181,7 @@ def test_saving_policies_is_what_the_engine_reads_back(spec_vault, models_yaml):
 
 
 def test_policies_validation_rejects_junk_and_partial_maps(spec_vault, models_yaml):
-    from tezcat import processors as procs
+    from chickenskratch import processors as procs
 
     levels = {p.name: "ask" for p in procs.REGISTRY}
     with pytest.raises(console.ConfigError, match="unknown processor"):

@@ -6,11 +6,11 @@ import asyncio
 
 import pytest
 
-from tezcat import processors as processors_module
-from tezcat import proposals
-from tezcat.processors import SPEC_DRIFT
-from tezcat_vault import markdown as md
-from tezcat_vault import vaultconfig as vc
+from chickenskratch import processors as processors_module
+from chickenskratch import proposals
+from chickenskratch.processors import SPEC_DRIFT
+from chickenskratch_vault import markdown as md
+from chickenskratch_vault import vaultconfig as vc
 
 
 @pytest.fixture()
@@ -98,7 +98,7 @@ def test_spec_note_drives_engine_knobs_per_pass(vault, make_watcher, monkeypatch
     spec_path(vault).write_text(md.join_frontmatter(fm, body))
 
     applied = []
-    monkeypatch.setattr("tezcat.watcher.apply_worker_profile", lambda name: applied.append(name))
+    monkeypatch.setattr("chickenskratch.watcher.apply_worker_profile", lambda name: applied.append(name))
     run(w)
     assert w.n_max == 2
     assert [p.name for p in w.processors] == [

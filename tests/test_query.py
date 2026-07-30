@@ -6,8 +6,8 @@ import asyncio
 
 import pytest
 
-from tezcat import commands, query
-from tezcat_vault import workers as wk
+from chickenskratch import commands, query
+from chickenskratch_vault import workers as wk
 
 
 @pytest.fixture()
@@ -70,7 +70,7 @@ def test_ask_says_when_the_pack_is_partial(qvault, monkeypatch):
 def test_ask_is_a_registered_command_with_the_transient_contract(qvault, monkeypatch):
     """//ask parses like any command, and a down worker returns None —
     the line stays armed in a note, the canvas says try again."""
-    from tezcat_vault.vault import VaultError
+    from chickenskratch_vault.vault import VaultError
 
     assert commands.parse("//ask how many failure modes?") == \
         ("ask", "how many failure modes?")
@@ -88,7 +88,7 @@ def test_in_note_ask_writes_the_answer_back_as_a_callout(qvault, make_watcher, m
     """The whole loop in a note: //ask line in, callout with the answer
     and its [[source]] out, no queue artifacts — a command, not a
     proposal."""
-    from tezcat_vault.vault import Vault
+    from chickenskratch_vault.vault import Vault
 
     Vault(str(qvault)).commit_if_dirty("baseline")
 

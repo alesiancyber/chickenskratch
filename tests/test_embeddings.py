@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tezcat import embeddings as em
+from chickenskratch import embeddings as em
 
 
 class FakeEmbedder:
@@ -36,7 +36,7 @@ class FakeEmbedder:
 
 @pytest.fixture()
 def index(tmp_path, monkeypatch):
-    monkeypatch.setattr("tezcat.embeddings.ROOT", tmp_path)
+    monkeypatch.setattr("chickenskratch.embeddings.ROOT", tmp_path)
     return em.Index("/some/vault")
 
 

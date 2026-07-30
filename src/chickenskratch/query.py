@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import re
 
-from tezcat_vault import workers as wk
-from tezcat_vault.vault import Vault, read_lossy
-from tezcat_vault.vaultconfig import get_config
+from chickenskratch_vault import workers as wk
+from chickenskratch_vault.vault import Vault, read_lossy
+from chickenskratch_vault.vaultconfig import get_config
 
 # Question words carry no signal about WHICH note answers; scoring on
 # them would rank every note that says "the" or "did".

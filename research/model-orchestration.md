@@ -28,7 +28,7 @@ remains a non-goal.
 
 - **All production LLM work is single-shot worker calls.** Three
   workers (`extract_tasks`, `schema_fix`, `grouping` —
-  `src/tezcat_vault/workers.py`): one bounded call, jsonschema-validated
+  `src/chickenskratch_vault/workers.py`): one bounded call, jsonschema-validated
   reply, one retry, fail-loud. One global worker model, chosen by
   Spec.md `worker:` (a models.yaml profile name; temporarily Gemini for
   iteration speed).
@@ -235,11 +235,11 @@ regime** — every worker call is one-shot. Consequences:
 ### 9.3 Procedure (per candidate)
 
 1. Shortlist via §9.1 family priors. No download before this step.
-2. Profile entry in models.yaml → `uv run tezcat-worker-eval -m <model>`
+2. Profile entry in models.yaml → `uv run chickenskratch-worker-eval -m <model>`
    (69 cases × 3 repeats; verifier-scored; watch *cluster-level*
    failures — a model failing a whole paraphrase cluster has a
    systematic hole where auto-apply would trust it). Add
-   `tezcat-eval -m` if the candidate will also serve chat.
+   `chickenskratch-eval -m` if the candidate will also serve chat.
 3. Record the report in `evals/reports/` — a fast, cheap *no* is a
    good outcome.
 4. A candidate for the *cheap* rung must beat the incumbent on the
@@ -262,7 +262,7 @@ for residents (no cold starts of a 16 GB load), explicit
 `OLLAMA_CONTEXT_LENGTH` matched by the profile's `context_tokens`,
 `OLLAMA_NUM_PARALLEL=1`. The harness needs zero code: b70 profiles are
 `base_url` entries in models.yaml, and Spec.md `worker:` flips the
-whole engine to the box with one note edit. `tezcat-backends` shows
+whole engine to the box with one note edit. `chickenskratch-backends` shows
 remote endpoints as "external" — correct; remote start/stop over SSH
 stays out of scope (half-dead remote processes the harness thinks it
 owns are a failure-mode factory). vLLM/llama.cpp swap in behind the

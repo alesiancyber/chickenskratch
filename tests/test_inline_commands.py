@@ -11,8 +11,8 @@ import re
 
 import pytest
 
-from tezcat import commands, processors, proposals
-from tezcat_vault.vault import Vault
+from chickenskratch import commands, processors, proposals
+from chickenskratch_vault.vault import Vault
 
 LINKS = ("- Alert correlation in Microsoft Sentinel — "
          "https://learn.microsoft.com/en-us/azure/sentinel/correlation\n"
@@ -164,7 +164,7 @@ def test_command_line_deleted_during_execution_lapses_silently(vault, make_watch
 def test_dead_worker_never_starves_commands(vault, make_watcher, monkeypatch):
     """Capture drafts through an LLM worker; commands run in their own
     phase before drafting — a down worker cannot touch them."""
-    from tezcat_vault.vault import VaultError
+    from chickenskratch_vault.vault import VaultError
 
     async def worker_down(text, today):
         raise VaultError("extract_tasks worker unavailable")

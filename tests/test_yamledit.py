@@ -8,7 +8,7 @@ pinning is exactly that: byte-identical everywhere except the one value.
 
 import yaml
 
-from tezcat.yamledit import PathError, set_scalar
+from chickenskratch.yamledit import PathError, set_scalar
 
 SAMPLE = """\
 # top matter

@@ -1,7 +1,7 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-// Built assets are served by tezcat-ui (FastAPI/Starlette) from web/dist;
+// Built assets are served by chickenskratch-ui (FastAPI/Starlette) from web/dist;
 // the dev server proxies /api to it so `npm run dev` works against a live
 // engine.
 export default defineConfig({

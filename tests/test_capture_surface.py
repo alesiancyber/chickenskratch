@@ -11,13 +11,13 @@ import re
 
 import pytest
 
-import tezcat_vault.vault as vault_mod
+import chickenskratch_vault.vault as vault_mod
 from tests.conftest import record_worker_returning
-from tezcat import proposals
-from tezcat import watcher as watcher_mod
-from tezcat.processors import CAPTURE_SKELETON
-from tezcat_vault import tasks as tk
-from tezcat_vault.vault import Vault
+from chickenskratch import proposals
+from chickenskratch import watcher as watcher_mod
+from chickenskratch.processors import CAPTURE_SKELETON
+from chickenskratch_vault import tasks as tk
+from chickenskratch_vault.vault import Vault
 
 EXTRACTED = [
     {"text": "Migrate the DNS records", "due": "2026-07-24", "priority": "high"},
@@ -99,7 +99,7 @@ def test_typed_text_becomes_a_record_proposal(vault, watcher):
     assert "> call the vendor about DNS, urgent, and pricing page someday" in content
     # the proposal carries its tasks as issues — what the dashboard renders
     assert "Migrate the DNS records — due 2026-07-24, high" in p["issues"]
-    from tezcat.processors import REGISTRY
+    from chickenskratch.processors import REGISTRY
     assert not next(s for s in REGISTRY if s.name == "capture").render_diff
 
 
@@ -139,7 +139,7 @@ def test_same_text_is_never_drafted_twice(vault, watcher):
 
 def test_approve_files_the_record_and_clears_the_surface(vault, watcher, monkeypatch):
     recorded = []
-    monkeypatch.setattr("tezcat.watcher.record_dashboard",
+    monkeypatch.setattr("chickenskratch.watcher.record_dashboard",
                         lambda p, d, **k: recorded.append((p["kind"], d)))
     run(watcher)
     type_into_capture(vault, "\nmigrate dns and revisit pricing\n")
@@ -255,7 +255,7 @@ def test_a_dead_worker_is_reported_not_reported_as_nothing_to_extract(
     said "nothing extractable". A failed draft must be RECORDED — the text
     is still on the surface, still re-arms, and the user must be told to
     expect a retry rather than that they typed nothing."""
-    from tezcat_vault.vault import VaultError
+    from chickenskratch_vault.vault import VaultError
 
     async def dead_worker(text, today):
         raise VaultError("extract_record worker (some-model) unavailable: 429")
@@ -356,7 +356,7 @@ def test_a_poison_scan_does_not_strand_the_text_behind_it(vault, make_watcher):
     the pass memoized "this tree is handled" over notes nothing had read,
     and the capture sat there until an unrelated edit moved the
     fingerprint. Now every pass scans, so it is structural."""
-    from tezcat.watcher import ProcessorSpec
+    from chickenskratch.watcher import ProcessorSpec
 
     def poison_scan(w):
         raise RuntimeError("a note vanished mid-walk")
@@ -406,7 +406,7 @@ def test_a_titled_dump_names_its_block_and_the_title_is_checked(vault, watcher):
     azure costs") — the rail's day labels read these back. The title is
     model text, so verify_record holds it to task fidelity: words from
     the dump pass; an invented subject fails the check."""
-    from tezcat.processors import verify_record
+    from chickenskratch.processors import verify_record
 
     watcher.record_worker = record_worker_returning(
         [{"text": "review the azure costs", "due": None, "priority": None,

@@ -15,7 +15,7 @@ export async function getJSON(path) {
     // talking to: StaticFiles answers whatever the routes don't, so a
     // route added since the process started returns plain-text Not Found.
     const hint = r.status === 404 && path.startsWith("/api/")
-      ? " — no such route; restart tezcat-ui to pick up a newer build"
+      ? " — no such route; restart chickenskratch-ui to pick up a newer build"
       : "";
     throw new Error(`${path}: ${r.status}${hint}`);
   }
@@ -171,7 +171,7 @@ export function useDashboard() {
 }
 
 /* Note references open OUR editor. There is deliberately no
-   deep-link-out helper: tezcat is the surface, not a launcher for one.
+   deep-link-out helper: chickenskratch is the surface, not a launcher for one.
    The vault stays plain markdown any editor can open — that's
    portability, a property of the format, not a handoff we owe another
    app from inside our own UI. */

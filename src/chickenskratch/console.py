@@ -35,10 +35,10 @@ from pathlib import Path
 
 import yaml
 
-from tezcat_vault import markdown as md
-from tezcat_vault import vaultconfig as vc
-from tezcat_vault.vault import Vault, VaultError
-from tezcat_vault.vaultconfig import SPEC_REL, get_config
+from chickenskratch_vault import markdown as md
+from chickenskratch_vault import vaultconfig as vc
+from chickenskratch_vault.vault import Vault, VaultError
+from chickenskratch_vault.vaultconfig import SPEC_REL, get_config
 
 from . import config_store, processors, profiles, yamledit
 from .bootstrap import DEFAULT_MODELS, ROOT

@@ -1,6 +1,6 @@
 # Judgment cases for the schema_fix worker — the gap flagged in the
 # 2026-07-23 review: this worker ran in production with zero eval
-# coverage. Run live:  uv run tezcat-worker-eval -k schema
+# coverage. Run live:  uv run chickenskratch-worker-eval -k schema
 #
 # Case schema (worker: schema_fix):
 #   note, entity, issues, content:  what scan_schema hands the drafter

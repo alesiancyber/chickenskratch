@@ -39,7 +39,7 @@ export const targetField = StateField.define({
    line, then it reveals so you can edit it. Nothing is ever hidden
    that you can't get back by moving the caret onto it.
 
-   The patterns mirror tezcat_vault/tasks.py and ids.py exactly — this
+   The patterns mirror chickenskratch_vault/tasks.py and ids.py exactly — this
    vault's grammar is defined by regexes, so the editor reads it with
    the same ones rather than a generic CommonMark parse. */
 

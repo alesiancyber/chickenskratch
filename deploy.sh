@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tezcat end-to-end deploy: build everything, scaffold the vault, run the
+# chickenskratch end-to-end deploy: build everything, scaffold the vault, run the
 # first engine pass (which seeds Spec.md, inits the vault's git repo, and
 # renders every surface), install the daemon + heartbeat, verify.
 #
@@ -15,8 +15,8 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
-WATCH_LABEL="com.tezcat.watch"
-HEART_LABEL="com.tezcat.heartbeat"
+WATCH_LABEL="com.chickenskratch.watch"
+HEART_LABEL="com.chickenskratch.heartbeat"
 
 VAULT="" FOAM=0 REMOTE="" LAUNCHD=1 UNINSTALL=0
 while [ $# -gt 0 ]; do
@@ -47,16 +47,16 @@ fi
 
 # ---- resolve the vault ----
 if [ -z "$VAULT" ]; then
-  VAULT="${TEZCAT_VAULT_PATH:-}"
+  VAULT="${CHICKENSKRATCH_VAULT_PATH:-}"
 fi
 if [ -z "$VAULT" ]; then
   VAULT="$(grep -E '^vault:' "$REPO/config/models.yaml" | sed 's/vault:[[:space:]]*//;s/[[:space:]]*#.*//' || true)"
   [ -n "$VAULT" ] && VAULT="$REPO/config/$VAULT"
 fi
-[ -n "$VAULT" ] || die "no vault: pass --vault <path> (or set TEZCAT_VAULT_PATH)"
+[ -n "$VAULT" ] || die "no vault: pass --vault <path> (or set CHICKENSKRATCH_VAULT_PATH)"
 mkdir -p "$VAULT"
 VAULT="$(cd "$VAULT" && pwd)"
-say "Deploying tezcat  repo=$REPO  vault=$VAULT"
+say "Deploying chickenskratch  repo=$REPO  vault=$VAULT"
 
 # ---- 1. prerequisites ----
 say "Checking prerequisites"
@@ -68,8 +68,8 @@ ok "git, uv, cargo"
 # ---- 2. build ----
 say "Syncing python environment"
 (cd "$REPO" && uv sync -q) && ok "uv sync"
-say "Building tezcatd (release)"
-(cd "$REPO/daemon" && cargo build --release -q) && ok "daemon/target/release/tezcatd"
+say "Building chickenskratchd (release)"
+(cd "$REPO/daemon" && cargo build --release -q) && ok "daemon/target/release/chickenskratchd"
 
 # ---- 3. vault scaffold (only what doesn't exist; never touches notes) ----
 say "Scaffolding vault folders"
@@ -79,16 +79,16 @@ for d in Tasks Meetings Daily Projects Private; do mkdir -p "$VAULT/$d"; done
 ok "folders + inboxes (existing files untouched)"
 
 # ---- 4. pin the vault for every CLI (.env; exported shell vars still win) ----
-say "Pinning TEZCAT_VAULT_PATH in .env"
+say "Pinning CHICKENSKRATCH_VAULT_PATH in .env"
 touch "$REPO/.env"
-grep -v '^TEZCAT_VAULT_PATH=' "$REPO/.env" > "$REPO/.env.tmp" || true
-printf 'TEZCAT_VAULT_PATH=%s\n' "$VAULT" >> "$REPO/.env.tmp"
+grep -v '^CHICKENSKRATCH_VAULT_PATH=' "$REPO/.env" > "$REPO/.env.tmp" || true
+printf 'CHICKENSKRATCH_VAULT_PATH=%s\n' "$VAULT" >> "$REPO/.env.tmp"
 mv "$REPO/.env.tmp" "$REPO/.env"
 ok ".env"
 
 # ---- 5. first engine pass: seeds Spec.md, inits vault git, scans ----
 say "Running the first engine pass"
-(cd "$REPO" && uv run tezcat-watch --vault "$VAULT") || die "first pass failed"
+(cd "$REPO" && uv run chickenskratch-watch --vault "$VAULT") || die "first pass failed"
 [ -f "$VAULT/Harness/Spec.md" ] && ok "Harness/Spec.md seeded"
 [ -f "$VAULT/Harness/Capture.md" ] && ok "capture surface ready"
 
@@ -112,7 +112,7 @@ JSON
   (cd "$REPO" && uv run python - "$VAULT" <<'PY'
 import sys
 from pathlib import Path
-from tezcat_vault import markdown as md
+from chickenskratch_vault import markdown as md
 spec = Path(sys.argv[1]) / "Harness" / "Spec.md"
 fm, body = md.split_frontmatter(spec.read_text(encoding="utf-8"))
 fm["link_scheme"] = "vscode"
@@ -143,19 +143,19 @@ if [ "$LAUNCHD" = 1 ]; then
     ok "$label"
   done
   sleep 2
-  pgrep -f "tezcatd.*$VAULT" >/dev/null && ok "tezcatd running (event watch)" \
-    || echo "    ? tezcatd not visible yet — check data/logs/tezcatd.log"
+  pgrep -f "chickenskratchd.*$VAULT" >/dev/null && ok "chickenskratchd running (event watch)" \
+    || echo "    ? chickenskratchd not visible yet — check data/logs/chickenskratchd.log"
 fi
 
 # ---- 9. done ----
 say "Deployed"
 cat <<EOF
 
-  Vault:     $VAULT   (git-snapshotted; revert via: uv run tezcat-revert)
-  Dashboard: uv run tezcat-ui        (127.0.0.1:8399 — the surface)
-  Headless:  uv run tezcat today | tezcat changes | tezcat decide <id> approve
+  Vault:     $VAULT   (git-snapshotted; revert via: uv run chickenskratch-revert)
+  Dashboard: uv run chickenskratch-ui        (127.0.0.1:8399 — the surface)
+  Headless:  uv run chickenskratch today | chickenskratch changes | chickenskratch decide <id> approve
   Config:    $VAULT/Harness/Spec.md   (worker model, auto_apply, knobs — live per pass)
-  Daemon:    data/logs/tezcatd.log    ($([ "$LAUNCHD" = 1 ] && echo installed || echo "skipped — run: daemon/target/release/tezcatd --vault $VAULT --repo $REPO"))
+  Daemon:    data/logs/chickenskratchd.log    ($([ "$LAUNCHD" = 1 ] && echo installed || echo "skipped — run: daemon/target/release/chickenskratchd --vault $VAULT --repo $REPO"))
 
   Try it: open any note, type '//azure storage account keys' on its own line, press Enter.
   Worker model: set 'worker: <profile>' in Spec.md (profiles/keys in config/models.yaml + .env).

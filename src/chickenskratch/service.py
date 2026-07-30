@@ -1,7 +1,7 @@
 """Human-verb service entries: decide / ingest / revert / run_pass.
 
 The convergence point for every consent channel: the dashboard's
-buttons and `tezcat decide` meet at the same engine pass under the
+buttons and `chickenskratch decide` meet at the same engine pass under the
 same flock pass lock, so two front doors can never race or
 double-apply, and nothing bypasses a gate (I1/I2). Reads have no entry
 here — views are free (I5); these are the write verbs, all
@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import re
 
-from tezcat_vault import tasks as tk
-from tezcat_vault.vault import Vault, VaultError
-from tezcat_vault.vaultconfig import get_config
+from chickenskratch_vault import tasks as tk
+from chickenskratch_vault.vault import Vault, VaultError
+from chickenskratch_vault.vaultconfig import get_config
 
 from . import cancel, commands, events, processors, proposals
 from .corpus import record_reschedule, record_revert
@@ -39,7 +39,7 @@ async def run_pass(vault_path: str, decisions_only: bool = False, **watcher_kw) 
 
 async def decide(vault_path: str, pid: str, verdict: str,
                  steps: list[int] | None = None, **watcher_kw) -> dict:
-    """Act on one proposal — the UI button's and `tezcat decide`'s path.
+    """Act on one proposal — the UI button's and `chickenskratch decide`'s path.
     Runs the decisions fast lane; every channel resolves through
     Watcher._act under the pass lock.
 
@@ -99,7 +99,7 @@ def complete_task(vault_path: str, note: str, text: str) -> dict:
     when nothing matches (the note moved — the row was stale, refetch)."""
     from . import applier
     applier.use_vault(vault_path)
-    from tezcat_vault import server
+    from chickenskratch_vault import server
 
     result = server.set_task_status(note, text, True)
     events.emit(vault_path, "vault_changed", {"reason": "task_done", "note": note})
@@ -116,7 +116,7 @@ def reschedule_task(vault_path: str, note: str, text: str, due: str) -> dict:
     exactly what a future triage worker trains on."""
     from . import applier
     applier.use_vault(vault_path)
-    from tezcat_vault import server
+    from chickenskratch_vault import server
 
     result = server.set_task_due(note, text, due)
     if result.get("written"):
@@ -137,7 +137,7 @@ def plan_task(vault_path: str, note: str, text: str, when: str) -> dict:
     data a future triage worker learns this user's judgment from."""
     from . import applier
     applier.use_vault(vault_path)
-    from tezcat_vault import server
+    from chickenskratch_vault import server
 
     result = server.set_task_scheduled(note, text, when)
     if result.get("written"):

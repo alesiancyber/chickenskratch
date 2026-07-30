@@ -10,12 +10,12 @@ import asyncio
 
 import pytest
 
-from tezcat import events
+from chickenskratch import events
 
 
 @pytest.fixture()
 def anchored(tmp_path, monkeypatch):
-    monkeypatch.setattr("tezcat.events.ROOT", tmp_path)
+    monkeypatch.setattr("chickenskratch.events.ROOT", tmp_path)
     return "/some/vault"
 
 

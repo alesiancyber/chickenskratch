@@ -36,8 +36,8 @@ schemas_dir: schemas
 # scans these and ignores its own writes to them.
 #
 # Capture is the only one: views (today/changes/review) are rendered by
-# the dashboard and the `tezcat today` / `tezcat changes` verbs, never
-# written into the vault, and consent is a dashboard button or `tezcat
+# the dashboard and the `chickenskratch today` / `chickenskratch changes` verbs, never
+# written into the vault, and consent is a dashboard button or `chickenskratch
 # decide`. Capture.md is not a view — it is the canvas's write-ahead
 # log, written before extraction so a dump survives extraction failing.
 surfaces:

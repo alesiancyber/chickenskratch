@@ -7,9 +7,9 @@ import asyncio
 
 import pytest
 
-from tezcat import events, proposals, service
-from tezcat.watcher import Watcher
-from tezcat_vault.vault import Vault, VaultError
+from chickenskratch import events, proposals, service
+from chickenskratch.watcher import Watcher
+from chickenskratch_vault.vault import Vault, VaultError
 
 
 @pytest.fixture()
@@ -20,7 +20,7 @@ def vault(gitvault):
 @pytest.fixture()
 def wkw(tmp_path, monkeypatch):
     """Watcher injection kwargs: isolated queue/state, corpus off."""
-    monkeypatch.setattr("tezcat.watcher.record_dashboard", lambda *a, **k: None)
+    monkeypatch.setattr("chickenskratch.watcher.record_dashboard", lambda *a, **k: None)
     return {"proposals_dir": tmp_path / "proposals", "state_path": tmp_path / "state.json"}
 
 
@@ -59,7 +59,7 @@ def test_decide_validates_its_inputs(vault, wkw):
 
 
 def test_the_same_verdict_twice_never_double_applies(vault, wkw):
-    """Two clicks, a retried request, the dashboard and `tezcat decide`
+    """Two clicks, a retried request, the dashboard and `chickenskratch decide`
     racing — the proposal resolves once. _act's resolved-set is the
     convergence guarantee, and it is now the ONLY thing standing between
     a double-submit and a doubled edit (2026-07-26: the checkbox channel
@@ -80,7 +80,7 @@ def test_ingest_files_a_bare_task_dump_without_asking(vault, wkw):
     import datetime as _dt
 
     from tests.conftest import record_worker_returning
-    from tezcat_vault.vault import Vault
+    from chickenskratch_vault.vault import Vault
 
     worker = record_worker_returning(
         [{"text": "renew the domain", "due": "2026-08-01"}])
@@ -156,7 +156,7 @@ def test_ingest_empty_text_is_a_no_op(vault, wkw):
 def test_revert_undoes_a_snapshot_and_rejects_junk(vault, wkw):
     p = plant_proposal(vault, wkw)
     asyncio.run(service.decide(str(vault), p["id"], "approve", **wkw))
-    from tezcat_vault.vault import Vault
+    from chickenskratch_vault.vault import Vault
 
     sha = next(c["sha"] for c in Vault(vault).history(10)
                if "Tasks/Inbox.md" in c["files"])
@@ -206,7 +206,7 @@ def _capture_proposal(vault, wkw) -> dict:
 def test_full_approval_still_clears_the_capture_surface(vault, wkw):
     """The counterpart guard: only PARTIAL approvals keep the dump —
     approving everything resets the surface for the next one."""
-    from tezcat.processors import CAPTURE_SKELETON
+    from chickenskratch.processors import CAPTURE_SKELETON
 
     p = _capture_proposal(vault, wkw)
     summary = asyncio.run(service.decide(str(vault), p["id"], "approve", **wkw))
@@ -236,7 +236,7 @@ def test_complete_task_checks_off_through_the_gated_tool(vault, wkw):
     service.complete_task(str(vault), "Tasks/Inbox.md", "rotate the leaked service key")
     text = (vault / "Tasks/Inbox.md").read_text()
     assert "- [x] rotate the leaked service key" in text
-    from tezcat_vault.vault import Vault
+    from chickenskratch_vault.vault import Vault
 
     assert Vault(vault).history(3)[0]["files"] == ["Tasks/Inbox.md"]  # snapshotted
 
@@ -344,7 +344,7 @@ def test_a_decision_that_never_gets_the_lock_fails_loud(vault, wkw, monkeypatch)
     reporting a pass that quietly did nothing."""
     import fcntl
 
-    from tezcat import watcher as watcher_mod
+    from chickenskratch import watcher as watcher_mod
     monkeypatch.setattr(watcher_mod, "DECISION_LOCK_WAIT_S", 0.2)
     monkeypatch.setattr(service, "DECISION_LOCK_WAIT_S", 0.2)
     p = plant_proposal(vault, wkw)
@@ -365,7 +365,7 @@ def test_a_lost_lock_restores_a_partially_approved_proposal(vault, wkw, monkeypa
     retry on."""
     import fcntl
 
-    from tezcat import watcher as watcher_mod
+    from chickenskratch import watcher as watcher_mod
     monkeypatch.setattr(watcher_mod, "DECISION_LOCK_WAIT_S", 0.2)
     monkeypatch.setattr(service, "DECISION_LOCK_WAIT_S", 0.2)
     p = proposals.new_proposal(
@@ -391,7 +391,7 @@ def test_ingest_defers_rather_than_losing_the_dump(vault, wkw, monkeypatch):
     surface — so losing the lock is deferral, not failure, and it says so."""
     import fcntl
 
-    from tezcat import watcher as watcher_mod
+    from chickenskratch import watcher as watcher_mod
     monkeypatch.setattr(watcher_mod, "DECISION_LOCK_WAIT_S", 0.2)
     monkeypatch.setattr(service, "DECISION_LOCK_WAIT_S", 0.2)
     lock_path = wkw["state_path"].with_suffix(".lock")
@@ -409,7 +409,7 @@ def test_reschedule_task_moves_the_date_and_lands_in_the_corpus(vault, wkw):
     worker trains on."""
     import json as _json
 
-    from tezcat import corpus
+    from chickenskratch import corpus
 
     (vault / "Tasks/Inbox.md").write_text(
         "## Tasks\n\n- [ ] prep the deck 📅 2099-01-10 ^t-aaaaaaaaaaaa\n")
@@ -440,7 +440,7 @@ def test_plan_task_moves_the_plan_field_and_labels_it(vault, wkw):
     field=scheduled so plan moves are separable from hard-date moves."""
     import json as _json
 
-    from tezcat import corpus
+    from chickenskratch import corpus
 
     (vault / "Tasks/Inbox.md").write_text(
         "## Tasks\n\n- [ ] shape the roadmap 📅 2099-06-01 ^t-aaaaaaaaaaaa\n")
@@ -459,7 +459,7 @@ def test_plan_task_moves_the_plan_field_and_labels_it(vault, wkw):
 def _corpus_rows():
     import json as _json
 
-    from tezcat import corpus
+    from chickenskratch import corpus
 
     return [_json.loads(ln) for f in sorted(corpus.CORPUS_DIR.glob("*.jsonl"))
             for ln in f.read_text().splitlines()]

@@ -4,7 +4,7 @@ One JSON file per proposal under data/proposals/ — human-skimmable
 singles, like bug reports (high-volume append logs stay JSONL). Every
 file is validated against config/schemas/proposal.yaml on save: junk
 never enters the queue. data/ is authoritative and the only record:
-the dashboard and `tezcat decide` both read the pending set straight
+the dashboard and `chickenskratch decide` both read the pending set straight
 from here.
 """
 
@@ -17,9 +17,9 @@ import sys
 import time
 from pathlib import Path
 
-from tezcat_vault import ids, jsonval
-from tezcat_vault.schemas import load_schemas
-from tezcat_vault.vault import atomic_write_text
+from chickenskratch_vault import ids, jsonval
+from chickenskratch_vault.schemas import load_schemas
+from chickenskratch_vault.vault import atomic_write_text
 
 from .bootstrap import ROOT, vault_digest
 

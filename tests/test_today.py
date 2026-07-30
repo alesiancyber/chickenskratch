@@ -1,6 +1,6 @@
 """The attention view. A read-only render: no trust machinery,
 deterministic within a day, one screen. It stopped being written into the
-vault on 2026-07-26 — it is what `tezcat today` prints and what the
+vault on 2026-07-26 — it is what `chickenskratch today` prints and what the
 dashboard's /api/today collects — so these tests render it directly
 instead of reading a note back."""
 
@@ -9,7 +9,7 @@ import datetime as dt
 
 import pytest
 
-from tezcat import proposals
+from chickenskratch import proposals
 
 TODAY = dt.date.today()
 
@@ -44,8 +44,8 @@ def run(w):
 
 
 def _vault_and_cfg(vault):
-    from tezcat_vault.vault import Vault
-    from tezcat_vault.vaultconfig import get_config
+    from chickenskratch_vault.vault import Vault
+    from chickenskratch_vault.vaultconfig import get_config
 
     cfg = get_config(str(vault))
     return Vault(str(vault), exclude=cfg.exclude), cfg
@@ -53,7 +53,7 @@ def _vault_and_cfg(vault):
 
 def view(vault, pending=0):
     """The Today view as text — the CLI's exact render path."""
-    from tezcat import today as today_mod
+    from chickenskratch import today as today_mod
 
     v, cfg = _vault_and_cfg(vault)
     return today_mod.render(v, cfg, pending)
@@ -64,7 +64,7 @@ def model(vault, pending=0):
     folds each section behind a "+N more". Membership questions belong
     here: a row that fell behind the fold is absent from the text for a
     reason that has nothing to do with the rule under test."""
-    from tezcat import today as today_mod
+    from chickenskratch import today as today_mod
 
     v, cfg = _vault_and_cfg(vault)
     return today_mod.collect(v, cfg, pending)
@@ -246,9 +246,9 @@ def test_week_buckets_are_calendar_weeks(vault):
     undated-unplanned stay the backlog's business."""
     import datetime as _dt
 
-    from tezcat import today as today_mod
-    from tezcat_vault.vault import Vault
-    from tezcat_vault.vaultconfig import get_config
+    from chickenskratch import today as today_mod
+    from chickenskratch_vault.vault import Vault
+    from chickenskratch_vault.vaultconfig import get_config
 
     this_sunday = today_mod.week_end(TODAY)
     next_sunday = this_sunday + _dt.timedelta(days=7)
@@ -279,8 +279,8 @@ def test_capture_with_week_language_lands_scheduled_not_due(vault, make_watcher)
     """Typing "this week" plans the task (⏳ Sunday anchor); it must
     never fabricate a 📅 deadline."""
     from tests.conftest import record_worker_returning
-    from tezcat import processors as procs
-    from tezcat import today as today_mod
+    from chickenskratch import processors as procs
+    from chickenskratch import today as today_mod
 
     sunday = today_mod.week_end(TODAY).isoformat()
     worker = record_worker_returning(

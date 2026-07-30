@@ -3,8 +3,8 @@ map, id/block-ref primitives, Private/ exclusions, Chat-Id trailers."""
 
 import pytest
 
-import tezcat_vault.vault as vault_mod
-from tezcat_vault import ids, jsonval, server, tasks, vaultconfig
+import chickenskratch_vault.vault as vault_mod
+from chickenskratch_vault import ids, jsonval, server, tasks, vaultconfig
 
 # ---- jsonval (B1) ----
 
@@ -125,7 +125,7 @@ def test_symlinked_notes_do_not_leak(vault):
 
 
 def test_write_is_atomic_and_leaves_no_litter(vault):
-    import tezcat_vault.vault as vm
+    import chickenskratch_vault.vault as vm
     v = vm.get_vault()
     v.write("Tasks/Atomic.md", "one\n")
     v.write("Tasks/Atomic.md", "two\n")
@@ -180,9 +180,9 @@ def test_renderer_knobs_left_spec_with_the_owned_ui():
 
 
 def test_a_stale_link_scheme_in_vault_yaml_is_inert(tmp_path):
-    """The knob is gone (tezcat opens notes in tezcat). A config file that
+    """The knob is gone (chickenskratch opens notes in chickenskratch). A config file that
     still carries it loads fine and simply ignores it — an old vault.yaml
-    must never wedge the tezcat."""
+    must never wedge the chickenskratch."""
     cfg = tmp_path / "vault.yaml"
     cfg.write_text("link_scheme: vscode\n")
     loaded = vaultconfig.load_config(cfg)
@@ -201,13 +201,13 @@ def test_the_vault_lock_is_bounded_not_forever(tmp_path, monkeypatch):
 
     import pytest
 
-    from tezcat_vault.vault import Vault, VaultError
+    from chickenskratch_vault.vault import Vault, VaultError
 
     root = tmp_path / "v"
     root.mkdir()
     v = Vault(root)
     digest = hashlib.sha1(str(v.root).encode()).hexdigest()[:12]
-    lock_path = Path(tempfile.gettempdir()) / f"tezcat-vault-{digest}.lock"
+    lock_path = Path(tempfile.gettempdir()) / f"chickenskratch-vault-{digest}.lock"
     with open(lock_path, "w") as wedged:
         fcntl.flock(wedged, fcntl.LOCK_EX)
         start = time.monotonic()
@@ -223,9 +223,9 @@ def test_meetings_dir_is_a_spec_key_like_daily_dir(vault, monkeypatch):
     meeting sections."""
     import datetime as dt
 
-    import tezcat_vault.vault as vault_mod
-    from tezcat import today as today_mod
-    from tezcat_vault import server, vaultconfig
+    import chickenskratch_vault.vault as vault_mod
+    from chickenskratch import today as today_mod
+    from chickenskratch_vault import server, vaultconfig
 
     spec = vault / "Harness" / "Spec.md"
     spec.parent.mkdir(parents=True, exist_ok=True)
@@ -250,7 +250,7 @@ def test_policy_for_resolves_the_map_with_kill_switch_precedence(vault, monkeypa
     the emergency kill switch, and a map naming every processor must
     never render it inert. One resolver, so the engine and the console
     can never read the same Spec differently."""
-    import tezcat_vault.vault as vault_mod
+    import chickenskratch_vault.vault as vault_mod
 
     spec = vault / "Harness" / "Spec.md"
     spec.parent.mkdir(parents=True, exist_ok=True)
@@ -274,7 +274,7 @@ def test_policy_for_resolves_the_map_with_kill_switch_precedence(vault, monkeypa
 
 
 def test_policy_defaults_grant_only_the_checkable_lanes(vault, monkeypatch):
-    import tezcat_vault.vault as vault_mod
+    import chickenskratch_vault.vault as vault_mod
 
     spec = vault / "Harness" / "Spec.md"
     spec.parent.mkdir(parents=True, exist_ok=True)

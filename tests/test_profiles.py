@@ -2,7 +2,7 @@
 
 import pytest
 
-from tezcat.profiles import load_config
+from chickenskratch.profiles import load_config
 
 MINIMAL_YAML = """
 default: local-model
@@ -62,7 +62,7 @@ def test_worker_adapt_defaults_loose_and_rides_the_env(tmp_path, monkeypatch):
     OUT of (default "none"), a small profile declares "small", and
     resolve_worker_env carries the tier on WORKER_ADAPT like the rest of
     the worker config — explicit env still wins."""
-    from tezcat import bootstrap
+    from chickenskratch import bootstrap
 
     path = tmp_path / "models.yaml"
     path.write_text(MINIMAL_YAML + "    worker_adapt: small\nworker: local-model\n",
@@ -113,7 +113,7 @@ def test_switching_worker_profile_clears_the_previous_ceiling(tmp_path, monkeypa
     runaway-generation bound the moment you switched away."""
     import os
 
-    from tezcat import bootstrap
+    from chickenskratch import bootstrap
 
     path = tmp_path / "models.yaml"
     path.write_text(TIERED_YAML, encoding="utf-8")
@@ -139,7 +139,7 @@ def test_an_explicit_ceiling_survives_a_worker_switch(tmp_path, monkeypatch):
     WORKER_MAX_TOKENS keeps it across a Spec.md worker change."""
     import os
 
-    from tezcat import bootstrap
+    from chickenskratch import bootstrap
 
     path = tmp_path / "models.yaml"
     path.write_text(TIERED_YAML, encoding="utf-8")

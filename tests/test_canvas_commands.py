@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from tezcat import commands, service
+from chickenskratch import commands, service
 
 
 @pytest.fixture()

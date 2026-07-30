@@ -1,6 +1,6 @@
 """Skills loader and slash-command expansion."""
 
-from tezcat.skills import expand_slash, load_skills, skills_prompt_block
+from chickenskratch.skills import expand_slash, load_skills, skills_prompt_block
 
 
 def test_load_skills():
@@ -33,7 +33,7 @@ def test_expand_slash():
 
 
 def test_unknown_slash_gets_deterministic_reply():
-    from tezcat.skills import unknown_slash
+    from chickenskratch.skills import unknown_slash
 
     skills = load_skills()
     reply = unknown_slash("/weekly-reviw", skills)

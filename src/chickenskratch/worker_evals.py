@@ -6,8 +6,8 @@ JSON — the live half of the worker contract. Unit tests already cover
 parsing/robustness with a fake client; this measures the model's actual
 judgment, so A/B-ing worker candidates is one command per model:
 
-    tezcat-worker-eval                                # current default
-    tezcat-worker-eval -m qwen3.5:4b-instruct-q4_K_M  # challenger
+    chickenskratch-worker-eval                                # current default
+    chickenskratch-worker-eval -m qwen3.5:4b-instruct-q4_K_M  # challenger
 
 Each case runs --repeat times (default 3): small models are stochastic,
 and a worker that's right two runs out of three is a different animal
@@ -27,7 +27,7 @@ import re
 import sys
 import time
 
-from tezcat_vault import workers
+from chickenskratch_vault import workers
 
 from . import evals, grouping
 from .bootstrap import ROOT
@@ -252,7 +252,7 @@ def write_report(model: str, results: list[dict], repeat: int, adapt: str = ""):
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="tezcat-worker-eval", description="Score a worker model against the worker fixture cases"
+        prog="chickenskratch-worker-eval", description="Score a worker model against the worker fixture cases"
     )
     parser.add_argument("-m", "--model", help="worker model name (default: WORKER_MODEL env or built-in)")
     parser.add_argument("--base-url", help="OpenAI-compatible endpoint (default: WORKER_BASE_URL or Ollama)")

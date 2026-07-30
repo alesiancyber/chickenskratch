@@ -10,8 +10,8 @@ import time
 import pytest
 from starlette.testclient import TestClient
 
-from tezcat import proposals, ui
-from tezcat.watcher import Watcher
+from chickenskratch import proposals, ui
+from chickenskratch.watcher import Watcher
 
 
 @pytest.fixture()
@@ -23,10 +23,10 @@ def vault(gitvault):
 def client(vault, tmp_path, monkeypatch):
     """A server over the fixture vault, queue isolated like the engine
     fixtures — the server derives the queue dir, so dir_for is patched."""
-    monkeypatch.setattr("tezcat.watcher.record_dashboard", lambda *a, **k: None)
+    monkeypatch.setattr("chickenskratch.watcher.record_dashboard", lambda *a, **k: None)
     pdir = tmp_path / "proposals"
-    monkeypatch.setattr("tezcat.proposals.dir_for", lambda vp: pdir)
-    monkeypatch.setattr("tezcat.watcher.STATE_PATH", tmp_path / "state.json")
+    monkeypatch.setattr("chickenskratch.proposals.dir_for", lambda vp: pdir)
+    monkeypatch.setattr("chickenskratch.watcher.STATE_PATH", tmp_path / "state.json")
     # base_url matters: every route requires a local Host header (the
     # DNS-rebinding gate), and TestClient's default is "testserver".
     return TestClient(ui.build_app(str(vault)), base_url="http://127.0.0.1")
@@ -147,7 +147,7 @@ def test_decide_button_applies_and_offers_undo(client, vault):
     for sha in body["undo"]:
         rr = client.post("/api/revert", json={"sha": sha})
         assert rr.status_code == 200
-    from tezcat_vault import markdown as md
+    from chickenskratch_vault import markdown as md
 
     fm, _ = md.split_frontmatter((vault / "Home.md").read_text())
     assert fm.get("status") != "x"
@@ -214,7 +214,7 @@ def test_canvas_ingest_splits_commands_from_capture(client, vault, monkeypatch):
     import datetime as _dt
 
     from tests.conftest import record_reply
-    from tezcat import commands as cmd_mod
+    from chickenskratch import commands as cmd_mod
 
     async def fake_azure(args, vault_path):
         return f"- [Ranked hit for {args}](https://learn.microsoft.com/x)"
@@ -224,7 +224,7 @@ def test_canvas_ingest_splits_commands_from_capture(client, vault, monkeypatch):
         return record_reply([{"text": "renew the domain", "due": "2026-08-01"}])
 
     monkeypatch.setitem(cmd_mod.INLINE_COMMANDS, "azure", fake_azure)
-    monkeypatch.setattr("tezcat_vault.workers.extract_record", fake_record)
+    monkeypatch.setattr("chickenskratch_vault.workers.extract_record", fake_record)
     r = client.post("/api/ingest", json={
         "text": "//azure sentinel alert rules\nrenew the domain by friday\n"})
     assert r.status_code == 200
@@ -239,7 +239,7 @@ def test_canvas_ingest_splits_commands_from_capture(client, vault, monkeypatch):
 
 
 def test_canvas_command_only_dump_never_touches_capture(client, vault, monkeypatch):
-    from tezcat import commands as cmd_mod
+    from chickenskratch import commands as cmd_mod
 
     async def fake_azure(args, vault_path):
         return "- [hit](https://learn.microsoft.com/y)"
@@ -256,7 +256,7 @@ def test_canvas_command_only_dump_never_touches_capture(client, vault, monkeypat
 def test_command_route_runs_one_line_and_returns_the_callout(client, monkeypatch):
     """The editor's ⌘↩: same executor and callout as the pass's command
     phase, but the write stays with ⌘S — this route touches no file."""
-    from tezcat import commands
+    from chickenskratch import commands
 
     async def fake(args, vault_path):
         return "an answer\n\n— [[Tasks/Inbox]]"
@@ -270,7 +270,7 @@ def test_command_route_runs_one_line_and_returns_the_callout(client, monkeypatch
 
 
 def test_command_route_rejects_non_commands_and_reports_transients(client, monkeypatch):
-    from tezcat import commands
+    from chickenskratch import commands
 
     # prose, unknown names, bare commands: 400, named plainly
     assert client.post("/api/command", json={"line": "just a note line"}).status_code == 400
@@ -295,7 +295,7 @@ def test_cancel_route_marks_the_job_and_takes_the_consent_gate(client):
     """The stop button's channel: a write verb, so it takes the same
     JSON-only gate as decide/revert — and it only accepts known jobs, so
     a typo can't silently no-op while the UI says "stopping"."""
-    from tezcat import cancel
+    from chickenskratch import cancel
 
     cancel.clear(cancel.PASS)
     try:
@@ -434,7 +434,7 @@ def test_shutdown_waits_out_the_sessions_stop_replaced(vault, tmp_path, monkeypa
     hands teardown to a background task, so closing only the CURRENT
     session orphans exactly what this hook is for: press stop, then quit,
     and the old session's servers outlive the server."""
-    monkeypatch.setattr("tezcat.proposals.dir_for", lambda vp: tmp_path / "proposals")
+    monkeypatch.setattr("chickenskratch.proposals.dir_for", lambda vp: tmp_path / "proposals")
     closed = []
 
     class SlowAgent:
@@ -508,13 +508,13 @@ def test_a_busy_engine_409s_the_decision_instead_of_swallowing_it(client, vault,
     apply" on a row the UI had already marked decided."""
     import fcntl
 
-    from tezcat import service
-    from tezcat import watcher as watcher_mod
+    from chickenskratch import service
+    from chickenskratch import watcher as watcher_mod
     monkeypatch.setattr(watcher_mod, "DECISION_LOCK_WAIT_S", 0.2)
     monkeypatch.setattr(service, "DECISION_LOCK_WAIT_S", 0.2)
     p = plant(vault, proposals.dir_for(str(vault)))
     # the same per-vault lock file the Watcher derives (bootstrap.vault_digest)
-    from tezcat.bootstrap import vault_digest
+    from chickenskratch.bootstrap import vault_digest
     lock_path = watcher_mod.STATE_PATH.with_name(
         f"watcher_state-{vault_digest(str(vault))}.json").with_suffix(".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)

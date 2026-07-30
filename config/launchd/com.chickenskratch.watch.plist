@@ -1,30 +1,30 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- tezcatd login-start template (DEVPLAN Phase 8.3).
+<!-- chickenskratchd login-start template (DEVPLAN Phase 8.3).
      Install: replace __REPO__ and __VAULT__ with absolute paths, then
-       cp config/launchd/com.tezcat.watch.plist ~/Library/LaunchAgents/
-       launchctl load ~/Library/LaunchAgents/com.tezcat.watch.plist
+       cp config/launchd/com.chickenskratch.watch.plist ~/Library/LaunchAgents/
+       launchctl load ~/Library/LaunchAgents/com.chickenskratch.watch.plist
      The PATH below must contain `uv` (adjust if yours lives elsewhere). -->
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.tezcat.watch</string>
+  <key>Label</key><string>com.chickenskratch.watch</string>
   <key>ProgramArguments</key>
   <array>
-    <string>__REPO__/daemon/target/release/tezcatd</string>
+    <string>__REPO__/daemon/target/release/chickenskratchd</string>
     <string>--vault</string><string>__VAULT__</string>
     <string>--repo</string><string>__REPO__</string>
   </array>
   <key>WorkingDirectory</key><string>__REPO__</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>__REPO__/data/logs/tezcatd.log</string>
-  <key>StandardErrorPath</key><string>__REPO__/data/logs/tezcatd.log</string>
+  <key>StandardOutPath</key><string>__REPO__/data/logs/chickenskratchd.log</string>
+  <key>StandardErrorPath</key><string>__REPO__/data/logs/chickenskratchd.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     <!-- Pin the pass's vault to the daemon's: exported env beats .env,
          so a repointed .env can never make them disagree. -->
-    <key>TEZCAT_VAULT_PATH</key><string>__VAULT__</string>
+    <key>CHICKENSKRATCH_VAULT_PATH</key><string>__VAULT__</string>
   </dict>
 </dict>
 </plist>

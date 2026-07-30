@@ -17,7 +17,7 @@ only when WORKER_ADAPT says the configured model needs them. Hedging
 by capability tier beats trying to decide, rule by rule, which
 strictness a given model has outgrown.
 
-Config via env, mirroring TEZCAT_VAULT_PATH:
+Config via env, mirroring CHICKENSKRATCH_VAULT_PATH:
   WORKER_BASE_URL  - OpenAI-compatible endpoint (default: the mlx-worker
                      backend from models.yaml, port 8081)
   WORKER_MODEL     - model name (default: Qwen3.5-4B MLX, the current

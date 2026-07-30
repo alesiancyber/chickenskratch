@@ -1,14 +1,14 @@
-# tezcat
+# chickenskratch
 
 A model-agnostic maintenance layer for a folder of markdown notes, with
 its own surfaces: dashboard, canvas, editor, file explorer, chat pane.
-The vault is plain markdown, so nothing traps your notes — but tezcat
+The vault is plain markdown, so nothing traps your notes — but chickenskratch
 is the front end, not a companion to someone else's. You write chicken
 scratch; the harness files it as structured records with formatted
 tasks (your verbatim text always kept), fixes structure, answers
 typed `//commands` in place, and queues anything needing judgment for a
 one-key verdict on the dashboard. Every mutation is a git commit;
-`tezcat-revert` undoes any of them. Principles and invariants:
+`chickenskratch-revert` undoes any of them. Principles and invariants:
 [PHILOSOPHY.md](PHILOSOPHY.md).
 
 Two classes of change, two contracts:
@@ -23,16 +23,16 @@ Two classes of change, two contracts:
 ## Layout
 
 ```
-src/tezcat_vault/   vault core: path safety, git snapshots, markdown/task/
+src/chickenskratch_vault/   vault core: path safety, git snapshots, markdown/task/
                     kanban parsing, entity schemas, MCP server, LLM workers
-src/tezcat/         the engine: watcher pass, commands, processors, applier,
+src/chickenskratch/         the engine: watcher pass, commands, processors, applier,
                     proposals, evals, CLI chat, backends, dashboard server
-daemon/             tezcatd (Rust): event-driven trigger (FSEvents/inotify)
+daemon/             chickenskratchd (Rust): event-driven trigger (FSEvents/inotify)
 config/             models.yaml (profiles/backends/worker), mcp.yaml
                     (MCP servers), vault.yaml (spec defaults), schemas/
 data/               proposals, corpus (training labels), stats, logs
 evals/              agent suite + worker suite (the model-bakeoff gate)
-web/                the owned dashboard (React; built assets served by tezcat-ui)
+web/                the owned dashboard (React; built assets served by chickenskratch-ui)
 research/           plans and what-ifs; owned-surfaces-plan.md (UI) and
                     dumps-become-records.md (capture lane) are the
                     operative specs, the rest is not canon
@@ -55,26 +55,26 @@ convenience, not a replacement (everything it does, you can do by hand):
 **The manual steps** (what the script automates):
 
 1. **Build.** `uv sync`, then `cd daemon && cargo build --release`.
-2. **Point at a vault.** Precedence: `--vault` flag > `TEZCAT_VAULT_PATH`
+2. **Point at a vault.** Precedence: `--vault` flag > `CHICKENSKRATCH_VAULT_PATH`
    (put it in `.env` to pin it for every CLI) > `vault:` in
    `config/models.yaml`.
 3. **Models.** Any OpenAI-compatible endpoint: profiles in
    `config/models.yaml`, cloud keys via `.env` (`api_key_env` — keys
    never live in config or the vault), local servers under `backends:`
-   (start/stop with `tezcat-backends`).
-4. **First engine pass.** `uv run tezcat-watch` — the engine is
+   (start/stop with `chickenskratch-backends`).
+4. **First engine pass.** `uv run chickenskratch-watch` — the engine is
    self-bootstrapping: seeds `Harness/Spec.md` from `config/vault.yaml`
    defaults and inits the vault's own git repo.
 5. **The daemon.** Manual run:
 
    ```sh
-   daemon/target/release/tezcatd --vault <vault> --repo <this repo>
+   daemon/target/release/chickenskratchd --vault <vault> --repo <this repo>
    # --poll for network mounts where filesystem events are unreliable
    ```
 
    Login-start: fill `__REPO__`/`__VAULT__` in
-   `config/launchd/com.tezcat.watch.plist` (the event daemon,
-   KeepAlive) and `com.tezcat.heartbeat.plist` (one 6am pass for the
+   `config/launchd/com.chickenskratch.watch.plist` (the event daemon,
+   KeepAlive) and `com.chickenskratch.heartbeat.plist` (one 6am pass for the
    date rollover), copy both to `~/Library/LaunchAgents/`, `launchctl
    load` them. Logs land in `data/logs/`.
 6. **Vault backup** (recommended): the vault is its own git repo —
@@ -82,14 +82,14 @@ convenience, not a replacement (everything it does, you can do by hand):
 
 ## Using it
 
-Your notes are text in the vault. The views over them are tezcat's —
+Your notes are text in the vault. The views over them are chickenskratch's —
 rendered live, never written back as files: a view that is also a file
 costs a write, a commit, and a churn guard every pass and buys nothing
 the renderer alone doesn't.
 
 - **`//azure <query>`** on its own line in any note, press Enter →
   replaced in place by ranked Microsoft Learn links a few seconds later.
-  Model-free. Commands live in `src/tezcat/commands.py`; adding one is
+  Model-free. Commands live in `src/chickenskratch/commands.py`; adding one is
   an async function plus a registry entry (`//research` is reserved).
 - **`Harness/Capture.md`** — brain-dump anything; the dump becomes a
   **record**: a meeting note (or a dated capture note) holding a
@@ -115,12 +115,12 @@ the renderer alone doesn't.
 - **Headless**, when no UI is running:
 
   ```sh
-  uv run tezcat today                      # the attention view
-  uv run tezcat changes                    # the audit log
-  uv run tezcat decide p-8f3c21a09b4e approve
+  uv run chickenskratch today                      # the attention view
+  uv run chickenskratch changes                    # the audit log
+  uv run chickenskratch decide p-8f3c21a09b4e approve
   ```
 
-  The 6am heartbeat (`config/launchd/com.tezcat.heartbeat.plist`) covers
+  The 6am heartbeat (`config/launchd/com.chickenskratch.heartbeat.plist`) covers
   the date rollover on a quiet vault.
 - **`Harness/Spec.md`** — the vault's own config, read fresh every
   pass: `folders` (type map), `meetings_dir`/`capture_archive` (where
@@ -134,7 +134,7 @@ the renderer alone doesn't.
   per-lane emergency off), and `daily_dir`.
   Renderer choices are repo config, not Spec keys: diffs are always
   unified ```diff and callouts always `NOTE`.
-- **The dashboard** — `uv run tezcat-ui` (127.0.0.1:8399): the primary
+- **The dashboard** — `uv run chickenskratch-ui` (127.0.0.1:8399): the primary
   attention/decision surface.
   Pending proposals with rich side-by-side diffs, approve/reject/revert
   buttons (the same gated paths every other channel uses), j/k·a/r
@@ -148,7 +148,7 @@ the renderer alone doesn't.
   nothing. Same pipeline as Capture.md — the editor path keeps working
   identically.
 - **The pane** (⌘J) — the chat escape hatch, re-homed: the same Agent
-  loop as `tezcat -i`, with tool calls visible as expandable rows and
+  loop as `chickenskratch -i`, with tool calls visible as expandable rows and
   write-gated calls as Allow/Deny chips (every verdict recorded to the
   training corpus). Transcripts are scratch; the vault is the archive.
 - **The file explorer** (⌘B) — a collapsible rail for the times you
@@ -156,9 +156,9 @@ the renderer alone doesn't.
   opening in the editor above. Collapsed by default; ⌘K reaches any
   note by name without it.
 
-Editor notes: tezcat's own surfaces are the front end, and note
+Editor notes: chickenskratch's own surfaces are the front end, and note
 references anywhere in the UI (rows, citations, "filed → Captures")
-open tezcat's editor — no app-scheme deep links are emitted. The vault is
+open chickenskratch's editor — no app-scheme deep links are emitted. The vault is
 still an ordinary folder of markdown, so any editor can open it —
 that's the format being portable, a byproduct we keep, not a
 compatibility target we design toward. If you do keep an editor open
@@ -168,19 +168,19 @@ VSCode): the disk file is what the harness sees.
 ## CLI
 
 ```sh
-uv run tezcat "add a task to renew the domain by friday"   # chat escape hatch
-uv run tezcat -i                                           # REPL
-uv run tezcat today             # the attention view
-uv run tezcat changes           # the audit log
-uv run tezcat decide <pid> approve|reject    # consent without a UI process
-uv run tezcat-revert            # list snapshots; tezcat-revert <sha> undoes one
-uv run tezcat-ui                # the dashboard server (127.0.0.1:8399)
-uv run tezcat-backends          # list/start/stop local model servers
-./restart.sh                    # bounce every tezcat process onto the current
+uv run chickenskratch "add a task to renew the domain by friday"   # chat escape hatch
+uv run chickenskratch -i                                           # REPL
+uv run chickenskratch today             # the attention view
+uv run chickenskratch changes           # the audit log
+uv run chickenskratch decide <pid> approve|reject    # consent without a UI process
+uv run chickenskratch-revert            # list snapshots; chickenskratch-revert <sha> undoes one
+uv run chickenskratch-ui                # the dashboard server (127.0.0.1:8399)
+uv run chickenskratch-backends          # list/start/stop local model servers
+./restart.sh                    # bounce every chickenskratch process onto the current
                                 # code (daemon via launchd kickstart, UI killed
                                 # + relaunched); --build to rebuild first
-uv run tezcat-eval -m <profile>         # agent suite (fixture vault, scored on files)
-uv run tezcat-worker-eval -m <model>    # worker suite: 69 cases × 3 repeats;
+uv run chickenskratch-eval -m <profile>         # agent suite (fixture vault, scored on files)
+uv run chickenskratch-worker-eval -m <model>    # worker suite: 69 cases × 3 repeats;
                                          # schema_fix scored by the production verifier
 ```
 
@@ -191,7 +191,7 @@ Model swaps are eval-gated — reports land in `evals/reports/`.
 The vault server plugs into any MCP client (Claude Desktop/Code):
 
 ```sh
-TEZCAT_VAULT_PATH=~/Vaults/personal uv run tezcat-vault-mcp
+CHICKENSKRATCH_VAULT_PATH=~/Vaults/personal uv run chickenskratch-vault-mcp
 ```
 
 22 tools: notes (`list_notes`, `read_note`, `search_vault`,
@@ -205,7 +205,7 @@ Semantic tools own format
 correctness (a model never hand-edits kanban markdown); edits are
 anchored to headings/tasks/lines — whole-file rewrites don't exist.
 
-Read-only filesystem search: `FILES_ROOTS="~" uv run tezcat-files-mcp`.
+Read-only filesystem search: `FILES_ROOTS="~" uv run chickenskratch-files-mcp`.
 
 ## Tests & lint
 

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Restart every running tezcat process on the current code.
+# Restart every running chickenskratch process on the current code.
 #
 #   ./restart.sh            # restart the daemon and the dashboard
 #   ./restart.sh --build    # uv sync + web build + cargo build first
 #   ./restart.sh --no-ui    # daemon only (leave the dashboard alone)
 #
-# The daemon (tezcatd) is launchd-supervised with KeepAlive, so killing
+# The daemon (chickenskratchd) is launchd-supervised with KeepAlive, so killing
 # it by hand would just have launchd respawn it — it is KICKSTARTED
 # through launchd instead, which is the supervised way to restart it.
-# The dashboard (tezcat-ui) runs unsupervised, so it is killed and
+# The dashboard (chickenskratch-ui) runs unsupervised, so it is killed and
 # started fresh; it logs to data/logs/ui.log and its pid lands in
 # data/logs/ui.pid. Killing mid-pass is safe by design: the pass lock
 # is a flock (released on process death) and every mutation is its own
@@ -16,8 +16,8 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")" && pwd)"
-WATCH_LABEL="com.tezcat.watch"
-UI_PORT="${TEZCAT_UI_PORT:-8399}"
+WATCH_LABEL="com.chickenskratch.watch"
+UI_PORT="${CHICKENSKRATCH_UI_PORT:-8399}"
 
 BUILD=0 UI=1
 while [ $# -gt 0 ]; do
@@ -44,7 +44,7 @@ if [ "$BUILD" = 1 ]; then
   say "Building"
   (cd "$REPO" && uv sync -q) && ok "uv sync"
   build_web
-  (cd "$REPO/daemon" && cargo build --release -q) && ok "tezcatd"
+  (cd "$REPO/daemon" && cargo build --release -q) && ok "chickenskratchd"
 elif [ "$UI" = 1 ]; then
   # A plain restart serves web/dist AS-IS — and dist is gitignored, so a
   # `git pull` brings new source but never a new bundle. Restarting the
@@ -63,37 +63,37 @@ elif [ "$UI" = 1 ]; then
 fi
 
 # ---- the daemon ----
-say "Restarting tezcatd"
+say "Restarting chickenskratchd"
 if launchctl print "gui/$(id -u)/$WATCH_LABEL" >/dev/null 2>&1; then
   launchctl kickstart -k "gui/$(id -u)/$WATCH_LABEL"
   ok "kickstarted $WATCH_LABEL (launchd-supervised)"
 else
   # not installed as an agent: kill any hand-started one; nothing to start
   # (a daemon nobody supervises is deploy.sh's business, not a restart's)
-  if pkill -f 'tezcatd --vault' 2>/dev/null; then
-    ok "killed unsupervised tezcatd — run deploy.sh (or start it by hand) to bring it back"
+  if pkill -f 'chickenskratchd --vault' 2>/dev/null; then
+    ok "killed unsupervised chickenskratchd — run deploy.sh (or start it by hand) to bring it back"
   else
-    ok "no tezcatd running and no launch agent installed"
+    ok "no chickenskratchd running and no launch agent installed"
   fi
 fi
 
 # a wedged or mid-flight engine pass holds the flock until it dies;
 # killing it costs nothing (the next trigger re-scans everything)
-pkill -f 'tezcat-watch' 2>/dev/null && ok "killed a running engine pass" || true
+pkill -f 'chickenskratch-watch' 2>/dev/null && ok "killed a running engine pass" || true
 
 # ---- the dashboard ----
 if [ "$UI" = 1 ]; then
-  say "Restarting tezcat-ui"
-  pkill -f 'tezcat-ui' 2>/dev/null && ok "stopped the old dashboard" \
+  say "Restarting chickenskratch-ui"
+  pkill -f 'chickenskratch-ui' 2>/dev/null && ok "stopped the old dashboard" \
     || ok "no dashboard was running"
   # TERM first, then verify it actually died — a `uv run` wrapper has
   # been seen outliving its python child — and escalate if not.
   for _ in $(seq 1 20); do
-    pgrep -f 'tezcat-ui' >/dev/null 2>&1 || break
+    pgrep -f 'chickenskratch-ui' >/dev/null 2>&1 || break
     sleep 0.25
   done
-  if pgrep -f 'tezcat-ui' >/dev/null 2>&1; then
-    pkill -9 -f 'tezcat-ui' 2>/dev/null || true
+  if pgrep -f 'chickenskratch-ui' >/dev/null 2>&1; then
+    pkill -9 -f 'chickenskratch-ui' 2>/dev/null || true
     ok "force-killed a lingering dashboard process"
   fi
   # Kill by PORT too: the pattern only matches dashboards started the
@@ -123,7 +123,7 @@ if [ "$UI" = 1 ]; then
   # Absolute paths on purpose: `A && B & C` backgrounds `A && B`, so the
   # pid write runs in the CALLER's cwd — run from anywhere but the repo
   # root, a relative path here made a successful restart exit 1.
-  (cd "$REPO" && nohup uv run tezcat-ui --port "$UI_PORT" \
+  (cd "$REPO" && nohup uv run chickenskratch-ui --port "$UI_PORT" \
       >> "$REPO/data/logs/ui.log" 2>&1 & echo $! > "$REPO/data/logs/ui.pid")
   for _ in $(seq 1 40); do   # up when it answers, not when it forked
     if curl -fsS -o /dev/null "http://127.0.0.1:$UI_PORT/api/today" 2>/dev/null; then

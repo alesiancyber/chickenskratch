@@ -41,9 +41,9 @@ from starlette.responses import JSONResponse, PlainTextResponse, StreamingRespon
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from tezcat_vault import tasks as tk
-from tezcat_vault.vault import Vault, VaultError, VaultLocked, read_lossy
-from tezcat_vault.vaultconfig import get_config
+from chickenskratch_vault import tasks as tk
+from chickenskratch_vault.vault import Vault, VaultError, VaultLocked, read_lossy
+from chickenskratch_vault.vaultconfig import get_config
 
 from . import (
     applier,
@@ -264,7 +264,7 @@ def tree_model(vault_path: str) -> dict:
 
 
 def changes_model(vault_path: str, limit: int = 20) -> dict:
-    """Recent snapshots minus machine renders — the same filter `tezcat
+    """Recent snapshots minus machine renders — the same filter `chickenskratch
     changes` prints through (changes.recent_news), so the two renderings
     of "what changed" can never disagree."""
     return {"commits": changes.recent_news(
@@ -289,7 +289,7 @@ def _worker_reachable(base: str) -> bool:
 
 
 def health_model(vault_path: str) -> dict:
-    from tezcat_vault.workers import worker_base_url, worker_model
+    from chickenskratch_vault.workers import worker_base_url, worker_model
 
     base = worker_base_url()
     head, _dirty = applier.vault_state(vault_path)
@@ -693,7 +693,7 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         """Live first, tail second. Events raised in this process — a
         click's pass, a checked task, a saved note — arrive the instant
         they're emitted. The file tail still runs on the idle tick so
-        events from OTHER processes (tezcat-watch, the cron heartbeat)
+        events from OTHER processes (chickenskratch-watch, the cron heartbeat)
         are never missed; it's the fallback, not the mechanism."""
         try:
             offset = events.events_path(vault_path).stat().st_size
@@ -751,15 +751,15 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         routes.append(Mount("/", StaticFiles(directory=WEB_DIST, html=True)))
     else:
         routes.append(Route("/", lambda request: PlainTextResponse(
-            "tezcat dashboard: frontend not built — run `npm install && npm run build` in web/. "
+            "chickenskratch dashboard: frontend not built — run `npm install && npm run build` in web/. "
             "The API is live under /api/*; the vault stays fully usable from the editor meanwhile.")))
 
     @contextlib.asynccontextmanager
     async def lifespan(app):
         """Shutdown must close the chat session: the pane's Agent spawns
         MCP servers as child processes on the first turn, and a server
-        exit that skips this orphans a tezcat-vault-mcp (plus
-        tezcat-files-mcp and any HTTP sessions) and leaks HARNESS_CHAT_ID
+        exit that skips this orphans a chickenskratch-vault-mcp (plus
+        chickenskratch-files-mcp and any HTTP sessions) and leaks HARNESS_CHAT_ID
         into the environment. Close the session, then stop the engine
         thread.
 
@@ -795,16 +795,16 @@ def main() -> None:
     from .bootstrap import load_runtime
 
     parser = argparse.ArgumentParser(
-        prog="tezcat-ui",
+        prog="chickenskratch-ui",
         description="The owned dashboard: live views + SSE, decide/revert buttons")
-    parser.add_argument("-v", "--vault", help="vault path (default: config, or $TEZCAT_VAULT_PATH)")
+    parser.add_argument("-v", "--vault", help="vault path (default: config, or $CHICKENSKRATCH_VAULT_PATH)")
     parser.add_argument("--port", type=int, default=8399)
     args = parser.parse_args()
     _config, vault, _servers = load_runtime(vault=args.vault)
 
     import uvicorn
 
-    print(f"tezcat dashboard: http://127.0.0.1:{args.port}  (vault: {vault})")
+    print(f"chickenskratch dashboard: http://127.0.0.1:{args.port}  (vault: {vault})")
     uvicorn.run(build_app(vault), host="127.0.0.1", port=args.port, log_level="warning")
 
 

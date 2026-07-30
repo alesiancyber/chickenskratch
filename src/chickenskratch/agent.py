@@ -340,7 +340,7 @@ class Agent:
         consumer's call: the pane passes `note_link=app_note_link` and gets
         a clickable `vault:` link into its own editor; the CLI has no editor
         to open, so it gets the vault-relative path and line, plainly.
-        Never an app-scheme deep link — tezcat's surfaces are where notes
+        Never an app-scheme deep link — chickenskratch's surfaces are where notes
         open. Notes the model already named inline are skipped, so citing
         never duplicates."""
         if not self.vault or not self._cited:

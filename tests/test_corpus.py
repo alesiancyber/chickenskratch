@@ -3,7 +3,7 @@ row, and empty trajectories never do."""
 
 import json
 
-from tezcat import corpus
+from chickenskratch import corpus
 
 MSGS = [
     {"role": "system", "content": "s"},
@@ -85,7 +85,7 @@ def test_capture_failure_never_reaches_the_caller(tmp_path, monkeypatch, capsys)
     """The swallow lives in _append now, once, instead of at each call
     site — and it covers serialization failures too, which the old
     per-caller `except OSError` did not."""
-    from tezcat import corpus
+    from chickenskratch import corpus
 
     # unserializable payload: used to raise TypeError straight through
     class Exotic:

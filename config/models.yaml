@@ -14,7 +14,7 @@ worker: gemini-3.1-pro    # profile the background workers run on (WORKER_* env 
 # fallback is hedged by default (WORKER_ADAPT in workers.py).
 vault: ../testvault   # relative to this config file
 
-# Local model servers, started/stopped with `tezcat-backends`.
+# Local model servers, started/stopped with `chickenskratch-backends`.
 # Profiles map to a backend by base_url. The harness only ever stops
 # processes it started itself; a backend launched elsewhere shows as
 # "external" and is left alone. Remote endpoints (the future homelab
@@ -29,7 +29,7 @@ backends:
     # env:
     #   OLLAMA_CONTEXT_LENGTH: "16384"
   mlx-worker:
-    # Dedicated worker model (task extraction — src/tezcat_vault/workers.py).
+    # Dedicated worker model (task extraction — src/chickenskratch_vault/workers.py).
     # --chat-template-args disables Qwen3.5's default thinking mode: with it
     # on, every reply hides in `reasoning` and the worker fails loud.
     # Chosen by worker-eval bakeoff (evals/reports/workers/); re-run the
