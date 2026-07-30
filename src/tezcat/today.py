@@ -76,7 +76,7 @@ def collect(v: Vault, cfg, pending_decisions: int, today: dt.date | None = None)
     today = today or dt.date.today()
     surface_dirs = cfg.surface_dirs
     open_tasks, owed_tasks, boards = _walk(v, surface_dirs)
-    due, planned, this_week, next_week, later = _time_model(open_tasks, today)
+    due, planned, this_week, next_week, later = _time_model(open_tasks, owed_tasks, today)
     return {
         "date": today.isoformat(),
         "pending_decisions": pending_decisions,
@@ -101,7 +101,8 @@ def collect(v: Vault, cfg, pending_decisions: int, today: dt.date | None = None)
     }
 
 
-def _time_model(open_tasks: list[tuple[tk.Task, str]], today: dt.date):
+def _time_model(open_tasks: list[tuple[tk.Task, str]],
+                owed_tasks: list[tuple[tk.Task, str]], today: dt.date):
     """(due buckets, planned, this_week, next_week, later). Bucketed so
     old debt can never crowd out the present: overdue is ordered
     freshest-first (ancient overdue is the least actionable).
@@ -115,7 +116,15 @@ def _time_model(open_tasks: list[tuple[tk.Task, str]], today: dt.date):
     - otherwise the earliest of ⏳/📅 files the task into its calendar
       week: this week, next week, or later — `kind` says which field
       placed it, so the row can say "due Thu" vs "planned".
-"""
+
+    SNOOZED owed items (👤 with a future ⏳) file into the same week
+    lanes as kind="chase", owner attached: "chase Nadia then" is
+    this-week work exactly like "work on this then". Before this they
+    were nowhere — hidden from waiting AND absent here — so snoozing
+    one read as the item disappearing, and a vanished commitment is
+    the one thing a waiting view must never do. The owner rides on the
+    row so no renderer can dress somebody else's debt as the user's
+    own plan."""
     horizon = today + dt.timedelta(days=SOON_DAYS)
     this_sunday = week_end(today)
     next_sunday = this_sunday + dt.timedelta(days=7)
@@ -158,6 +167,20 @@ def _time_model(open_tasks: list[tuple[tk.Task, str]], today: dt.date):
                 next_week.append(week_row)
             else:
                 later.append(week_row)
+    for task, rel in owed_tasks:
+        s = _safe_date(task.scheduled) if task.scheduled else None
+        if s is None or s <= today:
+            continue  # unsnoozed (or arrived): the waiting view's row
+        week_row = {"text": task.text, "due": task.due or "",
+                    "scheduled": task.scheduled or "", "note": rel,
+                    "owner": task.owner or "", "when": s.isoformat(),
+                    "kind": "chase", "days": (s - today).days}
+        if s <= this_sunday:
+            this_week.append(week_row)
+        elif s <= next_sunday:
+            next_week.append(week_row)
+        else:
+            later.append(week_row)
     due["overdue"].sort(key=lambda r: r["days"])
     due["soon"].sort(key=lambda r: r["days"])
     planned.sort(key=lambda r: -r["slipped"])       # longest-carried first

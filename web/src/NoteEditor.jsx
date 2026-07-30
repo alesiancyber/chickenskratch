@@ -214,13 +214,17 @@ export default function NoteEditor({ path, target, seq, planDates, visible = tru
           placeholder("Empty note."),
           EditorView.updateListener.of((u) => {
             if (!u.docChanged) return;
-            /* A widget affordance (task checkbox, plan chip) on an
-               otherwise-clean buffer is the dashboard's verb, not a
-               keystroke: save it now, so "→ this week" actually moves
-               the task instead of parking it behind an unsaved ⌘S.
-               With unsaved typing in the buffer the edit just joins it
-               — ⌘S stays the one write and nothing is clobbered. */
-            if (stateRef.current === "clean"
+            /* A widget affordance (task checkbox, plan chip) is the
+               dashboard's verb, not a keystroke: save NOW, dirty buffer
+               or not. It used to save only a clean buffer, which parked
+               the verb behind an unsaved ⌘S whenever typing preceded
+               the click — "→ this week" visibly did nothing until some
+               later save, the exact inconsistency a verb must not have.
+               Unsaved typing simply rides along: it's the user's own
+               words in their own note, the write is snapshot-bracketed,
+               and the hash check still catches a note that moved on
+               disk (conflict banner, nothing clobbered). */
+            if (stateRef.current !== "conflict"
                 && u.transactions.some((tr) => tr.isUserEvent("affordance"))) {
               saveRef.current();
               return;

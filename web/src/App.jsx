@@ -20,6 +20,10 @@ const NoteEditor = lazy(() => import("./NoteEditor.jsx"));
 /* Opening a note is available from every row in the tree, so it rides a
    context rather than being threaded through five components. */
 const OpenNote = createContext(() => {});
+// The inverse verb, for NoteRow's toggle: tuck the note pane back behind
+// the canvas WITHOUT unmounting it (unsaved edits and the tab survive —
+// only the X truly closes). Every NoteRow participates, same as OpenNote.
+const ShrinkNote = createContext(() => {});
 
 /* Click-select: the row you clicked stays lit while the editor marks its
    line — both sides of the same click. Focus mode reads this selection:
@@ -101,11 +105,21 @@ const doneKey = (r) => rowKey(r.note, r.text);   // a model row's key
    marks it instead of dropping you at the top to go hunting. */
 function NoteRow({ note, target = "", className = "", children }) {
   const open = useContext(OpenNote);
+  const shrink = useContext(ShrinkNote);
   const { key: selKey, set: setSel } = useContext(SelectRow);
   const myKey = rowKey(note, target);
+  /* A real toggle: first click opens the note and lights the row; the
+     SAME row clicked again releases the highlight AND tucks the pane
+     back to the canvas. (It used to re-open-then-release — the note
+     pane expanded on every click and no click ever contracted it, so
+     the only ways back were the little Canvas tab or the X.) */
   const go = () => {
+    if (myKey === selKey) {
+      shrink();
+      return;
+    }
     open(note, target);
-    setSel(myKey === selKey ? null : myKey);   // second click releases it
+    setSel(myKey);
   };
   return (
     <div className={"row noterow " + className + (selKey === myKey ? " sel" : "")}
@@ -128,10 +142,12 @@ function Rows({ items, render, fold = FOLD, label = "" }) {
   return (
     <>
       {shown.map(render)}
-      {items.length > fold && !all && (
+      {/* symmetric on purpose: anything that expands contracts the same
+          way, from the same spot */}
+      {items.length > fold && (
         <div className="fold small">
-          <button className="linklike" onClick={() => setAll(true)}>
-            +{items.length - fold} more {label}
+          <button className="linklike" onClick={() => setAll((v) => !v)}>
+            {all ? "show less" : `+${items.length - fold} more ${label}`.trimEnd()}
           </button>
         </div>
       )}
@@ -239,10 +255,17 @@ const weekday = (iso) =>
    a deadline): one revertible snapshot, one corpus row — the
    promote/defer stream the judge trains on. */
 function WeekPane({ today, onDone, doneKeys, chips }) {
+  // kind says which field filed the row: a hard due (day kept), a plan
+  // (week-granular, no false precision), or a chase — a snoozed owed
+  // item, always with its 👤 so debt never reads as the user's own plan
   const whenChip = (r) => (
-    <span className={"small " + (r.kind === "due" ? "meta" : "ghost")}>
-      {r.kind === "due" ? `due ${weekday(r.when)}` : "planned"}
-    </span>
+    <>
+      {r.owner && <span className="chip">👤 {r.owner}</span>}
+      <span className={"small " + (r.kind === "due" ? "meta" : "ghost")}>
+        {r.kind === "due" ? `due ${weekday(r.when)}`
+          : r.kind === "chase" ? `chase ${weekday(r.when)}` : "planned"}
+      </span>
+    </>
   );
   const empty = today.this_week.length + today.next_week.length
     + today.later.length + today.backlog.length === 0;
@@ -274,8 +297,10 @@ function WeekPane({ today, onDone, doneKeys, chips }) {
           <Rows items={today.later} fold={5} render={(r, i) => (
             <TaskRow key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
                      right={<>
+                       {r.owner && <span className="chip">👤 {r.owner}</span>}
                        <span className="small ghost">{r.kind === "due"
-                         ? `due ${r.when}` : `planned ${r.when}`}</span>
+                         ? `due ${r.when}` : r.kind === "chase"
+                         ? `chase ${r.when}` : `planned ${r.when}`}</span>
                        {chips(r)}
                      </>} />
           )} />
@@ -640,6 +665,13 @@ export default function App() {
     key: selKey,
     set: (k) => (k === null ? releaseSel() : setSelKey(k)),
   }), [selKey, releaseSel]);
+  /* NoteRow's second-click contraction: back to the canvas, selection
+     released, note still mounted on its tab (unsaved edits survive —
+     only the editor's X unmounts). */
+  const shrinkNote = useCallback(() => {
+    setTab("canvas");
+    releaseSel();
+  }, [releaseSel]);
   const toggleFocus = useCallback(() => setFocusMode((v) => {
     localStorage.setItem("tezcat.focus", v ? "0" : "1");
     return !v;
@@ -900,19 +932,12 @@ export default function App() {
                           ...(today.later ?? []),
                           ...(today.backlog ?? [])].map(doneKey));
     setDoneKeys((k) => new Set([...k].filter((key) => live.has(key))));
-    // moved rows leave the week buckets once the refetch lands; pruning
-    // by liveness (not clearing) keeps the "moved" chip up during the
-    // gap between optimistic mark and fresh data. Every row that carries
-    // the plan chips participates — stranded and waiting included.
-    const moveLive = new Set([...today.due.soon,
-                              ...(today.this_week ?? []),
-                              ...(today.next_week ?? []),
-                              ...(today.later ?? []),
-                              ...(today.planned ?? []),
-                              ...(today.stranded ?? []),
-                              ...today.waiting,
-                              ...(today.backlog ?? [])].map(doneKey));
-    setMovedKeys((k) => new Set([...k].filter((key) => moveLive.has(key))));
+    // A fresh model IS the move landing: the row is in its new lane now,
+    // and it must show its new chips there, so the optimistic "moved"
+    // marks clear wholesale. (These were once pruned by liveness — but a
+    // moved row's key stays live in its DESTINATION lane, so every mark
+    // survived forever and the row wore "moved" instead of chips.)
+    setMovedKeys((k) => (k.size ? new Set() : k));
   }, [today]);
 
   if (error && !today)
@@ -933,6 +958,7 @@ export default function App() {
 
   return (
     <OpenNote.Provider value={openNoteAt}>
+    <ShrinkNote.Provider value={shrinkNote}>
     <SelectRow.Provider value={selCtx}>
     <div className={"shell" + (focusMode && selKey ? " focus" : "")}>
       <Console open={consoleOpen} onClose={() => setConsoleOpen(false)} />
@@ -1257,6 +1283,7 @@ export default function App() {
                revertLast={revertLast} />
     </div>
     </SelectRow.Provider>
+    </ShrinkNote.Provider>
     </OpenNote.Provider>
   );
 }

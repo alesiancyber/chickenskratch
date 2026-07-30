@@ -185,10 +185,19 @@ def test_owed_items_surface_in_waiting_never_as_own_work(vault):
     # the snooze field rides on the row: the dashboard's plan chips
     # compute placement from it with the same rule as every task row
     assert row["scheduled"] == ""
-    # snoozed (⏳ in the future): hidden everywhere until its day comes
+    # snoozed (⏳ in the future): out of the waiting view until its day
+    # comes, but NOT invisible — it files into the week lanes as a chase
+    # row with its owner attached. (It used to be nowhere at all, so
+    # snoozing an owed item read as the item being deleted.)
     assert not any(r["text"] == "contract redlines" for r in m["waiting"])
-    own_texts = [r["text"] for r in m["planned"] + m["this_week"] + m["next_week"]
-                 + m["later"] + m["backlog"] + m["stranded"]]
+    lanes = m["this_week"] + m["next_week"] + m["later"]
+    (chase,) = [r for r in lanes if r["text"] == "contract redlines"]
+    assert chase["kind"] == "chase" and chase["owner"] == "Legal"
+    assert chase["scheduled"] == day(3)
+    # the partition guarantee, restated: owed items never appear as the
+    # user's OWN work — no ownerless row anywhere carries them
+    own_texts = [r["text"] for r in m["planned"] + m["backlog"] + m["stranded"]
+                 + [r for r in lanes if not r.get("owner")]]
     assert "pipeline costs" not in own_texts
     assert "contract redlines" not in own_texts
     # and the markdown render names the owner
