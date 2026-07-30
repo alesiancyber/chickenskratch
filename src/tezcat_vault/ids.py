@@ -17,6 +17,14 @@ import uuid
 # Requiring \s+ before ^ keeps trailing math like "2^10" intact.
 BLOCK_REF_RE = re.compile(r"\s+\^(?P<ref>[A-Za-z0-9][A-Za-z0-9_-]*)\s*$")
 
+# The harness's OWN stamped refs only — stamp_id's kind-prefixed shape
+# (^t-3f2a…). A deliberate subset of BLOCK_REF_RE: verifiers strip these
+# to recover "the text the user wrote, independent of stamping", and a
+# hand-made ^myref is user text, not stamping — it must survive the
+# strip. Anything matching this shape by hand is indistinguishable from
+# a stamp and is treated as one.
+TYPED_REF_RE = re.compile(r"\s*\^[a-z]-[a-z0-9]+\s*$")
+
 
 def stamp_id(kind: str = "") -> str:
     """New 12-hex id, kind-prefixed for block refs: stamp_id("t") -> "t-3f2a..."."""

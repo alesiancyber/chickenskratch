@@ -81,14 +81,53 @@ def gather(vault_path: str, question: str) -> tuple[list[tuple[str, str]], int]:
     return picked, len(matched)
 
 
-def _render(answer: str, sources: list[str], packed: int, matched: int) -> str:
+QUOTE_MAX_CHARS = 160
+
+
+def _link(rel: str, quote: str | None) -> str:
+    """One source as a wikilink. A validated quote rides as the link's
+    #target — the editor's reveal finds that text and marks its line, so
+    clicking a source lands on the passage that backs the answer, not
+    the top of the note. The note NAME is the visible label either way
+    (the target machinery folds away in rendering)."""
+    base = rel.removesuffix(".md")
+    if not quote:
+        return f"[[{base}]]"
+    return f"[[{base}#{quote}|{base.rsplit('/', 1)[-1]}]]"
+
+
+def _render(answer: str, sources: list[str], packed: int, matched: int,
+            quotes: dict[str, str] | None = None) -> str:
     lines = [answer.strip()]
     if sources:
-        lines += ["", "— " + " · ".join(f"[[{r.removesuffix('.md')}]]" for r in sources)]
+        lines += ["", "— " + " · ".join(_link(r, (quotes or {}).get(r)) for r in sources)]
     if matched > packed:
         lines += ["", f"_(answered from the top {packed} of {matched} matching "
                       "notes — narrow the question to reach the rest)_"]
     return "\n".join(lines)
+
+
+def _verified_quotes(raw, sources: list[str], packed: dict[str, str]) -> dict[str, str]:
+    """The deterministic gate between a model's 'supporting quote' and a
+    link target: verbatim (exact substring of the packed note) or it
+    doesn't ride. A paraphrase degrades to a plain note link rather than
+    a jump that lands nowhere — same rule as invented sources. The
+    charset check keeps a quote from breaking the [[target#frag|alias]]
+    grammar it travels in."""
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, str] = {}
+    for key, value in raw.items():
+        key = str(key).strip()
+        rel = key if key in packed else key + ".md" if key + ".md" in packed else None
+        quote = str(value or "").strip()
+        if (rel is None or rel not in sources or not quote
+                or len(quote) > QUOTE_MAX_CHARS
+                or any(c in quote for c in "]|#\n")
+                or quote not in packed[rel]):
+            continue
+        out[rel] = quote
+    return out
 
 
 async def ask(vault_path: str, question: str) -> str:
@@ -111,4 +150,5 @@ async def ask(vault_path: str, question: str) -> str:
         rel = s if s in offered else (s + ".md" if s + ".md" in offered else None)
         if rel and rel not in sources:
             sources.append(rel)
-    return _render(str(data["answer"]), sources, len(picked), matched)
+    quotes = _verified_quotes(data.get("quotes"), sources, dict(picked))
+    return _render(str(data["answer"]), sources, len(picked), matched, quotes)

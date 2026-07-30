@@ -182,6 +182,9 @@ def test_owed_items_surface_in_waiting_never_as_own_work(vault):
     (row,) = [r for r in m["waiting"] if r["text"] == "pipeline costs"]
     assert row["owner"] == "Nadia" and row["waiting_days"] == 10
     assert row["note"] == f"Meetings/{day(-10)} Azure Sync.md"
+    # the snooze field rides on the row: the dashboard's plan chips
+    # compute placement from it with the same rule as every task row
+    assert row["scheduled"] == ""
     # snoozed (⏳ in the future): hidden everywhere until its day comes
     assert not any(r["text"] == "contract redlines" for r in m["waiting"])
     own_texts = [r["text"] for r in m["planned"] + m["this_week"] + m["next_week"]

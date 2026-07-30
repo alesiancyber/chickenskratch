@@ -525,13 +525,12 @@ def verify_record(w: Watcher, item: dict, proposal: dict) -> list[str]:
 
 # ---- additive-shape verifier: schema fixes that only add structure ----
 
-_BLOCK_REF_RE = re.compile(r"\s*\^[a-z]-[a-z0-9]+\s*$")
-
-
 def _strip_refs(body: str) -> list[str]:
-    """Non-blank body lines with trailing block refs removed — the text
-    the user actually wrote, independent of stamping."""
-    return [_BLOCK_REF_RE.sub("", ln) for ln in body.splitlines() if ln.strip()]
+    """Non-blank body lines with trailing HARNESS refs removed — the text
+    the user actually wrote, independent of stamping. ids.TYPED_REF_RE on
+    purpose (not BLOCK_REF_RE): a hand-made ^myref is user text and must
+    survive the strip."""
+    return [ids.TYPED_REF_RE.sub("", ln) for ln in body.splitlines() if ln.strip()]
 
 
 def _is_subsequence(needle: list[str], hay: list[str]) -> tuple[bool, list[str]]:

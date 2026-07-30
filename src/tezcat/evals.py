@@ -46,11 +46,12 @@ def date_subs() -> dict[str, str]:
     def day(n: int) -> str:
         return (today + dt.timedelta(days=n)).isoformat()
 
-    this_sunday = today + dt.timedelta(days=6 - today.weekday())
+    this_sunday = tk.week_end(today)
     return {
         "{today}": day(0), "{tomorrow}": day(1), "{yesterday}": day(-1),
         "{plus3}": day(3), "{plus5}": day(5), "{plus7}": day(7), "{plus14}": day(14),
         # the ⏳ week anchors: "this week" plans stamp the week's Sunday
+        # (tasks.week_end — the same Sunday every other surface uses)
         "{this_sunday}": this_sunday.isoformat(),
         "{next_sunday}": (this_sunday + dt.timedelta(days=7)).isoformat(),
     }

@@ -40,10 +40,10 @@ WAITING_AGE_MIN = 3  # days before a waiting item starts showing its age
 _ACTIVE_COLUMNS = {"doing", "in progress", "active", "in-progress"}
 
 
-def week_end(d: dt.date) -> dt.date:
-    """The Sunday ending d's week — the ⏳ anchor for week-granular plans
-    ("this week" stamps this Sunday, "next week" the one after)."""
-    return d + dt.timedelta(days=6 - d.weekday())
+# The ⏳ Sunday anchor lives with the task grammar (one definition for
+# this view, the extraction prompts, and the eval fixtures); re-exported
+# here because "which Sunday is this week" is part of this view's API.
+week_end = tk.week_end
 
 
 def _link(rel: str) -> str:
@@ -231,6 +231,9 @@ def _waiting_rows(owed_tasks: list[tuple[tk.Task, str]],
             "text": task.text,
             "owner": task.owner or "",
             "due": task.due or "",
+            # the snooze field, carried so the dashboard's plan chips can
+            # tell "chase now" from "snoozed" with the same rule everywhere
+            "scheduled": task.scheduled or "",
             # ➕ birth dates stamp at format_task; aging accrues
             "waiting_days": (today - born).days if born else None,
             "note": rel,

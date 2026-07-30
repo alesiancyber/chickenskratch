@@ -10,6 +10,7 @@ import Diff from "./Diff.jsx";
 import Explorer from "./Explorer.jsx";
 import Console from "./Console.jsx";
 import Pane from "./Pane.jsx";
+import { planTargets } from "./plan.js";
 
 /* CodeMirror triples the bundle, and the dashboard is what you see
    first — so the editor loads on the first note you open, not on
@@ -88,6 +89,12 @@ function Splitter({ onDrag }) {
   );
 }
 
+/* THE row-identity key — the selection, the optimistic done-strike set,
+   and the optimistic moved set all build it here, once. NUL as separator
+   because note paths and task text can both contain anything printable. */
+const rowKey = (note, text) => note + "\u0000" + text;
+const doneKey = (r) => rowKey(r.note, r.text);   // a model row's key
+
 /* Any row that stands for a note: clicking anywhere on it opens that note
    in the one live editor. One page, one open note — nothing to manage.
    `target` is the row's own text, so the editor lands on that line and
@@ -95,7 +102,7 @@ function Splitter({ onDrag }) {
 function NoteRow({ note, target = "", className = "", children }) {
   const open = useContext(OpenNote);
   const { key: selKey, set: setSel } = useContext(SelectRow);
-  const myKey = note + "\u0000" + target;
+  const myKey = rowKey(note, target);
   const go = () => {
     open(note, target);
     setSel(myKey === selKey ? null : myKey);   // second click releases it
@@ -148,17 +155,11 @@ function Section({ id, label, verb, children }) {
   );
 }
 
-/* One key shape for the optimistic done-strike set. NUL as separator
-   because note paths and task text can both contain anything printable;
-   String.fromCharCode(0) equals the "\u0000" literal used where the set
-   is built. */
-const doneKey = (r) => r.note + String.fromCharCode(0) + r.text;
-
-/* The promote/defer chips — ONE implementation for every surface that
-   offers them (Today's soon/stranded rows, the Week tab's lanes), so the
-   two tabs can't drift on what a move looks like. Shows the "moved" chip
-   once the optimistic mark lands, otherwise one button per target.
-   `toast` is what the confirmation toast says; `text` is the button. */
+/* The promote/defer chips — ONE renderer for every surface that offers
+   them, fed by the one target rule (planChips below), so no two rows can
+   drift on what a move looks like. Shows the "moved" chip once the
+   optimistic mark lands, otherwise one button per target. `toast` is
+   what the confirmation toast says; `text` is the button. */
 function MoveChips({ r, moved, onMove, targets }) {
   if (moved.has(doneKey(r)))
     return <span className="chip verdict-approve">moved</span>;
@@ -185,10 +186,12 @@ function TaskRow({ r, right, onDone, done }) {
 }
 
 /* Region 1 — do. Hard commitments first (due today, overdue, broken
-   dates — rows carry the delta, never the bare state), then the plan:
-   ⏳-today tasks, with how long each has carried and the same "→ this
-   week" chip every other surface offers. Then today's meetings. */
-function DoToday({ due, planned, meetings, onDone, doneKeys, onMove, weekTarget, moved }) {
+   dates — rows carry the delta, never the bare state; a deadline at or
+   past today pins the row here, so those rows carry no move chips —
+   there is nowhere a ⏳ plan could honestly take them), then the plan:
+   ⏳-today tasks, with how long each has carried and the same shared
+   chips every other surface offers. Then today's meetings. */
+function DoToday({ due, planned, meetings, onDone, doneKeys, chips }) {
   const rows = [
     ...due.broken.map((r) => ({ ...r, cls: "overdue", when: `due date ${r.due} is not a real date` })),
     ...due.overdue.map((r) => ({ ...r, cls: "overdue", when: `${r.days}d overdue` })),
@@ -201,7 +204,7 @@ function DoToday({ due, planned, meetings, onDone, doneKeys, onMove, weekTarget,
         items={rows}
         render={(r, i) => (
           <TaskRow key={i} r={r} onDone={onDone}
-                   done={doneKeys.has(r.note + "\u0000" + r.text)}
+                   done={doneKeys.has(doneKey(r))}
                    right={<span className={`small ${r.cls}`}>{r.when}</span>} />
         )}
       />
@@ -212,8 +215,7 @@ function DoToday({ due, planned, meetings, onDone, doneKeys, onMove, weekTarget,
                      {r.slipped ? `planned · carried ${r.slipped}d` : "planned"}
                    </span>
                    {r.due && <span className="chip">due {r.due}</span>}
-                   <MoveChips r={r} moved={moved} onMove={onMove}
-                              targets={[weekTarget]} />
+                   {chips(r)}
                  </>} />
       ))}
       {meetings.map((rel) => (
@@ -236,11 +238,7 @@ const weekday = (iso) =>
    precision). Every move sets ⏳ through the gated verb (a plan, never
    a deadline): one revertible snapshot, one corpus row — the
    promote/defer stream the judge trains on. */
-function WeekPane({ today, onDone, doneKeys, moved, onMove }) {
-  const { due } = today;
-  // the shared chips, with this pane's ladder targets pre-bound
-  const toToday = [{ when: today.date, text: "→ today" }];
-  const ladder = [{ when: due.this_sunday, text: "→ this week" }, ...toToday];
+function WeekPane({ today, onDone, doneKeys, chips }) {
   const whenChip = (r) => (
     <span className={"small " + (r.kind === "due" ? "meta" : "ghost")}>
       {r.kind === "due" ? `due ${weekday(r.when)}` : "planned"}
@@ -259,9 +257,7 @@ function WeekPane({ today, onDone, doneKeys, moved, onMove }) {
         <Section id="this-week" label="What lands this week?" verb="do">
           <Rows items={today.this_week} render={(r, i) => (
             <TaskRow key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
-                     right={<>{whenChip(r)}
-                            <MoveChips r={r} moved={moved} onMove={onMove}
-                                       targets={toToday} /></>} />
+                     right={<>{whenChip(r)}{chips(r)}</>} />
           )} />
         </Section>
       )}
@@ -269,9 +265,7 @@ function WeekPane({ today, onDone, doneKeys, moved, onMove }) {
         <Section id="next-week" label="What's lined up for next week?" verb="prep">
           <Rows items={today.next_week} render={(r, i) => (
             <TaskRow key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
-                     right={<>{whenChip(r)}
-                            <MoveChips r={r} moved={moved} onMove={onMove}
-                                       targets={ladder} /></>} />
+                     right={<>{whenChip(r)}{chips(r)}</>} />
           )} />
         </Section>
       )}
@@ -282,8 +276,7 @@ function WeekPane({ today, onDone, doneKeys, moved, onMove }) {
                      right={<>
                        <span className="small ghost">{r.kind === "due"
                          ? `due ${r.when}` : `planned ${r.when}`}</span>
-                       <MoveChips r={r} moved={moved} onMove={onMove}
-                                  targets={ladder} />
+                       {chips(r)}
                      </>} />
           )} />
         </Section>
@@ -297,8 +290,7 @@ function WeekPane({ today, onDone, doneKeys, moved, onMove }) {
                        {r.age_days != null && (
                          <span className="small ghost">{r.age_days}d old</span>
                        )}
-                       <MoveChips r={r} moved={moved} onMove={onMove}
-                                  targets={ladder} />
+                       {chips(r)}
                      </>} />
           )} />
         </Section>
@@ -601,8 +593,25 @@ export default function App() {
   const [tab, setTab] = useState("canvas");         // "canvas" | "note"
   const [leftTab, setLeftTab] = useState("today");  // "today" | "week"
 
+  /* EVERY open funnels here — dashboard rows, the explorer, the palette,
+     wikilinks in the editor, canvas receipts, chat replies — so name
+     resolution lives at this one choke point instead of per surface (it
+     used to exist only on the editor's path, so the same [[bare name]]
+     resolved there and dead-ended in chat). Full rels pass through on
+     the exact match; a hand-typed [[bare name]] resolves against the
+     tree the way any wiki would; a miss falls through as-is and surfaces
+     the vault's own "no such note" hint. The tree rides in a ref so this
+     callback stays referentially stable across refetches. */
+  const treeRef = useRef(tree);
+  treeRef.current = tree;
   const openNoteAt = useCallback((path, target = "") => {
-    setOpenNote((prev) => ({ path, target, seq: (prev?.seq ?? 0) + 1 }));
+    const notes = treeRef.current?.notes ?? [];
+    const lower = path.toLowerCase();
+    const rel = notes.find((r) => r.toLowerCase() === lower)
+      ?? notes.find((r) => r.toLowerCase() === `${lower}.md`)
+      ?? notes.find((r) => noteName(r).toLowerCase() === lower)
+      ?? path;
+    setOpenNote((prev) => ({ path: rel, target, seq: (prev?.seq ?? 0) + 1 }));
     setTab("note");
   }, []);
   // Closing the note takes the selection with it: the editor half of the
@@ -706,7 +715,7 @@ export default function App() {
   }, [refetch, showToast]);
 
   const taskDone = useCallback(async (r) => {
-    const key = r.note + "\u0000" + r.text;
+    const key = doneKey(r);
     setDoneKeys((k) => new Set(k).add(key));       // optimistic strike
     try {
       await postJSON("/api/task/done", { note: r.note, text: r.text });
@@ -732,51 +741,25 @@ export default function App() {
       showToast(`Couldn’t move it: ${e.message || e}`);
     }
   }, [showToast]);
-  // Defer from Today = the rest of this week; on Sunday there is no
-  // rest, so the chip becomes next week's anchor and says so.
-  const weekTarget = useMemo(() => (
-    today?.due?.this_sunday !== today?.date
-      ? { when: today?.due?.this_sunday, text: "→ this week",
-          toast: "Planned for later this week" }
-      : { when: today?.due?.next_sunday, text: "→ next week",
-          toast: "Planned for next week" }
-  ), [today]);
-  /* "→ today" and "→ this week" from every row a task lives on — soon,
-     stranded, the week lanes, the backlog — not just the Week tab. Same
-     gated ⏳ verb (plan, never deadline), same corpus row, wherever it's
-     clicked. Both verbs travel together: deciding a task isn't for today
-     is the same moment as deciding when it IS for, and sending the user
-     to another tab to say so is how things end up undated. */
-  const planBtns = useCallback((r) => {
-    const targets = [{ when: today?.date, text: "→ today", toast: "Promoted to today" }];
-    // On a Sunday the week anchor IS today; one button, not two
-    // spellings of it.
-    if (today?.due?.this_sunday !== today?.date)
-      targets.push({ when: today?.due?.this_sunday, text: "→ this week",
-                     toast: "Planned for this week" });
-    return <MoveChips r={r} moved={movedKeys} onMove={planTask} targets={targets} />;
-  }, [movedKeys, planTask, today]);
-
-  /* The chips inside the note editor plan against the SAME anchors the
-     rows do — derived once here, never recomputed from a Date() down
-     there, so the two surfaces can't disagree about which Sunday it is. */
+  /* The anchors every plan move stamps against, straight off the
+     server's view-model — the editor's chips get the same object, so
+     no surface ever derives its own Sunday from a local Date(). */
   const planDates = useMemo(
-    () => ({ today: today?.date ?? "", week: today?.due?.this_sunday ?? "" }),
-    [today?.date, today?.due?.this_sunday]);
-
-  /* Wikilink clicks inside the editor. Harness-written links carry the
-     full rel ("Meetings/2026-07-17 team weekly" — the vault adds .md);
-     a hand-typed [[bare name]] resolves against the tree the way any
-     wiki would. Misses fall through as-is and surface the vault's own
-     "no such note" hint. */
-  const openWiki = useCallback((name, frag = "") => {
-    const notes = tree?.notes ?? [];
-    const lower = name.toLowerCase();
-    const rel = notes.find((r) => r.toLowerCase() === `${lower}.md`)
-      ?? notes.find((r) => noteName(r).toLowerCase() === lower)
-      ?? name;
-    openNoteAt(rel, frag);
-  }, [tree, openNoteAt]);
+    () => ({ today: today?.date ?? "", week: today?.due?.this_sunday ?? "",
+             next: today?.due?.next_sunday ?? "" }),
+    [today?.date, today?.due?.this_sunday, today?.due?.next_sunday]);
+  /* The shared chips, on every row a task lives on — Today's lanes, the
+     Week lanes, owed, stranded, the backlog. planTargets (plan.js) is
+     the one placement rule: a task is in today, this week, or later,
+     and its chips are the other two, minus any move a hard 📅 makes a
+     lie. Same gated ⏳ verb, same corpus row, wherever it's clicked. */
+  const planChips = useCallback((r) => {
+    const targets = planTargets(
+      { due: r.due || "", scheduled: r.scheduled || "", owed: Boolean(r.owner) },
+      planDates);
+    if (targets.length === 0) return null;
+    return <MoveChips r={r} moved={movedKeys} onMove={planTask} targets={targets} />;
+  }, [movedKeys, planTask, planDates]);
 
   /* A write that plausibly touched the OPEN note tells the editor to
      hot-sync its (clean) buffer — checking a task on Today must check
@@ -919,14 +902,15 @@ export default function App() {
     setDoneKeys((k) => new Set([...k].filter((key) => live.has(key))));
     // moved rows leave the week buckets once the refetch lands; pruning
     // by liveness (not clearing) keeps the "moved" chip up during the
-    // gap between optimistic mark and fresh data. Stranded rows carry
-    // the plan chips too, so they participate as well.
+    // gap between optimistic mark and fresh data. Every row that carries
+    // the plan chips participates — stranded and waiting included.
     const moveLive = new Set([...today.due.soon,
                               ...(today.this_week ?? []),
                               ...(today.next_week ?? []),
                               ...(today.later ?? []),
                               ...(today.planned ?? []),
                               ...(today.stranded ?? []),
+                              ...today.waiting,
                               ...(today.backlog ?? [])].map(doneKey));
     setMovedKeys((k) => new Set([...k].filter((key) => moveLive.has(key))));
   }, [today]);
@@ -1027,7 +1011,7 @@ export default function App() {
 
       <DoToday due={today.due} planned={today.planned ?? []}
                meetings={today.meetings} onDone={taskDone} doneKeys={doneKeys}
-               onMove={planTask} weekTarget={weekTarget} moved={movedKeys} />
+               chips={planChips} />
 
       {today.due.soon.length > 0 && (
         <Section id="soon" label="What lands soon?" verb="start">
@@ -1035,7 +1019,7 @@ export default function App() {
             <TaskRow key={i} r={r} onDone={taskDone} done={doneKeys.has(doneKey(r))}
                      right={<>
                        <span className="small meta">in {r.days}d</span>
-                       {planBtns(r)}
+                       {planChips(r)}
                      </>} />
           )} />
         </Section>
@@ -1049,11 +1033,12 @@ export default function App() {
                   (a, b) => (b.waiting_days ?? 0) - (a.waiting_days ?? 0))}
                 render={(r, i) => (
             <TaskRow key={i} r={r} onDone={taskDone}
-                     done={doneKeys.has(r.note + "\u0000" + r.text)}
+                     done={doneKeys.has(doneKey(r))}
                      right={<>
                        {r.owner && <span className="chip">👤 {r.owner}</span>}
                        {r.due && <span className="chip">due {r.due}</span>}
                        {r.waiting_days >= 3 && <span className="chip attention">{r.waiting_days}d</span>}
+                       {planChips(r)}
                      </>} />
           )} />
         </Section>
@@ -1081,7 +1066,7 @@ export default function App() {
             <NoteRow note={r.note} target={r.text} key={i}>
               <span className="grow">{r.text}</span>
               <span className="small ghost">{r.age_days}d old · undated</span>
-              {planBtns(r)}
+              {planChips(r)}
             </NoteRow>
           )} />
         </Section>
@@ -1189,7 +1174,7 @@ export default function App() {
       <div className={"pane-slot" + (leftTab === "week" ? "" : " hidden")}>
         <div className="pane-scroll">
           <WeekPane today={today} onDone={taskDone}
-                    doneKeys={doneKeys} moved={movedKeys} onMove={planTask} />
+                    doneKeys={doneKeys} chips={planChips} />
         </div>
       </div>
       </div>
@@ -1232,7 +1217,7 @@ export default function App() {
               <NoteEditor path={openNote.path} target={openNote.target}
                           seq={openNote.seq} visible={tab === "note"}
                           planDates={planDates} refresh={editorRefresh}
-                          onOpenNote={openWiki} onClose={closeNote} />
+                          onOpenNote={openNoteAt} onClose={closeNote} />
             </Suspense>
           </div>
         )}

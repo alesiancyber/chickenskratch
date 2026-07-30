@@ -517,18 +517,21 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         return JSONResponse(result)
 
     async def task_line_route(request):
-        """Rewrite ONE task line's ⏳ plan date and hand it back. Writes
-        nothing — no vault access at all, just tasks.set_line_scheduled
-        over the text in the body.
+        """Rewrite ONE task line and hand it back — `{line, when}` moves
+        the ⏳ plan date, `{line, done}` flips the checkbox (with the ✅
+        stamp/strip the done verb always does). Writes nothing — no vault
+        access at all, just the tasks.py rewrites over the text in the
+        body.
 
-        This exists so the note editor's plan chips can splice the result
-        into the open buffer. The alternative shapes are both worse: a
-        real write (task_plan_route) would change the file under a buffer
-        the user may have unsaved edits in, forcing the stale-hash reload
-        that discards them; and reimplementing the rewrite in JavaScript
-        means this vault's task grammar lives in two languages, with the
-        engine re-reading whatever the editor wrote using the Python
-        regexes. One implementation, one round trip on localhost.
+        This exists so the note editor's affordances (plan chips, the
+        checkbox) can splice the result into the open buffer. The
+        alternative shapes are both worse: a real write (task_plan_route)
+        would change the file under a buffer the user may have unsaved
+        edits in, forcing the stale-hash reload that discards them; and
+        reimplementing the rewrites in JavaScript means this vault's task
+        grammar lives in two languages, with the engine re-reading
+        whatever the editor wrote using the Python regexes. One
+        implementation, one round trip on localhost.
 
         It still takes the consent gate — not because it mutates, but
         because every POST on this server does, and an endpoint that opts
@@ -536,11 +539,15 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         body, err = await guard_write(request)
         if err:
             return err
-        # "" clears the field, which is what an active chip's second click
-        # sends; tasks.set_line_scheduled takes None for that.
-        when = str(body.get("when", "")).strip() or None
         try:
-            line = tk.set_line_scheduled(str(body.get("line", "")), when)
+            if "done" in body:
+                line = tk.set_line_status(str(body.get("line", "")),
+                                          bool(body["done"]))
+            else:
+                # "" clears the field — a "→ later" click sends that;
+                # tasks.set_line_scheduled takes None for it.
+                when = str(body.get("when", "")).strip() or None
+                line = tk.set_line_scheduled(str(body.get("line", "")), when)
         except ValueError as e:
             return JSONResponse({"error": str(e)}, status_code=400)
         return JSONResponse({"line": line})

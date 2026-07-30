@@ -1,6 +1,8 @@
 import { RangeSet, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import { postJSON } from "./api.js";
+import { planTargets } from "./plan.js";
+import { WIKILINK_RE, parseWikilink } from "./wiki.js";
 
 /* Arriving from the dashboard: the row you clicked gets marked so you
    land on it instead of re-finding it. This IS the selection, editor
@@ -52,7 +54,10 @@ const BLOCK_REF_RE = /\s+\^([A-Za-z0-9][A-Za-z0-9_-]*)\s*$/;
 // (D83D) with most emoji — 👤 included — so the priority decoration
 // could match HALF of an owner glyph and corrupt the line's rendering.
 const PRIORITY_RE = /[🔺⏫🔼🔽⏬]/gu;
-const WIKILINK_RE = /\[\[([^\]]+)\]\]/g;
+// the chips' placement inputs: the line's own 📅 and 👤, same glyphs
+// tasks.py reads (DATE_RE above is the rendering scan; this one feeds
+// planTargets, which needs the due date alone)
+const DUE_RE = /📅\s*(\d{4}-\d{2}-\d{2})/;
 const BOLD_RE = /\*\*([^*]+)\*\*/g;
 const HEADING_RE = /^(#{1,6})\s+/;
 // A callout title: `> [!NOTE]- Verbatim — 14:32` (the space after > is
@@ -63,18 +68,46 @@ const HEADING_RE = /^(#{1,6})\s+/;
 const CALLOUT_RE = /^>\s*\[!(\w+)\]([-+]?)\s?(.*)$/;
 const QUOTE_PREFIX_RE = /^\s*>\s?/;
 
-/* The checkbox: a real affordance over plain text. Clicking dispatches
-   a one-character replacement of the mark inside the brackets — the
-   file still says `- [x]`, we just drew a box on top of it. This is the
-   pattern every "block affordance" in a text model follows. */
+/* One splice for every line affordance (the checkbox, the plan chips):
+   ask the server for the rewritten line, then apply it as a DOCUMENT
+   edit. The round trip is localhost-fast but not instant, and the
+   document is live under it — so the rewrite lands only if the line
+   still says what we sent; a keystroke that landed meanwhile owns the
+   line, and we must not paste a stale rewrite over it. The "affordance"
+   userEvent makes the editor save a clean buffer immediately: the click
+   is the dashboard's verb, not a keystroke, and a silent buffer edit
+   still waiting on ⌘S reads as "it didn't happen" from the Today
+   column. */
+async function rewriteLine(view, lineFrom, req, userEvent) {
+  const before = view.state.doc.lineAt(lineFrom).text;
+  let next;
+  try {
+    ({ line: next } = await postJSON("/api/task/line", { line: before, ...req }));
+  } catch {
+    return;                    // server unreachable: the line stands
+  }
+  const now = view.state.doc.lineAt(lineFrom);
+  if (now.text === before && next !== before)
+    view.dispatch({ changes: { from: now.from, to: now.to, insert: next },
+                    userEvent });
+}
+
+/* The checkbox: a real affordance over plain text — we drew a box on
+   top of an unchanged `- [ ]`. The rewrite comes from the server
+   (/api/task/line {line, done}): tasks.set_line_status, the SAME
+   completion rewrite behind the dashboard's done verb, so completing
+   here stamps ✅ and reopening strips it exactly as it does everywhere
+   else. (Its first life as a raw one-character mark flip left
+   editor-completed tasks with no done date and reopened ones with a
+   stale ✅ — two surfaces writing different grammar.) */
 class TaskBox extends WidgetType {
-  constructor(checked, markPos) {
+  constructor(checked, lineFrom) {
     super();
     this.checked = checked;
-    this.markPos = markPos;
+    this.lineFrom = lineFrom;
   }
   eq(other) {
-    return other.checked === this.checked && other.markPos === this.markPos;
+    return other.checked === this.checked && other.lineFrom === this.lineFrom;
   }
   toDOM(view) {
     const box = document.createElement("span");
@@ -84,13 +117,7 @@ class TaskBox extends WidgetType {
     box.title = this.checked ? "Reopen" : "Complete";
     box.onmousedown = (e) => {
       e.preventDefault();
-      // "affordance": the editor saves this on a clean buffer — a click
-      // on a checkbox is the dashboard's done-verb, not a keystroke.
-      view.dispatch({
-        changes: { from: this.markPos, to: this.markPos + 1,
-                   insert: this.checked ? " " : "x" },
-        userEvent: "affordance.task",
-      });
+      rewriteLine(view, this.lineFrom, { done: !this.checked }, "affordance.task");
     };
     return box;
   }
@@ -108,7 +135,7 @@ class TaskBox extends WidgetType {
 export const setPlanDates = StateEffect.define();
 
 export const planDatesField = StateField.define({
-  create: () => ({ today: "", week: "" }),
+  create: () => ({ today: "", week: "", next: "" }),
   update(dates, tr) {
     for (const e of tr.effects) if (e.is(setPlanDates)) return e.value;
     return dates;
@@ -116,7 +143,11 @@ export const planDatesField = StateField.define({
 });
 
 /* Plan chips on an open task: the same ⏳ verb the dashboard's rows
-   offer, on the surface where you're actually reading the task.
+   offer, on the surface where you're actually reading the task. Which
+   chips render comes from planTargets (plan.js) — the ONE placement
+   rule both surfaces share — fed with this line's own ⏳/📅/👤, so a
+   task shows the two places it is NOT, never a move its dates make a
+   lie, exactly as its dashboard row does.
 
    The rewrite itself comes from the server (/api/task/line), which
    returns the new line and writes nothing. Two shapes were rejected:
@@ -127,55 +158,38 @@ export const planDatesField = StateField.define({
    Python regexes. Like the checkbox, what lands here is a DOCUMENT
    edit — ⌘S is still the write, through the same gated /api/note. */
 class PlanChips extends WidgetType {
-  constructor(lineFrom, planned, dates) {
+  constructor(lineFrom, planned, due, owed, dates) {
     super();
     this.lineFrom = lineFrom;
     this.planned = planned;      // the ⏳ date already on the line, or ""
+    this.due = due;              // the 📅 date on the line, or ""
+    this.owed = owed;            // 👤 on the line: the plan is a snooze
     this.dates = dates;
   }
   eq(other) {
     return other.lineFrom === this.lineFrom && other.planned === this.planned
-      && other.dates.today === this.dates.today && other.dates.week === this.dates.week;
+      && other.due === this.due && other.owed === this.owed
+      && other.dates.today === this.dates.today
+      && other.dates.week === this.dates.week
+      && other.dates.next === this.dates.next;
   }
   toDOM(view) {
     const wrap = document.createElement("span");
     wrap.className = "cm-plan";
-    const chip = (label, when) => {
-      const on = Boolean(when) && this.planned === when;
+    const targets = planTargets(
+      { due: this.due, scheduled: this.planned, owed: this.owed }, this.dates);
+    for (const t of targets) {
       const b = document.createElement("button");
-      b.className = "cm-plan-btn" + (on ? " on" : "");
-      b.textContent = label;
-      b.title = on ? `Planned ${when} — click to clear` : `Plan for ${when} (⏳)`;
-      b.onmousedown = async (e) => {
+      b.className = "cm-plan-btn";
+      b.textContent = t.text;
+      b.title = t.when ? `Plan for ${t.when} (⏳)`
+        : "Clear the plan (⏳) — back to the long-term queue";
+      b.onmousedown = (e) => {
         e.preventDefault();          // never steal the caret from the line
-        const before = view.state.doc.lineAt(this.lineFrom).text;
-        let next;
-        try {
-          ({ line: next } = await postJSON("/api/task/line",
-                                           { line: before, when: on ? "" : when }));
-        } catch {
-          return;                    // server unreachable: the line stands
-        }
-        // The round trip is localhost-fast but not instant, and the
-        // document is live under it. Re-find the line and apply only if it
-        // still says what we sent — a keystroke that landed meanwhile owns
-        // the line, and we must not paste a stale rewrite over it.
-        const now = view.state.doc.lineAt(this.lineFrom);
-        if (now.text === before && next !== before)
-          // "affordance": on a clean buffer the editor saves this — the
-          // chip is the same plan verb the dashboard applies instantly,
-          // and a silent buffer edit that still needs ⌘S reads as "the
-          // move didn't happen" from the Today column.
-          view.dispatch({ changes: { from: now.from, to: now.to, insert: next },
-                          userEvent: "affordance.plan" });
+        rewriteLine(view, this.lineFrom, { when: t.when }, "affordance.plan");
       };
       wrap.appendChild(b);
-    };
-    chip("→ today", this.dates.today);
-    // On a Sunday the week anchor IS today, and two chips doing the
-    // identical thing is just noise.
-    if (this.dates.week && this.dates.week !== this.dates.today)
-      chip("→ this week", this.dates.week);
+    }
     return wrap;
   }
   ignoreEvent() {
@@ -354,8 +368,9 @@ export const wikilinkClick = (onOpen) => EditorView.domEventHandlers({
     for (let m; (m = WIKILINK_RE.exec(line.text)) !== null; ) {
       const from = line.from + m.index;
       if (pos >= from && pos <= from + m[0].length) {
-        const [path, frag = ""] = m[1].split("|")[0].split("#");
-        if (path.trim()) onOpen(path.trim(), frag.trim());
+        // split by the shared grammar (wiki.js) — same as text.jsx
+        const { path, frag } = parseWikilink(m[1]);
+        if (path) onOpen(path, frag);
         return true;
       }
     }
@@ -385,7 +400,8 @@ function build(view) {
   const { state } = view;
   const active = activeLines(state);
   const fmEnd = frontmatterEnd(state.doc);
-  const dates = state.field(planDatesField, false) || { today: "", week: "" };
+  const dates = state.field(planDatesField, false)
+    || { today: "", week: "", next: "" };
   const callouts = state.field(calloutField, false)?.blocks ?? [];
   const marks = [];
   const add = (from, to, deco) => marks.push(deco.range(from, to));
@@ -427,9 +443,8 @@ function build(view) {
             Decoration.line({ class: "cm-task" + (checked ? " done" : "") }));
         if (!live) {
           const indent = task[1].length;
-          const markPos = line.from + indent + 3;   // "- [" is 3 chars
           add(line.from + indent, line.from + task[0].length,
-              Decoration.replace({ widget: new TaskBox(checked, markPos) }));
+              Decoration.replace({ widget: new TaskBox(checked, line.from) }));
         }
         /* Strike the TEXT, not the line. Striking the line drags the rule
            through the trailing metadata and the gaps between chips, which
@@ -451,7 +466,10 @@ function build(view) {
            hidden block ref, which replaces the run up TO line.to. */
         if (!checked && dates.today)
           add(line.to, line.to, Decoration.widget({
-            widget: new PlanChips(line.from, (SCHEDULED_RE.exec(text) || [])[1] || "", dates),
+            widget: new PlanChips(line.from,
+                                  (SCHEDULED_RE.exec(text) || [])[1] || "",
+                                  (DUE_RE.exec(text) || [])[1] || "",
+                                  text.includes("👤"), dates),
             side: 1,
           }));
       }
@@ -499,7 +517,11 @@ function build(view) {
       scan(WIKILINK_RE, (m, at) => {
         add(at, at + m[0].length, Decoration.mark({ class: "cm-wikilink" }));
         if (!live) {
-          hide(at, at + 2);
+          // [[target|alias]] shows only the alias: the target — and any
+          // #quote fragment riding on it as a jump destination (//ask's
+          // source links) — is machinery, hidden with the brackets.
+          const pipe = m[1].indexOf("|");
+          hide(at, at + 2 + (pipe >= 0 ? pipe + 1 : 0));
           hide(at + m[0].length - 2, at + m[0].length);
         }
       });
@@ -618,7 +640,6 @@ export const vaultTheme = EditorView.theme({
     background: "none", border: "0", padding: "0 4px", cursor: "pointer",
   },
   ".cm-plan-btn:hover": { color: "var(--accent)", textDecoration: "underline" },
-  ".cm-plan-btn.on": { color: "var(--accent)" },
   ".cm-prio": { color: "var(--accent)" },
   ".cm-wikilink": { color: "var(--accent)", cursor: "pointer" },
   ".cm-strong": { fontWeight: "600" },

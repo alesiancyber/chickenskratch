@@ -397,23 +397,9 @@ def set_task_status(path: str, task_text: str, done: bool = True) -> dict:
         text = v.read(path)
         lines = text.splitlines()
         task = _locate_task(text, task_text, path)
-        line = lines[task.line_no]
-        # Rebuild the checkbox from the parsed position: string replacement would
-        # miss nonstandard marks like [/] and touch brackets in the task text.
-        m = tk.TASK_RE.match(line)
-        mark_at = m.start("mark")
-        line = line[:mark_at] + ("x" if done else " ") + line[mark_at + 1 :]
-        if done:
-            if "✅" not in line:
-                # A block ref must stay the last token, so ✅ slots in before it.
-                core, ref = ids.split_block_ref(line)
-                line = f"{core} ✅ {_today()}"
-                if ref:
-                    line = ids.attach_block_ref(line, ref)
-        else:
-            # Consume the space before ✅ too, or reopening leaves a double
-            # space where the stamp sat.
-            line = re.sub(r"\s*" + tk.DONE_RE.pattern, "", line).rstrip()
+        # tasks.set_line_status is the one completion rewrite — the
+        # editor's checkbox (/api/task/line) rides the same function.
+        line = tk.set_line_status(lines[task.line_no], done, _today())
         v.snapshot_before("set_task_status")
         lines[task.line_no] = line
         v.write(path, "\n".join(lines) + "\n")
@@ -516,12 +502,9 @@ def archive_done_tasks(path: str, archive_path: str = "") -> dict:
         moved: list[str] = []
         claimed: set[int] = set()
         for t in done:
-            line = t.raw
-            if t.done_date is None:
-                core, ref = ids.split_block_ref(line)
-                line = f"{core} ✅ {_today()}"
-                if ref:
-                    line = ids.attach_block_ref(line, ref)
+            # set_line_status back-fills the missing ✅ (a hand-typed [x])
+            # — the same one completion rewrite every other surface uses.
+            line = t.raw if t.done_date else tk.set_line_status(t.raw, True, _today())
             # The task's block: every following blank-or-indented line
             # belongs to it and moves with it (trailing blanks are just
             # separation and stay behind to be collapsed).

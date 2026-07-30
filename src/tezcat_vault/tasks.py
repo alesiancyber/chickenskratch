@@ -39,6 +39,16 @@ PRIORITY_MARKS = {"🔺": "highest", "⏫": "high", "🔼": "medium", "🔽": "l
 PRIORITY_EMOJI = {v: k for k, v in PRIORITY_MARKS.items()}
 
 
+def week_end(d: dt.date) -> dt.date:
+    """The Sunday ending d's week — THE ⏳ anchor for week-granular plans
+    ("this week" stamps this Sunday, "next week" the one after). Defined
+    once, in the grammar module, because three consumers need it — the
+    dashboard's lanes (today.py), the extraction prompts (workers.py),
+    the eval fixtures (evals.py) — and two of them disagreeing about
+    which Sunday a week means is a real bug, not a style issue."""
+    return d + dt.timedelta(days=6 - d.weekday())
+
+
 @dataclass
 class Task:
     line_no: int          # 0-based index into the note's lines
@@ -198,6 +208,35 @@ def set_line_scheduled(line: str, scheduled: str | None) -> str:
     """Rewrite the ⏳ scheduled date — the plan field the promote/defer
     verbs move. Never touches 📅: a plan is not a deadline."""
     return _set_line_date(line, SCHEDULED_RE, "⏳", "Scheduled", scheduled)
+
+
+def set_line_status(line: str, done: bool, today: str | None = None) -> str:
+    """Flip a task's checkbox, keeping the ✅ stamp truthful — THE
+    completion rewrite. The gated set_task_status tool and the editor's
+    checkbox (/api/task/line) both ride this, so no surface can have its
+    own idea of what "done" writes: completing stamps `today`'s ✅ (real
+    today by default), reopening strips the stamp and its space — an
+    open task must never carry a done date. Raises ValueError on a
+    non-task line. The mark is rebuilt from the parsed position: string
+    replacement would miss nonstandard marks like [/] and touch brackets
+    in the task text."""
+    m = TASK_RE.match(line)
+    if m is None:
+        raise ValueError(f"not a task line: {line!r}")
+    mark_at = m.start("mark")
+    line = line[:mark_at] + ("x" if done else " ") + line[mark_at + 1:]
+    if done:
+        if "✅" not in line:
+            # A block ref must stay the last token, so ✅ slots in before it.
+            core, ref = split_block_ref(line)
+            line = f"{core} ✅ {today or dt.date.today().isoformat()}"
+            if ref:
+                line = attach_block_ref(line, ref)
+    else:
+        # Consume the space before ✅ too, or reopening leaves a double
+        # space where the stamp sat.
+        line = re.sub(r"\s*" + DONE_RE.pattern, "", line).rstrip()
+    return line
 
 
 def iter_tasks(content: str):

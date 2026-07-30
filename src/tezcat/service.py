@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 
+from tezcat_vault import tasks as tk
 from tezcat_vault.vault import Vault, VaultError
 from tezcat_vault.vaultconfig import get_config
 
@@ -213,6 +214,51 @@ def read_note(vault_path: str, rel: str) -> dict:
     return {"path": rel, "text": text, "hash": proposals.content_hash(text)}
 
 
+def _record_plan_edits(note: str, before: str, after: str) -> None:
+    """The editor-parity half of the reschedule corpus. A save that moves
+    a task's ⏳/📅 — an editor plan-chip splice, or the same judgment
+    hand-typed — is the identical signal the dashboard's verbs record,
+    so it must land in the same stream: a corpus that only sees
+    dashboard clicks trains a triage worker on half the user's judgment.
+
+    Tasks pair across the save by block id first, then by unique cleaned
+    text (a chip splice never changes the text); a task that matches
+    neither way is a rewrite, not a move, and stays out rather than
+    guessing. Corpus writes swallow their own failures — a label is
+    never worth breaking a save — but the pairing is wrapped too: a
+    parse hiccup must not either."""
+    try:
+        def index(text: str):
+            by_id: dict[str, tk.Task] = {}
+            by_text: dict[str, tk.Task] = {}
+            dup: set[str] = set()
+            for t in tk.iter_tasks(text):
+                if t.block_id:
+                    by_id[t.block_id] = t
+                if t.text in by_text:
+                    dup.add(t.text)
+                else:
+                    by_text[t.text] = t
+            for d in dup:
+                by_text.pop(d, None)
+            return by_id, by_text
+        old_id, old_text = index(before)
+        new_id, new_text = index(after)
+        pairs = [(old_id[k], new_id[k]) for k in old_id.keys() & new_id.keys()]
+        seen = {id(a) for a, _ in pairs}
+        pairs += [(old_text[k], new_text[k])
+                  for k in old_text.keys() & new_text.keys()
+                  if id(old_text[k]) not in seen]
+        for a, b in pairs:
+            if a.scheduled != b.scheduled:
+                record_reschedule(note, b.raw, b.text, a.scheduled, b.scheduled,
+                                  field="scheduled")
+            if a.due != b.due:
+                record_reschedule(note, b.raw, b.text, a.due, b.due, field="due")
+    except Exception:
+        pass
+
+
 def write_note(vault_path: str, rel: str, text: str, base_hash: str) -> dict:
     """Save an edited note — the human channel, so no _writable gate (that
     one exists to stop MODELS writing the consent surfaces, I2) but every
@@ -234,6 +280,7 @@ def write_note(vault_path: str, rel: str, text: str, base_hash: str) -> dict:
         v.snapshot_before("edit_note")
         v.write(rel, text)
         v.snapshot_after(f"edit {rel}")
+    _record_plan_edits(rel, current, text)
     events.emit(vault_path, "vault_changed", {"reason": "edit_note", "note": rel})
     return {
         "path": rel,

@@ -46,6 +46,7 @@ from dataclasses import dataclass
 from openai import AsyncOpenAI
 
 from . import jsonval
+from . import tasks as tk
 from .vault import VaultError
 
 # The mlx-worker backend from models.yaml. Every reader of the worker's
@@ -386,7 +387,8 @@ _ANSWER_PROMPT = """\
 Answer the user's question strictly from their own notes below.
 
 Return ONLY a JSON object of this shape, nothing else:
-{{"answer": "...", "sources": ["Path/Note.md", ...]}}
+{{"answer": "...", "sources": ["Path/Note.md", ...],
+ "quotes": {{"Path/Note.md": "short verbatim quote"}}}}
 
 Rules:
 - Answer directly and completely: asked "how many", give the number AND
@@ -397,6 +399,11 @@ Rules:
   exactly that in `answer` and return "sources": [].
 - sources: the paths of the notes the answer actually draws on, spelled
   exactly as given in their === headers, most relevant first.
+- quotes: for each source, the single short passage (under 120
+  characters) that best supports the answer, copied CHARACTER FOR
+  CHARACTER from that note — it becomes the line the source link jumps
+  to. Never paraphrase, never include ], |, or # in a quote; omit a
+  source you cannot quote exactly.
 {hedges}
 Question: {question}
 
@@ -410,6 +417,7 @@ Notes:
 _ANSWER_HEDGES = """\
 - Quote the notes' own wording; never infer beyond what a note states.
 - When unsure, say the notes don't answer it, with "sources": [].
+- When unsure a quote is exact, leave it out of "quotes" entirely.
 """
 
 WORKERS: dict[str, WorkerSpec] = {
@@ -428,6 +436,11 @@ WORKERS: dict[str, WorkerSpec] = {
             "properties": {
                 "answer": {"type": "string", "minLength": 1},
                 "sources": {"type": "array", "items": {"type": "string"}},
+                # optional on purpose: a worker that can't quote exactly
+                # should omit, and query.ask verifies every quote against
+                # the packed note before it may ride a link
+                "quotes": {"type": "object",
+                           "additionalProperties": {"type": ["string", "null"]}},
             },
         },
     ),
@@ -662,9 +675,9 @@ def _shape_tasks(raw_tasks: list[dict]) -> list[dict]:
 
 def _week_anchors(today: str) -> dict:
     """The prompt's date context: today plus the ⏳ anchor Sundays
-    ("this week" / "next week" plan language)."""
-    day = dt.date.fromisoformat(today)
-    this_sunday = day + dt.timedelta(days=6 - day.weekday())
+    ("this week" / "next week" plan language) — tasks.week_end, the one
+    anchor every surface shares."""
+    this_sunday = tk.week_end(dt.date.fromisoformat(today))
     return {"today": today, "this_sunday": this_sunday.isoformat(),
             "next_sunday": (this_sunday + dt.timedelta(days=7)).isoformat()}
 

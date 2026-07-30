@@ -104,3 +104,30 @@ def test_in_note_ask_writes_the_answer_back_as_a_callout(qvault, make_watcher, m
     assert "> [!NOTE] //ask how many failure modes?" in text
     assert "> Three failure modes." in text
     assert "//ask how many" not in text.splitlines()[0]  # replaced in place
+
+
+def test_ask_quotes_ride_as_link_targets_only_when_verbatim(qvault, monkeypatch):
+    """A verified quote becomes the link's #target (clicking lands on the
+    supporting line); the visible label stays the note name."""
+    scripted_worker(monkeypatch, {
+        "answer": "Three.",
+        "sources": ["Projects/Harness Review.md"],
+        "quotes": {"Projects/Harness Review.md": "the wedged vault lock"},
+    })
+    out = asyncio.run(query.ask(str(qvault), "how many failure modes did we identify?"))
+    assert "[[Projects/Harness Review#the wedged vault lock|Harness Review]]" in out
+
+
+def test_ask_drops_a_quote_that_is_not_verbatim(qvault, monkeypatch):
+    """A paraphrase (or a quote for an uncited note) must degrade to the
+    plain note link — never a jump that lands nowhere."""
+    scripted_worker(monkeypatch, {
+        "answer": "Three.",
+        "sources": ["Projects/Harness Review.md"],
+        "quotes": {"Projects/Harness Review.md": "a paraphrase that appears nowhere",
+                   "Projects/Unrelated.md": "nothing here"},
+    })
+    out = asyncio.run(query.ask(str(qvault), "how many failure modes did we identify?"))
+    assert "[[Projects/Harness Review]]" in out
+    assert "paraphrase" not in out
+    assert "Unrelated" not in out

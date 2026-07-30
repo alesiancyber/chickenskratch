@@ -120,8 +120,11 @@ if [ "$UI" = 1 ]; then
   lsof -ti "tcp:$UI_PORT" >/dev/null 2>&1 \
     && die "port $UI_PORT is still held (lsof -i tcp:$UI_PORT to see by what) — not starting a dashboard that can't bind"
   mkdir -p "$REPO/data/logs"
+  # Absolute paths on purpose: `A && B & C` backgrounds `A && B`, so the
+  # pid write runs in the CALLER's cwd — run from anywhere but the repo
+  # root, a relative path here made a successful restart exit 1.
   (cd "$REPO" && nohup uv run tezcat-ui --port "$UI_PORT" \
-      >> data/logs/ui.log 2>&1 & echo $! > data/logs/ui.pid)
+      >> "$REPO/data/logs/ui.log" 2>&1 & echo $! > "$REPO/data/logs/ui.pid")
   for _ in $(seq 1 40); do   # up when it answers, not when it forked
     if curl -fsS -o /dev/null "http://127.0.0.1:$UI_PORT/api/today" 2>/dev/null; then
       ok "dashboard answering: http://127.0.0.1:$UI_PORT (log: data/logs/ui.log)"

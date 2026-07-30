@@ -405,6 +405,30 @@ def test_task_line_rewrites_without_touching_the_vault(client, vault):
     assert (vault / "Tasks/Inbox.md").read_text() == before   # nothing written
 
 
+def test_task_line_done_is_the_same_rewrite_as_the_done_verb(client, vault):
+    """The editor's checkbox rides {line, done} — tasks.set_line_status,
+    the ONE completion rewrite. Completing here must stamp ✅ and
+    reopening must strip it, exactly like the dashboard's verb: the
+    checkbox's first life as a raw mark flip left editor-completed tasks
+    with no done date and reopened ones carrying a stale ✅."""
+    import datetime as dt
+
+    line = "- [ ] call the vet ➕ 2026-07-01 ^t-7d2a408e0209"
+    done = client.post("/api/task/line",
+                       json={"line": line, "done": True}).json()["line"]
+    today = dt.date.today().isoformat()
+    # mark flipped, ✅ stamped, block ref still the last token
+    assert done == f"- [x] call the vet ➕ 2026-07-01 ✅ {today} ^t-7d2a408e0209"
+
+    # reopening strips the stamp cleanly — back to the exact original
+    assert client.post("/api/task/line",
+                       json={"line": done, "done": False}).json()["line"] == line
+
+    # a non-task line is a 400, never a crash
+    assert client.post("/api/task/line",
+                       json={"line": "just prose", "done": True}).status_code == 400
+
+
 def test_shutdown_waits_out_the_sessions_stop_replaced(vault, tmp_path, monkeypatch):
     """The lifespan exists to reap the MCP children a session spawns. Stop
     hands teardown to a background task, so closing only the CURRENT

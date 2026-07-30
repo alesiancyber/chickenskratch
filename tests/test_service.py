@@ -454,3 +454,50 @@ def test_plan_task_moves_the_plan_field_and_labels_it(vault, wkw):
     label = rows[-1]["label"]
     assert label["source"] == "reschedule" and label["field"] == "scheduled"
     assert label["direction"] == "promote" and label["to_due"] == "2099-05-01"
+
+
+def _corpus_rows():
+    import json as _json
+
+    from tezcat import corpus
+
+    return [_json.loads(ln) for f in sorted(corpus.CORPUS_DIR.glob("*.jsonl"))
+            for ln in f.read_text().splitlines()]
+
+
+def test_editor_saves_record_plan_moves_in_the_corpus(vault):
+    """Corpus parity across surfaces: a save that moves a task's ⏳ — an
+    editor chip splice, or the same judgment hand-typed — is the same
+    signal the dashboard's plan verb records, and lands in the same
+    stream. Without this the corpus only saw dashboard clicks: half the
+    user's scheduling judgment, silently missing."""
+    (vault / "Tasks/Inbox.md").write_text(
+        "## Tasks\n\n- [ ] shape the roadmap ⏳ 2099-05-08 ^t-aaaaaaaaaaaa\n"
+        "- [ ] renew the domain\n")
+    note = service.read_note(str(vault), "Tasks/Inbox.md")
+    service.write_note(str(vault), "Tasks/Inbox.md",
+                       note["text"].replace("⏳ 2099-05-08", "⏳ 2099-05-01"),
+                       note["hash"])
+    label = _corpus_rows()[-1]["label"]
+    assert label["source"] == "reschedule" and label["field"] == "scheduled"
+    assert label["from_due"] == "2099-05-08" and label["to_due"] == "2099-05-01"
+    assert label["direction"] == "promote"
+
+    # a task with no block ref pairs by its (unique) text — a chip splice
+    # never changes the text, so this is a safe key
+    note = service.read_note(str(vault), "Tasks/Inbox.md")
+    service.write_note(str(vault), "Tasks/Inbox.md",
+                       note["text"].replace(
+                           "- [ ] renew the domain",
+                           "- [ ] renew the domain ⏳ 2099-06-06"),
+                       note["hash"])
+    label = _corpus_rows()[-1]["label"]
+    assert label["field"] == "scheduled" and label["to_due"] == "2099-06-06"
+    assert label["task_text"] == "renew the domain"
+
+    # an ordinary prose edit moves no dates and labels nothing
+    before = len(_corpus_rows())
+    note = service.read_note(str(vault), "Tasks/Inbox.md")
+    service.write_note(str(vault), "Tasks/Inbox.md",
+                       note["text"] + "\nsome prose\n", note["hash"])
+    assert len(_corpus_rows()) == before
