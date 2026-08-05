@@ -527,7 +527,7 @@ def _restart_needed(patch: dict) -> bool:
 # loads, and a refusal names the reason.
 
 # Schemas the machinery itself depends on: proposal.yaml validates the
-# proposal files, and the line types (task/card/deliverable) describe
+# proposal files, and the line types (task/card) describe
 # parsed lines. Editable — carefully — but never deletable.
 ENGINE_SCHEMAS = frozenset({"proposal"}) | frozenset(entity_schemas.LINE_TYPES)
 

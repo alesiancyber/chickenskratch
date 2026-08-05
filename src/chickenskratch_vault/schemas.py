@@ -30,10 +30,7 @@ from .vaultconfig import VaultConfig, get_config
 
 # Line-level entity types: their yaml files describe a parsed task/card
 # line, never a note's frontmatter.
-LINE_TYPES = {"task", "deliverable", "card"}
-
-# Deliverable assignee: a Dataview-style inline field on the task line.
-FOR_RE = re.compile(r"\[for::\s*([^\]]+)\]")
+LINE_TYPES = {"task", "card"}
 
 # One name grammar for everything config-authored that becomes a file
 # stem, a kind name, or a worker name — workers.py and the console both
@@ -251,24 +248,28 @@ def id_prefix(entity_type: str) -> str:
 
 def line_kind(entity_type: str) -> str:
     """Which line schema applies to checkbox lines inside a note of this
-    type: cards on boards, deliverables in notes typed `deliverable`, tasks elsewhere."""
+    type: cards on boards, tasks everywhere else.
+
+    `deliverable` used to be the third answer — a note typed that way had
+    its lines held to a schema requiring a [for:: Name] inline field and a
+    hard due date. Owed-ness is the 👤 task field now, and nothing has
+    written [for::] since; the schema file said of itself that it should
+    be deleted when its enforcement stopped mattering, and it had. A note
+    still declaring `type: deliverable` keeps that type (frontmatter is
+    always the note's own word) and simply validates as a task."""
     if entity_type == "kanban":
         return "card"
-    if entity_type == "deliverable":
-        return "deliverable"
     return "task"
 
 
 def validate_line(task: Task, entity_type: str) -> list[str]:
-    kind = line_kind(entity_type)
-    schema = load_schemas().get(kind)
+    schema = load_schemas().get(line_kind(entity_type))
     if not schema:
         return []
-    inst = {"id": task.block_id, "text": task.text, "due": task.due, "priority": task.priority}
-    if kind == "deliverable":
-        m = FOR_RE.search(task.raw)
-        inst["for"] = m.group(1).strip() if m else None
-    return jsonval.validate(inst, schema)
+    return jsonval.validate(
+        {"id": task.block_id, "text": task.text,
+         "due": task.due, "priority": task.priority},
+        schema)
 
 
 def validate_research_body(body: str) -> list[str]:

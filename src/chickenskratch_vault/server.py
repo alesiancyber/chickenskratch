@@ -280,7 +280,7 @@ def list_tasks(folder: str = "", status: str = "open", task_type: str = "",
     """List checkbox tasks across the vault, grouped with per-type counts.
     Every task carries a `type` derived from its note: "kanban" for board
     cards, the note's frontmatter type (e.g. "meeting", "research"), or the
-    entity type of its top-level folder (e.g. "task", "deliverable",
+    entity type of its top-level folder (e.g. "task", "research",
     "daily"; unmapped folders use the folder name). The result leads
     with `total` and `counts_by_type` — use those to answer "how many"
     questions. status: "open", "done", or "all". task_type narrows to one

@@ -47,12 +47,46 @@ class VaultLocked(VaultError):
     "no such note" earns."""
 
 
+# Ceiling on one note. A vault is markdown someone types, and the query
+# layer already assumes far less (NOTE_CHAR_CAP is 48k — "even a half-year
+# journal rides whole"), so this is ~40x the largest note anything here
+# contemplates. It exists for what arrives from OUTSIDE: an exported
+# archive, a log file renamed .md, a binary. Without it a single such file
+# is read whole into a pass that holds every note at once, and every regex
+# in the scan walks it.
+#
+# The same bound the filesystem server has had all along
+# (chickenskratch_files.MAX_FILE_BYTES) — that module reads arbitrary
+# files and knew to cap them; this one reads the vault, which is the
+# thing you would import INTO, and did not.
+MAX_NOTE_BYTES = 2_000_000
+
+
+def oversize(p: Path) -> int:
+    """Bytes past MAX_NOTE_BYTES, or 0 — the one size test, so the strict
+    and lossy readers cannot disagree about what counts as a note."""
+    try:
+        size = p.stat().st_size
+    except OSError:
+        return 0  # unreadable for another reason; let the read report it
+    return max(0, size - MAX_NOTE_BYTES)
+
+
 def read_lossy(p: Path) -> str:
     """Tolerant read for READ-ONLY walks (scans, dashboards, search): one
     mis-encoded note yields replacement chars instead of wedging every
     engine pass. Never use on a read-modify-write path — Vault.read stays
-    strict there so replacement chars can never be written back."""
-    return p.read_text(encoding="utf-8", errors="replace")
+    strict there so replacement chars can never be written back.
+
+    Oversize notes are truncated rather than skipped: a scan that drops
+    them silently would report "nothing here" about a file that is
+    plainly present. Truncation is safe precisely because of the rule
+    above — every path that WRITES re-reads through Vault.read, which
+    refuses the same file outright, so no partial view can ever become a
+    partial write."""
+    with open(p, "rb") as f:
+        raw = f.read(MAX_NOTE_BYTES)
+    return raw.decode("utf-8", errors="replace")
 
 
 def atomic_write_text(path: Path, text: str) -> Path:
@@ -161,6 +195,18 @@ class Vault:
 
     def read(self, rel_path: str) -> str:
         p = self.resolve(rel_path, must_exist=True)
+        over = oversize(p)
+        if over:
+            # Refused, not truncated. This is the read every mutation
+            # starts from, and a read-modify-write over a truncated view
+            # would delete everything past the cut. Callers catch
+            # VaultError per note or per tool, so one absurd file costs
+            # itself and nothing else.
+            raise VaultError(
+                f"{rel_path} is {(p.stat().st_size)/1e6:.1f}MB — past the "
+                f"{MAX_NOTE_BYTES/1e6:.0f}MB note ceiling by {over/1e6:.1f}MB. "
+                "Split it, or move it out of the vault; the harness reads "
+                "notes, not archives.")
         try:
             return p.read_text(encoding="utf-8")
         except UnicodeDecodeError as e:

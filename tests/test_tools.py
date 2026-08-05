@@ -218,10 +218,14 @@ def test_validate_schema_flags_fixture_nonconformance(vault):
     assert meeting["entity"] == "meeting" and meeting["unmarked"]
     assert any("'id' is a required" in i for i in meeting["issues"])
 
-    # deliverables missing [for:: ...] / due are nonconforming
+    # A note typed `deliverable` keeps that type — frontmatter is the
+    # note's own word — but its lines are held to the TASK rule now: the
+    # [for:: Name] requirement went with the schema that invented it, so
+    # the only thing still missing from these lines is a stamped id.
     owed = by_note["Tasks/Owed.md"]
     assert owed["entity"] == "deliverable"
-    assert any(any(i.startswith("for:") for i in t["issues"]) for t in owed["tasks"])
+    assert owed["tasks"] and all(
+        all(i.startswith("id:") for i in t["issues"]) for t in owed["tasks"])
 
     # unmarked entities sort before any marked-but-drifted ones
     assert result["nonconforming"][0]["unmarked"]

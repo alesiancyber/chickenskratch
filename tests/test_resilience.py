@@ -197,3 +197,60 @@ def test_nothing_to_propose_stays_free(vault, make_watcher):
     slots = json.loads(w.state_path.read_text()).get("draft_attempts") or {}
     assert not [s for s in slots if s.startswith("schema_fix:")], (
         "a healthy lane accumulated a retry budget")
+
+
+# ---- one absurd file must cost itself, not the vault ----
+
+
+def test_an_oversize_note_is_refused_by_the_strict_read(vault):
+    """Vault.read is where every mutation starts, so it refuses rather
+    than truncates: a read-modify-write over a partial view would delete
+    everything past the cut, and that is worse than any error."""
+    from chickenskratch_vault.vault import MAX_NOTE_BYTES, Vault, VaultError
+
+    (vault / "Huge.md").write_text("# Huge\n\n" + "x" * (MAX_NOTE_BYTES + 1000))
+    try:
+        Vault(str(vault)).read("Huge.md")
+    except VaultError as e:
+        assert "ceiling" in str(e) and "MB" in str(e)
+    else:
+        raise AssertionError("an oversize note was read whole")
+
+
+def test_an_oversize_note_is_truncated_by_the_scan_read(vault):
+    """The lossy reader truncates instead: a walk that silently dropped
+    the file would report "nothing here" about a note plainly on disk.
+    Safe only because the strict read above refuses it — no partial view
+    can become a partial write."""
+    from chickenskratch_vault.vault import MAX_NOTE_BYTES, read_lossy
+
+    p = vault / "Huge.md"
+    p.write_text("# Huge\n\n" + "x" * (MAX_NOTE_BYTES * 2))
+    text = read_lossy(p)
+    assert len(text.encode()) <= MAX_NOTE_BYTES
+    assert text.startswith("# Huge")
+
+
+def test_an_oversize_note_does_not_wedge_a_pass(vault, make_watcher):
+    """The whole point: a log file someone renamed .md lands in the vault
+    and the engine keeps working."""
+    from chickenskratch_vault.vault import MAX_NOTE_BYTES
+
+    (vault / "Notes").mkdir(exist_ok=True)
+    (vault / "Notes/dump.md").write_text(
+        "---\ntype: note\n---\n\n" + "- [ ] a task with no id\n" * 40000
+        + "y" * MAX_NOTE_BYTES)
+    summary = run(make_watcher(vault, disabled=ONLY_SCHEMA))
+    assert summary["scanned"] and not summary["locked"]
+
+
+def test_a_normal_note_is_untouched_by_the_ceiling(vault):
+    """The bound is for what arrives from outside — it must be nowhere
+    near anything a person writes."""
+    from chickenskratch_vault.vault import MAX_NOTE_BYTES, Vault, read_lossy
+
+    body = "# Journal\n\n" + ("a paragraph of perfectly ordinary prose. " * 40 + "\n") * 300
+    assert len(body.encode()) < MAX_NOTE_BYTES // 4  # a half-year journal, comfortably
+    (vault / "Journal.md").write_text(body)
+    assert Vault(str(vault)).read("Journal.md") == body
+    assert read_lossy(vault / "Journal.md") == body

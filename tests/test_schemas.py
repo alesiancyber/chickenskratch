@@ -1,5 +1,5 @@
-"""Entity schema validation: note frontmatter,
-task/card/deliverable lines, and the research Sources requirement."""
+"""Entity schema validation: note frontmatter, task/card lines, and the
+research Sources requirement."""
 
 import datetime as dt
 
@@ -16,7 +16,7 @@ def good_meeting_fm():
 
 
 def test_all_core_schemas_load():
-    assert {"task", "deliverable", "card", "meeting", "research", "kanban"} <= set(
+    assert {"task", "card", "meeting", "research", "kanban"} <= set(
         schemas.load_schemas()
     )
 
@@ -64,17 +64,26 @@ def test_card_lines_use_card_schema():
     assert schemas.validate_line(c_id, "kanban") == []
 
 
-def test_deliverable_requires_for_and_due():
+def test_deliverable_folded_back_into_task():
+    """`deliverable` was a third line schema: a note typed that way had
+    its checkbox lines held to a [for:: Name] inline field AND a hard due
+    date. Owed-ness is the 👤 field now and nothing has written [for::]
+    since, so the schema went — its own file said to delete it once the
+    enforcement stopped mattering, and a rule nothing can satisfy is not
+    a rule, it is a note that can never be fixed.
+
+    A note still declaring the type keeps it (frontmatter is always the
+    note's own word); its lines validate as ordinary tasks. That is what
+    "folds back" has to mean: not an error, and not silence either."""
+    assert "deliverable" not in schemas.load_schemas()
+    assert "deliverable" not in schemas.LINE_TYPES
+    assert schemas.line_kind("deliverable") == "task"
+
+    # the line that used to fail for want of [for::] now passes
     plain = tasks.parse_task_line(f"- [ ] Send report 📅 2026-07-24 ^{ids.stamp_id('t')}")
-    issues = schemas.validate_line(plain, "deliverable")
-    assert any(i.startswith("for:") for i in issues)
-    # the identical line is a perfectly fine plain task
+    assert schemas.validate_line(plain, "deliverable") == []
     assert schemas.validate_line(plain, "task") == []
 
-    full = tasks.parse_task_line(
-        f"- [ ] Send report [for:: Dana] 📅 2026-07-24 ^{ids.stamp_id('t')}"
-    )
-    assert schemas.validate_line(full, "deliverable") == []
-
-    undated = tasks.parse_task_line(f"- [ ] Send report [for:: Dana] ^{ids.stamp_id('t')}")
-    assert any(i.startswith("due:") for i in schemas.validate_line(undated, "deliverable"))
+    # …and the task rule still bites where a task rule should
+    bare = tasks.parse_task_line("- [ ] Send report")
+    assert any(i.startswith("id:") for i in schemas.validate_line(bare, "deliverable"))
