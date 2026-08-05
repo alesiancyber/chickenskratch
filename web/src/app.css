@@ -785,8 +785,24 @@ section { margin-bottom: var(--s5); }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* ---- the management console (⌘;) ------------------------------------
-   A full-screen overlay, not a column: settings are occasional and must
-   never re-proportion the two surfaces you actually work in. */
+   A modal ON PURPOSE. Settings are occasional, and stepping aside into a
+   dialog is how the surface says so — you should know you are in it, and
+   you should not be in it often.
+
+   What the modal must NOT do is stop looking like this app. Everything
+   below borrows the dashboard's own vocabulary rather than the browser's:
+   three type sizes, headings quieter than their content, whitespace
+   instead of borders, affordances that appear on hover, and one accent
+   spent only on "this needs you" — which, in a settings surface, means
+   unsaved work.
+
+   The forms used to arrive as native controls. `border: 1px solid
+   var(--line)` looks like a decision but isn't one: without
+   appearance:none the platform paints its own border, gradient and
+   caret straight over it, so a surface with no boxes anywhere grew
+   twenty hard-edged ones, plus a system-blue checkbox in a design with
+   exactly one accent colour. */
+
 .cfg-overlay {
   position: fixed; inset: 0; z-index: 60;
   background: rgba(0, 0, 0, 0.32);
@@ -795,7 +811,7 @@ section { margin-bottom: var(--s5); }
   animation: fade-in 120ms ease-out;
 }
 .cfg-dialog {
-  width: min(820px, 100%);
+  width: min(860px, 100%);
   max-height: 88vh;
   display: flex; flex-direction: column;
   background: var(--bg);
@@ -804,63 +820,212 @@ section { margin-bottom: var(--s5); }
   box-shadow: 0 16px 60px rgba(0, 0, 0, 0.18);
   overflow: hidden;
 }
+
+/* Header: the title, then the tabs with room to be separate words. At
+   --s1 they read as one run-on string ("VaultModelsBehaviorsSchemas"). */
 .cfg-head {
-  display: flex; align-items: center; gap: var(--s3);
-  padding: var(--s3);
+  display: flex; align-items: baseline; gap: var(--s4);
+  padding: var(--s3) var(--s4);
   border-bottom: 1px solid var(--line);
 }
-.cfg-tabs { display: flex; gap: var(--s1); }
-.cfg-note { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); }
-.cfg-body { overflow-y: auto; padding: var(--s3); }
+.cfg-head > strong { font-size: var(--text-body); }
+.cfg-tabs { display: flex; gap: var(--s3); }
+.cfg-note { padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line); }
+.cfg-body { overflow-y: auto; padding: var(--s4) var(--s4) 0; }
+/* the tab's opening paragraph is a caption for the whole tab, not the
+   first field's label — it needs the same air a section gets */
+.cfg-body > p:first-child { margin-bottom: var(--s5); max-width: 68ch; }
 
-.cfg-field { display: block; margin-bottom: var(--s4); }
-.cfg-label {
-  display: flex; align-items: center; gap: var(--s2);
-  font-weight: 600; margin-bottom: var(--s1);
-}
-/* Inputs read as part of the product, not as browser chrome. */
-.cfg-field input[type="text"], .cfg-field input[type="number"],
-.cfg-field input:not([type]), .cfg-field select, .cfg-field textarea,
-.cfg-raw, .cfg-inline input, .cfg-inline select {
+/* ---- the one control style ---- */
+/*
+   Fill, not outline. The dashboard marks an interactive surface by
+   tinting it (--hover on every row); doing the same here means a form
+   full of inputs adds no lines to a design that has almost none. The
+   accent returns on focus, where "this is the thing you are editing" is
+   exactly what it means everywhere else.
+*/
+.cfg-body select,
+.cfg-body textarea,
+.cfg-body input[type="text"],
+.cfg-body input[type="number"],
+.cfg-body input:not([type]) {
+  appearance: none; -webkit-appearance: none;
   font: inherit; color: var(--ink);
-  background: var(--bg);
-  border: 1px solid var(--line);
+  background: var(--hover);
+  border: 1px solid transparent;
   border-radius: var(--radius);
   padding: 6px 8px;
+  transition: background var(--fade), border-color var(--fade);
 }
-/* Text-ish controls want a usable width; a checkbox emphatically does
-   not — `.cfg-field input` also matched those and pushed every label
-   15rem to the right of its own tickbox. */
-.cfg-field input:not([type="checkbox"]), .cfg-field select { min-width: 15rem; }
-.cfg-field input[type="checkbox"] { flex: none; margin: 0; }
-.cfg-field textarea, .cfg-raw { width: 100%; resize: vertical; }
-.cfg-raw { font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
-.cfg-field .ghost { display: block; margin-top: 4px; }
+.cfg-body select:hover,
+.cfg-body textarea:hover,
+.cfg-body input:hover:not([type="checkbox"]) { background: var(--accent-soft); }
+.cfg-body select:focus,
+.cfg-body textarea:focus,
+.cfg-body input:focus:not([type="checkbox"]) {
+  outline: none;
+  background: var(--bg);
+  border-color: var(--accent);
+}
+.cfg-body textarea { width: 100%; resize: vertical; line-height: var(--leading); }
+.cfg-body select {
+  padding-right: 26px;
+  /* the caret the platform would have drawn, in our own ink. A fixed
+     mid-grey rather than currentColor: a data: URI cannot inherit, and
+     this hue reads correctly against both themes' surfaces. */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'><path d='M1 1l4 4 4-4' fill='none' stroke='%238a8a86' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+}
 
-.cfg-checklist { display: flex; flex-direction: column; gap: 1px; }
-.cfg-check, .cfg-inline { display: flex; align-items: center; gap: var(--s2); }
-/* a whole row is the target, not the 13px box */
+/* The checkbox is the dashboard's task .box, reused verbatim in green:
+   a ticked setting is a settled state, and the amber accent is spoken
+   for by things that still want you. */
+.cfg-body input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none;
+  position: relative;
+  width: 14px; height: 14px; flex: none; margin: 0;
+  border: 1.5px solid var(--ink-3); border-radius: 3px;
+  background: none; cursor: pointer; padding: 0;
+  transition: background var(--fade), border-color var(--fade);
+}
+.cfg-body input[type="checkbox"]:hover { border-color: var(--ink-2); }
+.cfg-body input[type="checkbox"]:checked {
+  background: var(--ok); border-color: var(--ok);
+}
+.cfg-body input[type="checkbox"]:checked::after {
+  content: "✓"; position: absolute; inset: 0;
+  color: #fff; font-size: 10px; line-height: 12px; text-align: center;
+}
+.cfg-body input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.cfg-raw { font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
+
+/* ---- fields ---- */
+/*
+   A field label is a heading, and headings here are quieter than what
+   they label — .section-label's exact treatment. At 15px/600 (the old
+   value) every one of the Vault tab's nine labels outshouted "What needs
+   a decision?" on the dashboard behind it, which flattens the page into
+   one loud list with no way in.
+*/
+.cfg-field { display: block; margin-bottom: var(--s5); }
+.cfg-label {
+  display: flex; align-items: center; gap: var(--s2);
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--ink-2);
+  letter-spacing: 0.02em;
+  margin-bottom: var(--s2);
+}
+.cfg-field > select, .cfg-field > input:not([type="checkbox"]) { min-width: 22rem; }
+.cfg-field .ghost { display: block; margin-top: var(--s1); }
+
+/* ---- aligned rows: one left edge, one control column ---- */
+/*
+   The policy rows were a flex of [name][id][select], so the select began
+   at a different x on every row and seven simple settings read as a
+   jumble. A grid gives the eye one column to run down — the same reason
+   the dashboard's rows put their metadata on a shared right edge.
+*/
+.cfg-checklist { display: flex; flex-direction: column; gap: var(--s1); }
 .cfg-check {
-  padding: 3px var(--s2) 3px 0;
+  display: grid;
+  /* the last column is the (i)'s own width, stated rather than sized:
+     a row without one (the preset) must not shift its control column */
+  grid-template-columns: minmax(0, 1fr) 23rem 15px;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s1) var(--s2);
+  margin: 0 calc(-1 * var(--s2));
   border-radius: var(--radius);
-  cursor: pointer;
+  transition: background var(--fade);
 }
 .cfg-check:hover { background: var(--hover); }
-/* the readable name leads; the identifier trails for anyone reading
-   Spec.md by hand, and must never be the thing you have to decode */
-.cfg-item-name { font-weight: 500; }
-.cfg-inert {
-  margin-top: var(--s2);
-  padding: var(--s2) var(--s3);
-  border-left: 2px solid var(--accent);
-  background: var(--hover);
-  border-radius: var(--radius);
-  color: var(--ink-2);
-  max-width: 62ch;
+.cfg-check > select { width: 100%; }
+/* A checkbox row has no control column to fill, and its (i) belongs
+   beside the thing it explains rather than flung to the far edge. */
+.cfg-check.cfg-check-box {
+  grid-template-columns: auto auto auto;
+  justify-content: start;
+  gap: var(--s2);
 }
 
-/* The (i): a quiet affordance until you want it, then a real explanation
-   rather than a tooltip you can't read at your own pace. */
+/* The readable name leads and the identifier trails, for anyone reading
+   Spec.md by hand. They need real distance: at --s2, two runs of text on
+   one baseline read as a single phrase ("Capture dumps capture"), which
+   is the exact complaint this rewrite started from. --s3 plus a drop to
+   ghost weight separates them without a divider. */
+.cfg-item { display: flex; align-items: baseline; gap: var(--s3); min-width: 0; }
+.cfg-item-name { font-weight: 500; }
+.cfg-item-id {
+  font-family: var(--font-mono); font-size: var(--text-small);
+  color: var(--ink-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cfg-inline { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s1); }
+.cfg-inline > span { color: var(--ink-2); font-size: var(--text-small); }
+.cfg-inline input, .cfg-inline select, .cfg-inline textarea { min-width: 0; width: 100%; }
+
+/* ---- cards: whitespace and one hairline, never a box ---- */
+/*
+   .cfg-profile used to be a bordered card holding a grid of bordered
+   inputs — three levels of enclosure in a design language with zero. The
+   rule the dashboard follows is that separation is space, and a line is
+   what you reach for only when space has run out.
+*/
+.cfg-profile {
+  border: 0; padding: 0;
+  margin-bottom: var(--s4);
+  padding-bottom: var(--s4);
+  border-bottom: 1px solid var(--line);
+}
+.cfg-profile:last-of-type { border-bottom: 0; }
+.cfg-profile-head { display: flex; align-items: baseline; gap: var(--s3); }
+.cfg-profile-head > .grow { min-width: 0; }
+/* destructive verbs follow the dashboard's rule: invisible until pointed
+   at, so a delete never sits waiting beside the name it would remove */
+.cfg-profile .affordance {
+  opacity: 0; transition: opacity var(--fade);
+  font-size: var(--text-small); color: var(--ink-2);
+}
+.cfg-profile:hover .affordance, .cfg-profile:focus-within .affordance { opacity: 1; }
+.cfg-profile .affordance:hover { color: var(--accent); }
+
+.cfg-grid {
+  display: grid; gap: var(--s3);
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  margin-top: var(--s3);
+}
+.cfg-actions {
+  display: flex; align-items: center; gap: var(--s3);
+  margin: var(--s3) 0;
+}
+.cfg-backups { margin-top: var(--s4); border-top: 1px solid var(--line); padding-top: var(--s3); }
+
+/* ---- the save bar: never wonder whether a setting took ---- */
+/*
+   Sticky at the foot of every tab, and it always says two things: what
+   saving here actually does (a vault snapshot? a backup? a restart?),
+   and whether anything is currently unsaved. The amber is the same
+   "this needs you" channel the dashboard reserves — in a settings
+   surface, work you haven't committed is precisely that.
+*/
+.cfg-savebar {
+  position: sticky; bottom: 0;
+  display: flex; align-items: center; gap: var(--s3);
+  margin: var(--s5) calc(-1 * var(--s4)) 0;
+  padding: var(--s3) var(--s4);
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+.cfg-savebar .spacer { flex: 1; }
+.cfg-effect { color: var(--ink-3); min-width: 0; }
+.cfg-dirty { color: var(--accent); font-weight: 500; white-space: nowrap; }
+.cfg-savebar .decide { padding: var(--s1) var(--s3); }
+
+/* ---- the (i): a quiet affordance until you want it ---- */
 .cfg-info {
   flex: none;
   width: 15px; height: 15px; line-height: 13px;
@@ -872,7 +1037,7 @@ section { margin-bottom: var(--s5); }
 }
 .cfg-info:hover, .cfg-info.on { color: var(--accent); border-color: var(--accent); }
 .cfg-help {
-  margin: var(--s2) 0 var(--s2) 0;
+  margin: var(--s2) 0;
   padding: var(--s2) var(--s3);
   background: var(--hover);
   border-radius: var(--radius);
@@ -880,49 +1045,29 @@ section { margin-bottom: var(--s5); }
   max-width: 62ch;
 }
 .cfg-help p + p { margin-top: var(--s2); }
-.cfg-inline { flex-direction: column; align-items: flex-start; }
-.cfg-inline input, .cfg-inline select { min-width: 0; width: 100%; }
+.cfg-inert {
+  margin-top: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-left: 2px solid var(--accent);
+  background: var(--hover);
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  max-width: 62ch;
+}
 
-.cfg-profile {
-  border: 1px solid var(--line); border-radius: var(--radius);
-  padding: var(--s3); margin-bottom: var(--s3);
-}
-.cfg-profile-head { display: flex; align-items: center; gap: var(--s2); }
-.cfg-grid {
-  display: grid; gap: var(--s2);
-  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
-  margin-top: var(--s3);
-}
-.cfg-actions {
-  display: flex; align-items: center; gap: var(--s3);
-  margin: var(--s3) 0;
-}
-.cfg-backups { margin-top: var(--s4); border-top: 1px solid var(--line); padding-top: var(--s3); }
-
-/* Behaviors + Schemas tabs: cards share .cfg-profile; these are the
-   pieces they add — the collapsed card header, the field-list rows, the
-   test panel's prompt/reply readouts. */
+/* Behaviors + Schemas: the collapsed card header, the field-list rows,
+   the test panel's readouts. */
 .cfg-cardtoggle {
   text-align: left; border: none; background: none; padding: 0;
   color: var(--ink); font: inherit; cursor: pointer;
 }
 .cfg-fieldrow {
   display: flex; align-items: center; gap: var(--s2);
-  padding: 2px 0;
+  padding: var(--s1) 0;
 }
-.cfg-fieldrow input, .cfg-fieldrow select {
-  font: inherit; color: var(--ink); background: var(--bg);
-  border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 4px 6px; min-width: 0;
-}
-.cfg-fieldrow label { display: flex; align-items: center; gap: 4px; flex: none; }
+.cfg-fieldrow label { display: flex; align-items: center; gap: var(--s1); flex: none; }
 .cfg-test { margin-top: var(--s4); border-top: 1px solid var(--line); padding-top: var(--s3); }
-.cfg-test .cfg-inline { margin-bottom: var(--s2); }
-.cfg-test textarea {
-  font-family: var(--font-mono); font-size: 12px; width: 100%;
-  color: var(--ink); background: var(--bg);
-  border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px;
-}
+.cfg-test .cfg-inline { margin-bottom: var(--s3); }
 .cfg-pre {
   font-family: var(--font-mono); font-size: 12px; line-height: 1.5;
   background: var(--hover); border-radius: var(--radius);
@@ -930,3 +1075,24 @@ section { margin-bottom: var(--s5); }
   max-height: 40vh; overflow: auto; white-space: pre-wrap;
 }
 .chip.attention { color: var(--accent); border-color: var(--accent); }
+
+@media (max-width: 720px) {
+  /* the control column can't hold 20rem here; stack instead of crushing */
+  .cfg-check { grid-template-columns: minmax(0, 1fr) auto; }
+  .cfg-field > select, .cfg-field > input:not([type="checkbox"]) { min-width: 0; width: 100%; }
+  .cfg-check > select { grid-column: 1 / -1; }
+}
+
+/* The preset sets every row beneath it, so it reads as their header
+   rather than another peer: a touch more weight, and a rule under it. */
+.cfg-preset { padding-bottom: var(--s2); margin-bottom: var(--s1); }
+.cfg-preset .cfg-item-name { color: var(--ink-2); font-weight: 500; }
+.cfg-preset::after {
+  content: ""; grid-column: 1 / -1;
+  height: 1px; background: var(--line); margin-top: var(--s2);
+}
+
+/* Grid cells align on their control, not their text: a hint under one
+   field must not push the next ROW down. */
+.cfg-grid > .cfg-inline { align-content: start; }
+.cfg-inline > .ghost { min-height: 1lh; }

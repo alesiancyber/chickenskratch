@@ -60,6 +60,50 @@ function Field({ label, help, declared, children }) {
   );
 }
 
+/* The foot of every tab, always present, always saying two things:
+   what saving HERE actually does, and whether anything is currently
+   unsaved. Both halves earn their place.
+
+   The effect line, because the four tabs genuinely differ — a Vault edit
+   is a revertible snapshot in your vault, a Models edit is a backed-up
+   file outside it, and only some of them survive without a restart. That
+   was previously discoverable only by reading the paragraph at the top
+   of the tab, and only after the fact.
+
+   The dirty count, because a settings surface with no commit affordance
+   leaves you guessing whether anything took. The Models tab used to save
+   on every onChange — a POST, a file write and a backup PER KEYSTROKE in
+   a number field — while the Vault tab staged and waited for a button.
+   Two opposite models in one dialog is worse than either. Everything
+   stages now, and this bar is where staged work is committed.
+
+   `effect` is what a save does; `dirty` is how many staged changes there
+   are (0 hides the verbs). Cards that own their own save (a worker, a
+   schema) pass `dirty` themselves. */
+function SaveBar({ effect, dirty = 0, busy, onSave, onDiscard, saveLabel = "Save" }) {
+  return (
+    <div className="cfg-savebar">
+      <span className="cfg-effect small">{effect}</span>
+      <span className="spacer" />
+      {dirty > 0 ? (
+        <>
+          <span className="cfg-dirty small">
+            {dirty} unsaved change{dirty > 1 ? "s" : ""}
+          </span>
+          {onDiscard && (
+            <button className="linklike small" onClick={onDiscard}>Discard</button>
+          )}
+          <button className="decide approve" disabled={busy} onClick={onSave}>
+            {busy ? "Saving…" : saveLabel}
+          </button>
+        </>
+      ) : (
+        <span className="ghost small">No unsaved changes</span>
+      )}
+    </div>
+  );
+}
+
 /* Per-processor consent levels. The level IS the gate — there is no
    second setting for a level to conflict with, which retired the whole
    "ticked but inert" class this component's predecessor had to explain.
@@ -69,7 +113,9 @@ const LEVEL_LABEL = {
   off: "off — don't run",
   ask: "ask — queue everything",
   verified: "verified — apply what the check vouches for",
-  full: "full — apply everything, objections on the record",
+  // kept inside the control column's width — a level whose text is cut
+  // off ("…objections on the rec") is a level you have to guess at
+  full: "full — apply everything, on the record",
 };
 
 const PRESETS = {
@@ -89,13 +135,42 @@ function PolicyList({ items, value, onChange }) {
   const levels = value || {};
   return (
     <div className="cfg-checklist">
+      {/* The preset rides in the SAME grid as the levels it fills in, so
+          the thing that sets the column and the column it sets share one
+          edge. Sitting outside it (its own full-width control above the
+          list) it read as an unrelated setting that happened to be
+          nearby. It is still not stored — the levels are the only truth,
+          and mixed ones read back as "custom". */}
+      <div className="cfg-check cfg-preset">
+        <span className="cfg-item">
+          <span className="cfg-item-name">Preset</span>
+          <span className="cfg-item-id">all lanes at once</span>
+        </span>
+        <select value={presetOf(items, levels)}
+                onChange={(e) => {
+                  const fn = PRESETS[e.target.value];
+                  if (fn) onChange(Object.fromEntries(items.map((it) => [it.name, fn(it)])));
+                }}>
+          <option value="cautious">cautious — everything asks</option>
+          <option value="standard">standard — apply what a check can vouch for</option>
+          <option value="autonomous">autonomous — apply everything, on the record</option>
+          <option value="custom" disabled>custom — tuned below</option>
+        </select>
+        <span />
+      </div>
       {items.map((it) => {
         const opts = ["off", "ask", ...(it.verified ? ["verified"] : []), "full"];
         const cur = levels[it.name] ?? "ask";
         return (
           <div className="cfg-check" key={it.name}>
-            <span className="cfg-item-name">{it.title}</span>
-            <span className="mono ghost small">{it.name}</span>
+            {/* name and identifier in ONE grid cell, so the select column
+                below starts at the same x on every row. Laid out as
+                siblings they set their own width, and seven rows put the
+                control at seven different indents. */}
+            <span className="cfg-item">
+              <span className="cfg-item-name">{it.title}</span>
+              <span className="cfg-item-id">{it.name}</span>
+            </span>
             <select value={opts.includes(cur) ? cur : "ask"}
                     onChange={(e) => onChange({ ...levels, [it.name]: e.target.value })}>
               {opts.map((o) => <option key={o} value={o}>{LEVEL_LABEL[o]}</option>)}
@@ -116,7 +191,19 @@ function VaultTab({ data, onSaved, onError }) {
   useEffect(() => { setDraft(data.values); }, [data.values]);
 
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
-  const dirty = JSON.stringify(draft) !== JSON.stringify(data.values);
+  /* Counted per SETTING, not per Spec.md key. The map-valued keys hold
+     many settings each — every processor's level lives under `policies`
+     — so keying the count would report three retuned lanes as "1 unsaved
+     change" and invite exactly the doubt this bar exists to remove. */
+  const changedKeys = Object.keys(draft).filter(
+    (k) => JSON.stringify(draft[k]) !== JSON.stringify(data.values[k]));
+  const dirtyCount = changedKeys.reduce((n, k) => {
+    const now = draft[k], was = data.values[k] ?? {};
+    if (!now || typeof now !== "object" || Array.isArray(now)) return n + 1;
+    const keys = new Set([...Object.keys(now), ...Object.keys(was)]);
+    return n + [...keys].filter(
+      (sub) => JSON.stringify(now[sub]) !== JSON.stringify(was[sub])).length;
+  }, 0);
   const declared = new Set(data.declared);
   const help = data.help;
 
@@ -144,27 +231,13 @@ function VaultTab({ data, onSaved, onError }) {
 
       <Field label="How much it may do without asking" help={help.policies}
              declared={declared.has("policies")}>
-        {/* The preset is not stored — it pre-selects the per-processor
-            levels below, which are the only truth. Mixed levels read
-            back as "custom". */}
-        <select value={presetOf(data.trustable, draft.policies)}
-                onChange={(e) => {
-                  const fn = PRESETS[e.target.value];
-                  if (fn) set("policies", Object.fromEntries(
-                    data.trustable.map((it) => [it.name, fn(it)])));
-                }}>
-          <option value="cautious">cautious — everything asks</option>
-          <option value="standard">standard — apply what a check can vouch for</option>
-          <option value="autonomous">autonomous — apply everything, on the record</option>
-          <option value="custom" disabled>custom — tuned below</option>
-        </select>
         <PolicyList items={data.trustable} value={draft.policies}
                     onChange={(v) => set("policies", v)} />
       </Field>
 
       <Field label="Typed //commands" help={help.disabled_processors}
              declared={declared.has("disabled_processors")}>
-        <label className="cfg-check">
+        <label className="cfg-check cfg-check-box">
           <input type="checkbox"
                  checked={!(draft.disabled_processors || []).includes("inline_command")}
                  onChange={(e) => set("disabled_processors",
@@ -230,14 +303,10 @@ function VaultTab({ data, onSaved, onError }) {
                       .map((p) => [p[0].trim(), p.slice(1).join(":").trim()])))} />
       </Field>
 
-      <div className="cfg-actions">
-        <button className="decide approve" onClick={save} disabled={!dirty || busy}>
-          {busy ? "Saving…" : "Save to Spec.md"}
-        </button>
-        {dirty && <button className="linklike" onClick={() => setDraft(data.values)}>
-          Discard
-        </button>}
-      </div>
+      <SaveBar effect={`${data.spec_note} · one revertible snapshot, live next pass`}
+               dirty={dirtyCount} busy={busy} onSave={save}
+               onDiscard={() => setDraft(data.values)}
+               saveLabel="Save to Spec.md" />
     </div>
   );
 }
@@ -273,7 +342,32 @@ function Backups({ file, path = "/api/console/models/restore", payload = {},
   );
 }
 
-function ProfileCard({ p, fields, onField, onDelete }) {
+/* models.yaml keys, in words. The Vault tab has said "How much it may do
+   without asking" since it was written; this tab was still printing
+   `max_tool_result_chars` at the user. Same console, two eras. The raw
+   key still trails each label for anyone matching this against the file
+   — the identifier-trails rule the policy rows follow. */
+const PROFILE_FIELD_LABEL = {
+  worker_adapt: "Prompt hedging",
+  worker_max_tokens: "Worker reply ceiling",
+  worker_timeout_s: "Worker call timeout",
+  confirm_writes: "Ask before writes",
+  max_iterations: "Tool rounds per turn",
+  max_tool_result_chars: "Tool result limit",
+  temperature: "Temperature",
+};
+
+/* One short line each, and SHORT is the requirement: these sit in a
+   grid, so a hint that wraps makes its cell taller than its neighbours
+   and the row below it steps. */
+const PROFILE_FIELD_UNIT = {
+  worker_adapt: "small splices the hedges",
+  worker_max_tokens: "tokens · 0 = spec default",
+  worker_timeout_s: "seconds · 0 = spec default",
+  max_tool_result_chars: "characters",
+};
+
+function ProfileCard({ p, fields, values, onField, onDelete }) {
   return (
     <div className="cfg-profile">
       <div className="cfg-profile-head">
@@ -281,7 +375,9 @@ function ProfileCard({ p, fields, onField, onDelete }) {
         {p.is_default && <span className="chip verdict-approve">chat default</span>}
         {p.is_worker && <span className="chip">worker</span>}
         {!p.is_default && !p.is_worker && onDelete && (
-          <button className="linklike small" onClick={() => onDelete(p.name)}>delete</button>
+          <button className="linklike affordance" onClick={() => onDelete(p.name)}>
+            delete
+          </button>
         )}
       </div>
       <div className="ghost small mono">{p.base_url}</div>
@@ -300,19 +396,22 @@ function ProfileCard({ p, fields, onField, onDelete }) {
       <div className="cfg-grid">
         {fields.map((f) => (
           <label key={f} className="cfg-inline">
-            <span className="ghost small">{f}</span>
+            <span title={f}>{PROFILE_FIELD_LABEL[f] || f}</span>
             {f === "worker_adapt" ? (
-              <select value={p.fields[f]} onChange={(e) => onField(p.name, f, e.target.value)}>
+              <select value={values[f]} onChange={(e) => onField(p.name, f, e.target.value)}>
                 <option value="none">none</option>
                 <option value="small">small</option>
               </select>
             ) : f === "confirm_writes" ? (
-              <input type="checkbox" checked={Boolean(p.fields[f])}
+              <input type="checkbox" checked={Boolean(values[f])}
                      onChange={(e) => onField(p.name, f, e.target.checked)} />
             ) : (
-              <input type="number" value={p.fields[f]}
+              <input type="number" value={values[f]}
                      step={f === "temperature" ? "0.1" : "1"}
                      onChange={(e) => onField(p.name, f, e.target.value)} />
+            )}
+            {PROFILE_FIELD_UNIT[f] && (
+              <span className="ghost small">{PROFILE_FIELD_UNIT[f]}</span>
             )}
           </label>
         ))}
@@ -373,7 +472,15 @@ function ModelsTab({ data, onSaved, onError, refresh }) {
   const [text, setText] = useState(data.text);
   const [busy, setBusy] = useState(false);
   const [backendForm, setBackendForm] = useState(null); // {name,url,command} | null
-  useEffect(() => { setText(data.text); }, [data.text]);
+  /* Staged edits, in the exact shape /api/console/models takes:
+     {default, worker, profiles: {name: {field: value}}}. Every control
+     here used to POST on its own onChange — which, in a number field,
+     meant a file write and a config-history backup per keystroke, and
+     left you with no way to tell a landed change from a pending one.
+     Staging also lets the server compute `restart` once, over the whole
+     patch, instead of per field. */
+  const [patch, setPatch] = useState({});
+  useEffect(() => { setText(data.text); setPatch({}); }, [data.text]);
 
   const send = async (path, body, note) => {
     setBusy(true);
@@ -382,6 +489,19 @@ function ModelsTab({ data, onSaved, onError, refresh }) {
       onSaved(note + (r.restart ? " — restart chickenskratch-ui to load it" : " — live next pass"));
     } catch (e) { onError(String(e.message || e)); }
     setBusy(false);
+  };
+
+  // effective value = staged if present, else what the file says
+  const pick = (key) => patch[key] ?? data[key];
+  const profileValues = (p) => ({ ...p.fields, ...(patch.profiles?.[p.name] || {}) });
+  const stageField = (name, field, value) => setPatch((d) => ({
+    ...d, profiles: { ...d.profiles, [name]: { ...d.profiles?.[name], [field]: value } } }));
+  const dirty =
+    ("default" in patch ? 1 : 0) + ("worker" in patch ? 1 : 0) +
+    Object.values(patch.profiles || {}).reduce((n, f) => n + Object.keys(f).length, 0);
+  const savePatch = async () => {
+    await send("/api/console/models", { patch }, "models.yaml saved");
+    setPatch({});
   };
 
   if (data.error)
@@ -415,20 +535,16 @@ function ModelsTab({ data, onSaved, onError, refresh }) {
 
       <Field label="Chat profile"
              help="The model the chat pane and the CLI talk to. Changing it\nneeds a restart — a running agent already holds its profile.">
-        <select value={data.default} disabled={busy}
-                onChange={(e) => send("/api/console/models",
-                                      { patch: { default: e.target.value } },
-                                      `Chat profile → ${e.target.value}`)}>
+        <select value={pick("default")}
+                onChange={(e) => setPatch((d) => ({ ...d, default: e.target.value }))}>
           {data.profiles.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
         </select>
       </Field>
 
       <Field label="Worker profile"
              help="The model that drafts proposals in the background, for every\nvault. A vault can override it for itself on the Vault tab.\n\nRe-read every pass, so a change here takes effect without a restart.">
-        <select value={data.worker} disabled={busy}
-                onChange={(e) => send("/api/console/models",
-                                      { patch: { worker: e.target.value } },
-                                      `Worker profile → ${e.target.value}`)}>
+        <select value={pick("worker")}
+                onChange={(e) => setPatch((d) => ({ ...d, worker: e.target.value }))}>
           {data.profiles.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
         </select>
       </Field>
@@ -436,10 +552,8 @@ function ModelsTab({ data, onSaved, onError, refresh }) {
       <div className="cfg-label">Profiles</div>
       {data.profiles.map((p) => (
         <ProfileCard key={p.name} p={p} fields={data.profile_fields}
-                     onField={(name, field, value) => send(
-                       "/api/console/models",
-                       { patch: { profiles: { [name]: { [field]: value } } } },
-                       `${name}.${field} → ${value}`)}
+                     values={profileValues(p)}
+                     onField={stageField}
                      onDelete={(name) => send(
                        "/api/console/models/profile/delete", { name },
                        `Profile ${name} deleted`)} />
@@ -453,7 +567,7 @@ function ModelsTab({ data, onSaved, onError, refresh }) {
       {data.backends.map((b) => (
         <div className="row" key={b}>
           <span className="grow mono small">{b}</span>
-          <button className="linklike small"
+          <button className="affordance linklike"
                   onClick={() => send("/api/console/models/backend/delete", { name: b },
                                       `Backend ${b} deleted`)}>delete</button>
         </div>
@@ -514,6 +628,13 @@ function ModelsTab({ data, onSaved, onError, refresh }) {
       )}
 
       <Backups file={data.file} onError={onError} onSaved={onSaved} refresh={refresh} />
+
+      {/* Create and delete stay immediate — they are explicit verbs with
+          their own buttons, and staging "I pressed Create" would be a
+          worse lie than saving it. Only the FIELDS stage. */}
+      <SaveBar effect="config/models.yaml · backed up, not snapshotted · worker is live next pass, chat default needs a restart"
+               dirty={dirty} busy={busy} onSave={savePatch}
+               onDiscard={() => setPatch({})} />
     </div>
   );
 }
@@ -662,7 +783,7 @@ function WorkerCard({ item, onSaved, onError }) {
         {item.reserved && <span className="chip">engine</span>}
         {item.invalid && <span className="chip attention">broken</span>}
         {!item.reserved && (
-          <button className="linklike small" disabled={busy} onClick={remove}>delete</button>
+          <button className="linklike affordance" disabled={busy} onClick={remove}>delete</button>
         )}
       </div>
       {item.invalid && <div className="cfg-note small attention">{item.invalid}</div>}
@@ -785,6 +906,10 @@ function BehaviorsTab({ data, onSaved, onError }) {
           + New behavior
         </button>
       </div>
+      {/* No count: a worker is a whole document, so each card owns its own
+          Save. The bar still runs along the foot saying what one does —
+          which is the half of it you can't work out by looking. */}
+      <SaveBar effect={`${data.dir}/ · backed up on save · live next pass, no restart`} />
     </div>
   );
 }
@@ -944,7 +1069,7 @@ function SchemaCard({ item, dirKeys, onSaved, onError }) {
         {item.engine && <span className="chip">engine</span>}
         {item.invalid && <span className="chip attention">broken</span>}
         {!item.engine && (
-          <button className="linklike small" disabled={busy} onClick={remove}>delete</button>
+          <button className="linklike affordance" disabled={busy} onClick={remove}>delete</button>
         )}
       </div>
       {item.used_by?.length > 0 && (
@@ -1053,6 +1178,7 @@ function SchemasTab({ data, onSaved, onError }) {
           + New schema
         </button>
       </div>
+      <SaveBar effect={`${data.dir}/ · backed up on save · live next pass, no restart`} />
     </div>
   );
 }
