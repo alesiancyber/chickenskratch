@@ -88,3 +88,112 @@ def test_untracked_note_edits_move_the_pass_fingerprint(gitvault, make_watcher):
     # and a deleted untracked file doesn't crash the walk (I6: tolerant reads)
     note.unlink()
     assert applier.vault_state(str(gitvault)) != second
+
+
+# ---- broken worker output must be budgeted, not looped ----
+#
+# The failure this pins, measured in a live vault: schema_fix drafted
+# against ONE unchanged note 21 times, every pass reporting
+# `drafted=0 auto=0 worker_errors=[]` while a 16-to-631-second model call
+# ran behind it. The drafter was declining with `return None`, the engine
+# read that as "nothing to propose" and CLEARED the retry budget, and the
+# deterministic scan re-found the same note on the next pass. Forever.
+
+# every lane but schema_fix, so a pass drafts exactly the one item below
+ONLY_SCHEMA = ("capture", "spec_drift", "overlap", "plan_today", "grouping")
+BROKEN_REL = "Tasks/Broken.md"
+
+
+def one_broken_note(vault):
+    """A vault whose ONLY nonconforming note is ours. The fixture vault
+    ships several, and n_max would draft five per pass — which measures
+    the budget of whichever note sorted first, not of this one."""
+    for md in vault.rglob("*.md"):
+        if md.name != "Spec.md":
+            md.write_text("---\ntype: note\nid: n-000000000000\n---\n\n# ok\n")
+    (vault / "Tasks").mkdir(exist_ok=True)
+    (vault / BROKEN_REL).write_text(
+        "---\ntype: task\n---\n\n# Broken\n\n- [ ] no id on this line\n")
+    return BROKEN_REL
+
+
+def wrong_note_drafter(calls):
+    """A worker that answers, but aims its plan at another note — the
+    exact shape the live model produced 21 times."""
+    async def draft(item):
+        calls.append(item["note"])
+        return {"title": "t", "summary": "s",
+                "apply": [{"tool": "update_frontmatter",
+                           "args": {"path": "Some/Other.md", "key": "id",
+                                    "value": "n-1"}}]}
+    return draft
+
+
+def test_a_worker_plan_aimed_elsewhere_is_budgeted_then_parked(vault, make_watcher):
+    """A plan whose steps target a different note can never become a
+    proposal. It must cost a retry budget and be SAID OUT LOUD — a lane
+    that re-finds its items by scan keeps no seen-hash for a parking to
+    ride on, so a silent decline is one model call per pass, forever."""
+    from chickenskratch import watcher as watcher_mod
+
+    one_broken_note(vault)
+    calls = []
+    for attempt in range(1, watcher_mod.DRAFT_PLAN_ATTEMPTS + 1):
+        w = make_watcher(vault, drafter=wrong_note_drafter(calls),
+                         disabled=ONLY_SCHEMA)
+        summary = run(w)
+        assert summary["drafted"] == 0
+        errs = [e for e in summary["worker_errors"] if e["processor"] == "schema_fix"]
+        assert errs, "a broken plan reported nothing — a quiet vault looks the same"
+        assert "targets" in errs[0]["error"]
+        assert errs[0]["retrying"] is (attempt < watcher_mod.DRAFT_PLAN_ATTEMPTS)
+
+    assert calls == [BROKEN_REL] * watcher_mod.DRAFT_PLAN_ATTEMPTS
+    # parked: a further pass must not reach the model at all
+    w = make_watcher(vault, drafter=wrong_note_drafter(calls), disabled=ONLY_SCHEMA)
+    assert run(w)["worker_errors"] == []
+    assert len(calls) == watcher_mod.DRAFT_PLAN_ATTEMPTS, (
+        f"a parked lane still called the worker ({len(calls)} calls)")
+    slots = json.loads(w.state_path.read_text())["draft_attempts"]
+    assert any(s.startswith("schema_fix:") for s in slots)
+
+
+def test_editing_the_note_buys_a_fresh_budget(vault, make_watcher):
+    """Parking is per INPUT, not per note: the user changing the text is
+    exactly the event that deserves another try."""
+    from chickenskratch import watcher as watcher_mod
+
+    rel = one_broken_note(vault)
+    calls = []
+    for _ in range(watcher_mod.DRAFT_PLAN_ATTEMPTS + 1):
+        run(make_watcher(vault, drafter=wrong_note_drafter(calls),
+                         disabled=ONLY_SCHEMA))
+    assert len(calls) == watcher_mod.DRAFT_PLAN_ATTEMPTS
+
+    (vault / rel).write_text(
+        "---\ntype: task\n---\n\n# Broken\n\n- [ ] a different unstamped line\n")
+    run(make_watcher(vault, drafter=wrong_note_drafter(calls), disabled=ONLY_SCHEMA))
+    assert len(calls) == watcher_mod.DRAFT_PLAN_ATTEMPTS + 1, (
+        "an edited note did not re-arm the lane")
+
+
+def test_nothing_to_propose_stays_free(vault, make_watcher):
+    """The other half of the split, and the reason it needed one: a
+    correct "nothing here" must NOT burn budget, or a healthy quiet lane
+    would eventually park itself."""
+    from chickenskratch import watcher as watcher_mod
+
+    one_broken_note(vault)
+
+    async def usable(item):
+        return {"title": "t", "summary": "s", "apply": [
+            {"tool": "update_frontmatter",
+             "args": {"path": item["note"], "key": "id", "value": "n-1"}}]}
+
+    for _ in range(watcher_mod.DRAFT_PLAN_ATTEMPTS + 2):
+        w = make_watcher(vault, drafter=usable, disabled=ONLY_SCHEMA)
+        assert [e for e in run(w)["worker_errors"]
+                if e["processor"] == "schema_fix"] == []
+    slots = json.loads(w.state_path.read_text()).get("draft_attempts") or {}
+    assert not [s for s in slots if s.startswith("schema_fix:")], (
+        "a healthy lane accumulated a retry budget")

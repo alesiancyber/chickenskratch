@@ -424,8 +424,10 @@ class Watcher:
         return f"{proc.name}:{proposals.content_hash(item['note'] + chr(0) + basis)}"
 
     def _invalid_plan(self, summary: dict, proc, error: Exception, slot: str) -> None:
-        """The drafter answered, but its plan fails the proposal schema —
-        so nothing enters the queue.
+        """The drafter answered, and nothing can enter the queue — either
+        because the plan fails the proposal schema, or because the drafter
+        itself rejected the worker's output (processors.UnusablePlan).
+        Both are the same event to a user, and both need this budget.
 
         Visibly identical to a dead worker (zero drafts), and it used to
         be swallowed by a bare `continue` with the drafter's seen-hash
@@ -538,8 +540,20 @@ class Watcher:
                 # surface until you notice tasks never appearing.
                 events.emit(self.vault_path, "worker_error", record)
                 continue
+            except processors.UnusablePlan as e:
+                # Extraction RAN and came back broken. Visibly identical to
+                # a quiet vault, which is why it needs the same budget as a
+                # schema-invalid plan: without one, a lane that re-finds its
+                # items deterministically (schema_fix, grouping) pays a
+                # fresh LLM call for the same rejected output on every
+                # pass, forever, reporting drafted=0 and no error.
+                self._invalid_plan(summary, proc, e, slot)
+                continue
             if p is None:
-                self.draft_attempts.pop(slot, None)  # a clean "nothing to propose"
+                # A correct, cheap "nothing to propose" — the judge saw
+                # only distinct pairs, the partition gained nothing. It
+                # costs the input its budget on purpose.
+                self.draft_attempts.pop(slot, None)
                 continue
             try:
                 proposals.save(p, self.proposals_dir)

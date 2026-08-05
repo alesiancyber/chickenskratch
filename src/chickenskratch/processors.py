@@ -41,6 +41,29 @@ __all__ = ["CAPTURE_SKELETON", "capture_text", "registry", "REGISTRY"]
 if TYPE_CHECKING:
     from .watcher import Watcher
 
+
+class UnusablePlan(Exception):
+    """The worker answered, and what it produced cannot become a proposal.
+
+    The drafters below have two ways to decline, and conflating them cost
+    one LLM call per pass forever. Returning None means "nothing to
+    propose" — a correct, cheap answer (the judge said every pair was
+    distinct; the partition gained nothing), and the engine treats it as
+    success: it CLEARS the input's retry budget. Raising this means
+    extraction ran and came back broken — an invented task id, a plan
+    aimed at a note we never drafted against, a verdict outside the
+    schema.
+
+    Only the second may be retried, and only on a budget. The drafters
+    own the proposal's shape and the model only fills the fields, so a
+    plan rejected once is usually rejected identically every pass; an
+    unbounded re-arm is the loop _invalid_plan already exists to bound.
+    Measured before this existed: schema_fix drafted against the same
+    note 21 times, every pass reporting `drafted=0 errs=0` while a
+    16-to-631-second LLM call ran behind it.
+    """
+
+
 @dataclass(frozen=True)
 class ProcessorSpec:
     """One transformation; `name` doubles as the proposal `kind`."""
@@ -764,10 +787,17 @@ async def draft_schema(w: Watcher, item: dict) -> dict | None:
     # output dies here, not in the queue where an inattentive approve
     # could still execute it). verify_schema_fix re-checks this for
     # defense in depth on the auto-apply path.
+    #
+    # Raised, not returned: schema_fix re-finds its items by deterministic
+    # scan and stamps no seen-hash, so a silent decline here is a fresh
+    # LLM call against the same unchanged note on every single pass. This
+    # is the exact shape that burned 21 calls on one note.
     for step in reply["apply"]:
         target = step.get("args", {}).get("path")
         if target is None or not applier.same_note(str(target), item["note"]):
-            return None
+            raise UnusablePlan(
+                f"step {step.get('tool')!r} targets {target!r}, not the "
+                f"drafted note {item['note']!r}")
     return proposals.new_proposal(
         kind="schema_fix",
         note=item["note"],
@@ -806,8 +836,14 @@ async def draft_grouping(w: Watcher, item: dict) -> dict | None:
     reply = await w.grouping_drafter(item)
     member_ids = [t.block_id for t in item["tasks"]]
     groups = reply.get("groups", [])
-    if grouping.validate_partition(groups, member_ids) or len(groups) < 2:
-        return None  # broken partition or nothing gained: never a proposal
+    # The two declines, kept apart: a partition that drops, duplicates or
+    # invents a member is broken output (budgeted); a partition of fewer
+    # than two groups is a correct answer that gains nothing (free).
+    issues = grouping.validate_partition(groups, member_ids)
+    if issues:
+        raise UnusablePlan(f"invalid partition: {issues[0]}")
+    if len(groups) < 2:
+        return None  # nothing gained — never a proposal, never a failure
     content = grouping.render_grouped(
         item["level"], groups, {t.block_id: t.raw for t in item["tasks"]}
     )
@@ -1026,17 +1062,19 @@ async def draft_overlap(w: Watcher, item: dict) -> dict | None:
             key = frozenset((a[0].block_id, b[0].block_id))
             p = answered.get(key)
             if p is None:
-                return None  # silently-missing pairs are failures (grouping's rule)
+                # silently-missing pairs are failures (grouping's rule)
+                raise UnusablePlan(f"judge skipped pair {sorted(key)}")
             verdict = p.get("verdict")
             if verdict == "duplicate":
                 keep = str(p.get("keep") or "")
                 if keep not in key:
-                    return None  # invented keep id: broken output dies here
+                    raise UnusablePlan(
+                        f"keep id {keep!r} is neither task in pair {sorted(key)}")
                 verdicts.append({"a": a, "b": b, "verdict": "duplicate", "keep": keep})
             elif verdict == "related":
                 verdicts.append({"a": a, "b": b, "verdict": "related", "keep": None})
             elif verdict != "distinct":
-                return None
+                raise UnusablePlan(f"verdict {verdict!r} is not in the schema")
     elif fuzzy is not None:
         # Nothing needed judging and the embedder answered: the pool is
         # settled. Embedder down with nothing to judge stays UNSTAMPED —
@@ -1128,9 +1166,13 @@ async def draft_plan(w: Watcher, item: dict) -> dict | None:
     ids = [str(p.get("id", "")) for p in picks]
     if not ids:
         return None  # "nothing worth surfacing today" is a correct answer
-    if (len(ids) > MAX_PLAN_PICKS or len(set(ids)) != len(ids)
-            or any(i not in pool for i in ids)):
-        return None  # broken output dies here, never in the queue
+    if len(ids) > MAX_PLAN_PICKS:
+        raise UnusablePlan(f"{len(ids)} picks over the max of {MAX_PLAN_PICKS}")
+    if len(set(ids)) != len(ids):
+        raise UnusablePlan(f"repeated id(s) in picks: {ids}")
+    invented = [i for i in ids if i not in pool]
+    if invented:
+        raise UnusablePlan(f"picked id(s) not in the pool: {invented}")
     issues = []
     for p in picks:
         t, rel = pool[str(p["id"])]
