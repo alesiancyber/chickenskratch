@@ -303,7 +303,6 @@ def test_score_plan_judgment_pins():
 
 def test_record_case_runs_the_production_gate(monkeypatch):
     import asyncio
-    from pathlib import Path
 
     from chickenskratch import worker_evals as we
     from chickenskratch.bootstrap import ROOT

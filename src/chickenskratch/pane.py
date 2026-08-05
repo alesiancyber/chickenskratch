@@ -35,6 +35,25 @@ from .fanout import Fanout
 
 CONFIRM_TIMEOUT = 600  # seconds; silent expiry = deny, marked timed_out
 QUEUE_MAX = 500
+# Slack over the derived budget below — scheduling, the teardown itself.
+TEARDOWN_SLACK_S = 10.0
+
+
+def teardown_budget(profile=None) -> float:
+    """How long a stopped session may reasonably take to unwind.
+
+    Derived, not picked. A stopped turn ends at its next checkpoint, and
+    the agent loop has exactly two: between model calls and between tool
+    calls. So the worst case is one in-flight completion plus one
+    in-flight tool call, and both are bounded — by the profile's
+    `request_timeout_s` and by mcp_client.CALL_TIMEOUT. A hardcoded 30s
+    here was shorter than a single local-model reply, so it expired on
+    every ordinary stop and took the cancel path below with it."""
+    from .mcp_client import CALL_TIMEOUT
+    from .profiles import Profile
+
+    request = getattr(profile, "request_timeout_s", None) or Profile.request_timeout_s
+    return float(request) + CALL_TIMEOUT + TEARDOWN_SLACK_S
 
 
 class ChatSession:
@@ -134,9 +153,20 @@ class ChatSession:
         await done
 
     def _ensure_worker(self) -> None:
-        if self._worker is None or self._worker.done():
-            self._inbox = asyncio.Queue()
-            self._worker = asyncio.create_task(self._run_worker())
+        if self._worker is not None and not self._worker.done():
+            return
+        if self.agent is not None:
+            # A worker that ended WITHOUT the close sentinel still owns the
+            # agent's MCP transports — their cancel scopes belong to that
+            # task, and calling them from a replacement raises "exit cancel
+            # scope in a different task". Drop the agent so the new worker
+            # builds its own; the old one's servers are unreachable either
+            # way, and pretending otherwise turns a leak into a wedge.
+            print(f"chat session {self.chat_id}: worker ended without teardown; "
+                  "rebuilding the agent for the next turn")
+            self.agent = None
+        self._inbox = asyncio.Queue()
+        self._worker = asyncio.create_task(self._run_worker())
 
     async def _run_worker(self) -> None:
         while True:
@@ -173,17 +203,53 @@ class ChatSession:
             return
         self._emit({"type": "assistant", "content": reply})
 
-    async def close(self) -> None:
+    async def close(self, timeout: float | None = None) -> None:
+        """Tear the session down: deny any parked gate, then hand the
+        worker a close sentinel and let IT exit the MCP transports.
+
+        The wait NEVER escalates to cancelling the worker. That looks
+        like the obvious backstop and is the opposite of one: the
+        transports are anyio cancel scopes entered by the worker task,
+        but they live on the client object, not on the worker's call
+        stack — so cancelling the worker doesn't unwind them, it strands
+        them. Measured: anyio raises "Attempted to exit cancel scope in a
+        different task", the stdio servers this session spawned never see
+        their stdin close, and one chickenskratch-vault-mcp plus one
+        chickenskratch-files-mcp outlive the session for as long as this
+        process runs. Every stop press leaked another pair.
+
+        So the sentinel is the only teardown there is, and a slow one
+        costs patience rather than a leaked process. `timeout` bounds how
+        long we WATCH, never what the worker does: past it we stop
+        waiting and the worker still finishes its turn and still closes
+        its servers. None derives the bound from the turn's own
+        checkpoints (teardown_budget); the shutdown path passes a short
+        one on purpose, because there the process is about to exit and
+        exiting closes the pipes for us."""
+        # A closing session takes no more turns: send() checks this, so
+        # nothing can start a replacement worker beside the one that
+        # still owns the agent's transports.
+        self.stopped = True
         for fut in self.pending.values():
             if not fut.done():
                 fut.set_result(False)
-        if self._worker is not None and not self._worker.done():
-            done: asyncio.Future = asyncio.get_running_loop().create_future()
-            await self._inbox.put((None, done))
-            try:
-                await asyncio.wait_for(done, 30)
-            except TimeoutError:
-                self._worker.cancel()
+        worker = self._worker
+        if worker is None or worker.done():
+            self._worker = None
+            return
+        done: asyncio.Future = asyncio.get_running_loop().create_future()
+        await self._inbox.put((None, done))
+        budget = timeout if timeout is not None else teardown_budget(
+            getattr(self.agent, "profile", None))
+        try:
+            await asyncio.wait_for(done, budget)
+        except TimeoutError:
+            # Cancelling `done` here touches this waiter only — the worker
+            # holds its own reference and _run_worker guards on
+            # done.done() before setting a result.
+            print(f"chat session {self.chat_id}: still unwinding after "
+                  f"{budget:g}s — its MCP servers close when it finishes")
+            return
         self._worker = None
 
     # ---- the real Agent, exactly as the CLI builds it ----

@@ -46,11 +46,21 @@ class FakeOpenAI:
     def __init__(self, responses):
         self._responses = list(responses)
         self.requests: list[list[dict]] = []
+        # Every kwarg the agent sends, per request. **kwargs rather than a
+        # fixed signature: this double stands in for an API that takes
+        # many optional options, so a new one the agent starts sending is
+        # a thing to ASSERT about, not a TypeError in 26 unrelated tests.
+        self.options: list[dict] = []
+        self.closed = False
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
-    async def _create(self, model, messages, tools, temperature):
+    async def _create(self, model, messages, tools, temperature, **kwargs):
         self.requests.append([dict(m) for m in messages])
+        self.options.append({"model": model, "temperature": temperature, **kwargs})
         return self._responses.pop(0)
+
+    async def close(self):
+        self.closed = True
 
 
 class FakeMCP:
@@ -478,3 +488,34 @@ def test_citations_still_skip_notes_the_model_already_named():
                   note_link=app_note_link)
     agent._cited = {"Home.md": set()}
     assert agent._with_vault_citations("I read Home.md for this") == "I read Home.md for this"
+
+
+# --------------- bounded outbound calls ---------------
+
+def test_chat_completion_carries_a_request_timeout():
+    """The bound has to reach the wire. Left off, the OpenAI client's own
+    600s default applies — and this await is the longest checkpoint-free
+    stretch the agent loop has, so an unbounded one makes the pane's stop
+    button unbounded too (pane.teardown_budget derives from this number).
+    Every other outbound call in this project passes a timeout; so does
+    this one."""
+    agent = make_agent([response(content="done")])
+    run(agent)
+    assert agent._openai.options[0]["timeout"] == agent.profile.request_timeout_s
+    assert agent.profile.request_timeout_s > 0
+
+
+def test_agent_exit_closes_the_model_client_too():
+    """An Agent owns two connection lifetimes — MCP child processes and an
+    httpx pool. A pane that opens a session per stop press leaks whichever
+    one teardown forgets."""
+    agent = make_agent([response(content="done")])
+
+    class ExitingMCP(FakeMCP):
+        async def __aexit__(self, *exc):
+            self.exited = True
+
+    agent.client = ExitingMCP()
+    asyncio.run(agent.__aexit__(None, None, None))
+    assert agent.client.exited
+    assert agent._openai.closed

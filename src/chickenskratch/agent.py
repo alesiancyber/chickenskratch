@@ -172,7 +172,14 @@ class Agent:
         return self
 
     async def __aexit__(self, *exc) -> None:
-        await self.client.__aexit__(*exc)
+        # Both halves, and the model client in a finally: an Agent owns two
+        # connection lifetimes (MCP child processes, an httpx pool), and a
+        # pane that opens a session per stop press leaks whichever one an
+        # early return skips.
+        try:
+            await self.client.__aexit__(*exc)
+        finally:
+            await self._openai.close()
 
     async def _complete(self) -> tuple[str, list, dict | None]:
         """One model request. Returns (content, tool_calls, usage); usage is
@@ -183,6 +190,13 @@ class Agent:
             messages=self.messages,
             tools=self._tools,
             temperature=self.profile.temperature,
+            # Bounded, like every other outbound call in this project
+            # (workers pass their spec's timeout, MCP calls pass
+            # CALL_TIMEOUT). The client default is 600s, and this await
+            # is the longest checkpoint-free stretch the agent loop has:
+            # a stop cannot land until it returns, so an unbounded one
+            # makes "stopping…" unbounded too.
+            timeout=self.profile.request_timeout_s,
         )
         # A reasoning model that spends its whole token budget on hidden
         # thought returns choices=[]. Fold it into the empty-content

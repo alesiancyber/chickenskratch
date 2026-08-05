@@ -11,6 +11,7 @@ starved out of n_max by a maintenance backlog.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import difflib
 import pathlib
@@ -28,7 +29,7 @@ from chickenskratch_vault import tasks as tk
 from chickenskratch_vault.vault import VaultError
 from chickenskratch_vault.vaultconfig import SPEC_REL, get_config
 
-from . import applier, grouping, proposals
+from . import applier, events, grouping, proposals
 
 # Re-exported: the capture text contract is shared with applier (see
 # capture.py), but it reads as part of this processor's surface.
@@ -87,12 +88,65 @@ class ProcessorSpec:
 # location IS provenance, and Today's walk already reads every note.
 
 
+# Seen-map key holding the hash of a dump that WAS filed but whose
+# surface clear didn't land (see _capture_applied). Rides in `seen`
+# because that map is already the per-processor memory the pass loads,
+# persists, and re-arms — a second state file for one deferred write
+# would be a second thing to keep in sync.
+PENDING_RESET = "capture_pending_reset"
+
+
 def ensure_capture(w: Watcher) -> None:
-    """The capture surface must exist to be typed into."""
-    if not w.capture_rel or w.vault.resolve(w.capture_rel).exists():
+    """The capture surface must exist to be typed into — and must not
+    still be holding a dump that already landed."""
+    if not w.capture_rel:
         return
-    w.write_surface(w.capture_rel, CAPTURE_SKELETON,
-                    f"create {w.capture_rel}", action="create_capture_surface")
+    if not w.vault.resolve(w.capture_rel).exists():
+        w.write_surface(w.capture_rel, CAPTURE_SKELETON,
+                        f"create {w.capture_rel}", action="create_capture_surface")
+        return
+    _finish_deferred_reset(w)
+
+
+def _finish_deferred_reset(w: Watcher) -> None:
+    """Retry a clear that a wedged vault lock deferred — but only while
+    the surface still holds EXACTLY the text that was filed.
+
+    The clear is a whole-surface overwrite, so running it over words the
+    user has typed since would delete them, and losing new writing is a
+    worse failure than the duplicate it would prevent. When they have
+    typed, the flag is dropped and the ordinary scan runs — loudly,
+    because the next extraction will re-file the dump still sitting
+    there, and a duplicate record with no explanation is exactly the
+    kind of silent wrongness the verifiers exist to avoid."""
+    filed = w.seen.get(PENDING_RESET)
+    if not filed:
+        return
+    try:
+        current = content_hash(capture_text(w.vault.read(w.capture_rel)))
+    except VaultError:
+        w.seen.pop(PENDING_RESET, None)  # surface gone: nothing to clear
+        return
+    if current == filed:
+        try:
+            reset_capture(w)
+        except VaultError as e:
+            # Still wedged. Keep the flag and try again next pass: this is
+            # the one branch where nothing has been lost yet.
+            print(f"{w.capture_rel}: still not clearable ({e}) — retrying next pass")
+            return
+    else:
+        record = {
+            "processor": "capture",
+            "error": (f"{w.capture_rel} could not be cleared after its record "
+                      "was filed, and has been edited since. The text that "
+                      "already landed is still on the surface and will be "
+                      "extracted again — delete the part that was filed."),
+            "retrying": False,
+        }
+        events.emit(w.vault_path, "worker_error", record)
+        print(record["error"])
+    w.seen.pop(PENDING_RESET, None)
 
 
 def reset_capture(w: Watcher) -> None:
@@ -289,7 +343,19 @@ def _capture_applied(w: Watcher, p: dict) -> None:
     declined step is still the only copy."""
     if not w.capture_rel or p.get("partial"):
         return
-    reset_capture(w)
+    try:
+        reset_capture(w)
+    except VaultError:
+        # The record landed but the surface still holds its dump, and
+        # left alone that is a duplicate waiting to happen: the seen-hash
+        # keys on the WHOLE surface, so the next thing the user types
+        # moves it and the already-filed text is extracted a second time
+        # into a second record. Remember exactly what was filed;
+        # ensure_capture finishes the clear at the start of the next pass.
+        with contextlib.suppress(VaultError):
+            w.seen[PENDING_RESET] = content_hash(
+                capture_text(w.vault.read(w.capture_rel)))
+        raise  # _post_apply reports it; the apply itself still stands
 
 
 # ---- extraction shaping: worker task rows -> reviewable pieces ----

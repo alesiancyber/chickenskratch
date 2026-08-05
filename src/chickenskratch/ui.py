@@ -74,10 +74,14 @@ SSE_POLL_SECONDS = 1.0        # while active: file-tail latency ≤ 1s
 SSE_IDLE_POLL_SECONDS = 15.0  # quiet stream: one wake per 15s
 SSE_ACTIVE_WINDOW_S = 60.0    # how long after the last event fast ticks persist
 SSE_PING_SECONDS = 15.0       # comment ping cadence (time-based, not ticks)
-# Shutdown's budget for the chat sessions the stop button replaced. Longer
-# than one session's own 30s close(), so a single unwinding turn finishes;
-# bounded, so a wedged one can't hold the process open.
-CHAT_TEARDOWN_TIMEOUT = 35.0
+# Shutdown's budget for the chat sessions the stop button replaced.
+# Deliberately much shorter than pane.teardown_budget: at RUNTIME a
+# session that outlives its budget must still be left to close its own
+# MCP servers (nothing else can), but at SHUTDOWN the process is about to
+# exit, and exiting closes the servers' stdin for us. So this bounds the
+# polite wait, and abandoning it is safe here in a way it never is on the
+# stop-button path.
+CHAT_TEARDOWN_TIMEOUT = 20.0
 # What the stop button can be pointed at. "chat" is this route's own
 # vocabulary, not a cancel.py job: stopping a chat replaces the session
 # rather than cancelling anything (see cancel_route).
@@ -321,22 +325,16 @@ def health_model(vault_path: str) -> dict:
     }
 
 
-def _snapshots_since(vault_path: str, before_sha: str) -> list[str]:
-    """Non-machine snapshot shas newer than `before_sha`, newest first —
-    what a UI undo must revert to unwind the action that just ran.
-
-    Its own walk rather than recent_news: the boundary is a SHA, and that
-    sha may itself be a machine render — so the stop test has to run
-    before the filter, or the walk would sail past the boundary."""
-    machine = changes.machine_rels(get_config(vault_path))
-    out = []
-    for c in _vault(vault_path).history(30):
-        if c["sha"] == before_sha:
-            break
-        if changes.is_machine_render(c, machine):
-            continue
-        out.append(c["sha"])
-    return out
+# The undo list a decision hands back is NOT derived here. It used to be:
+# this module walked the range from a HEAD read at request entry and
+# filtered machine renders. Two things were wrong with that, and both are
+# structural rather than cosmetic — see changes.harness_commits_since.
+# The range included the `manual edits (before harness: …)` commit that
+# preserves the user's own uncommitted writing, so Undo reverted their
+# work along with the harness's; and the boundary sha predated a lock
+# wait of up to DECISION_LOCK_WAIT_S, so a concurrent pass's auto-applies
+# fell inside it. The engine now brackets each apply and reports the shas
+# on the pass summary, exactly as the autonomous path already did.
 
 
 def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
@@ -364,7 +362,6 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         body, err = await guard_write(request)
         if err:
             return err
-        head_before, _ = await run_in_threadpool(applier.vault_state, vault_path)
         steps = body.get("steps")
         try:
             # On the engine thread: a decision applies a plan synchronously
@@ -379,8 +376,9 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
             # 409, not a summary of nothing: the verdict was NOT applied,
             # and the dashboard must drop its optimistic mark and say so.
             return JSONResponse({"error": str(e)}, status_code=409)
-        undo = await run_in_threadpool(_snapshots_since, vault_path, head_before)
-        return JSONResponse({"summary": summary, "undo": undo})
+        # The shas the engine bracketed around THIS apply — the harness's
+        # own commits and nothing else.
+        return JSONResponse({"summary": summary, "undo": summary.get("undo", [])})
 
     async def revert_route(request):
         body, err = await guard_write(request)
@@ -441,8 +439,12 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
                                 status_code=400)
         name, args = parsed
         try:
-            # Await-bound (worker/MCP calls), same as the canvas's inline
-            # command execution — fine on this loop.
+            # Await-bound, and that is a property each command has to
+            # KEEP rather than one this route can assume. It was assumed
+            # once and was false: //ask's retrieval walked the whole
+            # vault synchronously and froze the server for the length of
+            # the walk. query.ask now hands that walk to a thread, so
+            # every command here really is await-bound.
             result = await service.run_command(vault_path, name, args)
         except ValueError as e:      # unknown command, or the kill switch
             return JSONResponse({"error": str(e)}, status_code=400)
@@ -706,7 +708,13 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
           Waiting out the old turn's unwind is what used to wedge the
           pane on "stopping…" with no way to type; "reset" on the old
           stream tells clients to drop the transcript and reconnect
-          (transcripts are scratch — the vault is the archive)."""
+          (transcripts are scratch — the vault is the archive).
+
+          "In the background" is the whole trick, and it only works
+          because close() never cancels: the replaced session may take a
+          couple of minutes to reach its next checkpoint, and it must be
+          allowed to, because it is the only task that can close the MCP
+          servers it opened. The user does not wait for any of it."""
         nonlocal chat
         body, err = await guard_write(request)
         if err:
@@ -861,13 +869,15 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         thread.
 
         The sessions the stop button REPLACED tear down in background
-        tasks (cancel_route), and each may sit up to 30s waiting out an
-        in-flight turn. Shutting down without them orphans exactly the
-        children this hook exists to reap — press stop, then quit, and
-        the old session's servers outlive the server. Bounded, because a
-        wedged teardown must not hold the process open forever."""
+        tasks (cancel_route), each waiting out an in-flight turn.
+        Shutting down without them orphans exactly the children this hook
+        exists to reap — press stop, then quit, and the old session's
+        servers outlive the server. Bounded (CHAT_TEARDOWN_TIMEOUT),
+        because a wedged teardown must not hold the process open: past
+        the bound the interpreter exits, and that closes the servers'
+        stdin, which is the same reaping by a blunter route."""
         yield
-        await chat.close()
+        await chat.close(timeout=CHAT_TEARDOWN_TIMEOUT)
         if chat_tasks:
             # A copy: done callbacks discard from the live set as we wait.
             await asyncio.wait(set(chat_tasks), timeout=CHAT_TEARDOWN_TIMEOUT)

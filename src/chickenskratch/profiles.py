@@ -29,6 +29,14 @@ class Profile:
     servers: list[str] | None = None     # MCP server allowlist; None = all enabled
     confirm_writes: bool = False         # gate mutating tool calls on user approval
     max_history_chars: int = 36000       # trim oldest turns beyond this (~9k tokens)
+    # Per-request ceiling on ONE chat completion. Load-bearing beyond
+    # politeness: a chat turn is only stoppable between model calls, so
+    # this number IS the worst-case latency of the pane's stop button
+    # (pane.teardown_budget derives from it). Left unset, the OpenAI
+    # client's own default is 600s — ten minutes during which a stopped
+    # session cannot finish unwinding, which is how the teardown budget
+    # kept expiring.
+    request_timeout_s: float = 120.0
     # Worker-prompt capability tier when this profile runs the background
     # workers: "none" (default) = the loose capable-model base prompts;
     # "small" = each spec's hedge rules splice in. Capability is the norm

@@ -56,9 +56,12 @@ def use_vault(vault_path: str) -> None:
 
     Thread note: this writes process globals (the env var, the vault
     singleton) and is called from both the engine thread and the UI
-    server's threadpool readers. That is safe only because one server
-    process serves one vault, so every caller writes the same value —
-    a second vault in this process would need a lock here.
+    server's threadpool readers. Every caller writes the same VALUE —
+    one server process serves one vault — so the concurrency is benign
+    in that respect, and a second vault in this process would need a
+    lock here. The nulling itself still races readers, which is why
+    get_vault() reads the global exactly once (see there); "same value"
+    covers what is written, not the window where nothing is.
     """
     os.environ["CHICKENSKRATCH_VAULT_PATH"] = str(vault_path)
     vault_mod._vault = None

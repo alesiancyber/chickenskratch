@@ -541,7 +541,7 @@ def main() -> None:
         os.environ["WORKER_MODEL"] = args.model
     if args.base_url:
         os.environ["WORKER_BASE_URL"] = args.base_url
-    workers._client = None  # drop any cached client so env overrides take effect
+    workers.reset_client()  # drop any cached client so env overrides take effect
 
     cases = load_cases()
     if args.filter:

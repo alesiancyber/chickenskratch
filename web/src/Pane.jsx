@@ -73,6 +73,20 @@ export default function Pane({ open, onClose, onOpenNote }) {
   const scroller = useRef(null);
   const inputRef = useRef(null);
 
+  /* The session swap, from either of the two things that can announce
+     it: our own stop button's 202, and the "reset" event the server
+     publishes on the dying stream. Both fire on an ordinary stop, and
+     whichever loses the race must not swap a SECOND time — bumping gen
+     twice tears down the stream we just opened against the new session
+     and opens a third. `fromGen` is the generation the caller observed,
+     so the late one is a no-op by construction rather than by timing. */
+  const dropSession = useCallback((fromGen) => {
+    setGen((g) => (g === fromGen ? g + 1 : g));
+    setItems([{ kind: "info", text: "stopped — fresh chat" }]);
+    setBusy(false);
+    setStopping(false);
+  }, []);
+
   useEffect(() => {
     if (!started) return undefined;
     const es = new EventSource("/api/chat/events");
@@ -91,12 +105,7 @@ export default function Pane({ open, onClose, onOpenNote }) {
     // and a fresh one is already live. Transcripts are scratch, so drop
     // everything, free the input, and reconnect to the new session —
     // the pane must never sit dead on "stopping…".
-    es.addEventListener("reset", () => {
-      setItems([{ kind: "info", text: "stopped — fresh chat" }]);
-      setBusy(false);
-      setStopping(false);
-      setGen((g) => g + 1);
-    });
+    es.addEventListener("reset", () => dropSession(gen));
     // "chat_error": server-side chat failures ("error" is reserved by
     // EventSource for connection drops, which it retries itself)
     es.addEventListener("chat_error", (e) => {
@@ -128,7 +137,7 @@ export default function Pane({ open, onClose, onOpenNote }) {
         x.kind === "gate" && x.id === d.id ? { ...x, resolved: d.approved } : x));
     });
     return () => es.close();
-  }, [gen, started]);
+  }, [gen, started, dropSession]);
 
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = 1e6;
@@ -160,14 +169,11 @@ export default function Pane({ open, onClose, onOpenNote }) {
     setStopping(true);
     try {
       await cancelJob("chat");
-      setItems([{ kind: "info", text: "stopped — fresh chat" }]);
-      setBusy(false);
-      setStopping(false);
-      setGen((g) => g + 1);
+      dropSession(gen);
     } catch {
       setStopping(false);
     }
-  }, []);
+  }, [dropSession, gen]);
 
   const answer = useCallback(async (id, allow) => {
     try {

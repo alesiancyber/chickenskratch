@@ -24,6 +24,7 @@ structure, not prose.
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 from chickenskratch_vault import workers as wk
@@ -214,7 +215,15 @@ async def ask(vault_path: str, question: str) -> str:
     source is dropped rather than linked, because a link that opens the
     wrong note teaches the user not to click them."""
     question = question.strip()
-    picked, matched = gather(vault_path, question)
+    # Off the loop. gather() is the one blocking stretch in this module —
+    # a full walk of the knowledge notes, a read and a regex pass per
+    # note, scored — and //ask is reached from two callers that run on
+    # the HTTP loop (the editor's ⌘↩ via /api/command, and the canvas's
+    # command split in /api/ingest). Measured at ~0.56ms per note, so a
+    # real vault freezes the server, SSE included, for the length of the
+    # walk. Hoisted here rather than at each caller: this is a property
+    # of the retrieval, and a third caller must not have to rediscover it.
+    picked, matched = await asyncio.to_thread(gather, vault_path, question)
     if not picked:
         return "_no notes to search yet_"
     notes = "\n\n".join(f"=== {rel} ===\n{text}" for rel, text in picked)

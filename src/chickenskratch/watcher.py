@@ -40,7 +40,7 @@ from chickenskratch_vault import workers as wk
 from chickenskratch_vault.vault import Vault, VaultError, atomic_write_text, read_lossy
 from chickenskratch_vault.vaultconfig import get_config
 
-from . import applier, commands, events, processors, proposals
+from . import applier, changes, commands, events, processors, proposals
 from .bootstrap import ROOT, apply_worker_profile, vault_digest
 from .corpus import record_dashboard
 from .processors import ProcessorSpec
@@ -60,17 +60,6 @@ DECISION_LOCK_WAIT_S = 90.0
 # the fields, so a rejected plan usually fails identically next pass — the
 # budget is there to catch the flake, not to grind at a poison input.
 DRAFT_PLAN_ATTEMPTS = 3
-
-
-def _takewhile_not(commits: list[dict], stop_sha: str) -> list[dict]:
-    """Commits newer than stop_sha (newest first) — the applies a single
-    proposal just made."""
-    out = []
-    for c in commits:
-        if c["sha"] == stop_sha:
-            break
-        out.append(c)
-    return out
 
 
 class LockBusy(RuntimeError):
@@ -609,10 +598,9 @@ class Watcher:
                 # make: its own harness commits ride the resolved file, so
                 # the dashboard's audit row reverts THIS decision without
                 # hunting the git log. (Manual-edit sweep commits are the
-                # user's work and never included.)
-                p["undo"] = [c["sha"] for c in _takewhile_not(
-                    self.vault.history(10), before_sha)
-                    if c["subject"].startswith("harness:")]
+                # user's work and never included — changes.py owns that
+                # rule for this path and the human-verdict one both.)
+                p["undo"] = changes.harness_commits_since(self.vault, before_sha)
                 # No corpus row: auto-applies are not human labels.
                 proposals.resolve(p, "auto", self.proposals_dir)
                 auto += 1
@@ -620,8 +608,16 @@ class Watcher:
         return drafted, auto
 
     def _act(self, decisions: list[tuple[str, str]], pending: list[dict]) -> tuple[dict, list[dict]]:
-        """Act on checked boxes. Returns (counts, proposals still pending)."""
-        acted = {"approved": 0, "rejected": 0, "stale": 0, "failed": 0}
+        """Act on checked boxes. Returns (counts, proposals still pending).
+
+        `acted["undo"]` carries the shas an approve just wrote, so the
+        dashboard's toast can offer undo without re-deriving the range
+        from a HEAD it read before the pass lock — a wait of up to
+        DECISION_LOCK_WAIT_S during which a concurrent pass's own
+        auto-applies would land inside the window and be swept into the
+        user's undo."""
+        acted: dict = {"approved": 0, "rejected": 0, "stale": 0, "failed": 0,
+                       "undo": []}
         resolved: set[str] = set()
         by_id = {p["id"]: p for p in pending}
         for pid, decision in decisions:
@@ -642,6 +638,8 @@ class Watcher:
                 self._notify_stale(p)
                 acted["stale"] += 1
                 continue
+            head = self.vault.history(1)
+            before_sha = head[0]["sha"] if head else ""
             try:
                 applier.apply(p, self.vault_path)
             except Exception as e:
@@ -652,6 +650,11 @@ class Watcher:
                 acted["failed"] += 1
                 print(f"apply failed for {p['id']} ({p['title'][:50]}): {type(e).__name__}: {e}")
                 continue
+            # Same derivation as the autonomous path, taken at the same
+            # moment relative to the apply: bracketing THIS plan's writes
+            # is the only way the range can mean "undo this decision".
+            p["undo"] = changes.harness_commits_since(self.vault, before_sha)
+            acted["undo"] += p["undo"]
             proposals.resolve(p, "approved", self.proposals_dir)
             self._record(p, "approved")
             acted["approved"] += 1
@@ -753,6 +756,9 @@ class Watcher:
             # "drafted 0" alone can't tell "nothing to extract" from "the
             # worker never answered" — and the surfaces must not guess.
             "stale": 0, "failed": 0, "worker_errors": [],
+            # Shas this pass's APPROVALS wrote, for the dashboard's undo
+            # toast (_act fills it; see harness_commits_since).
+            "undo": [],
             # False only for a decisions-only pass: every full pass scans.
             "scanned": False, "locked": False, "cancelled": False,
         }

@@ -122,7 +122,7 @@ def apply_worker_profile(name: str, config: Config | None = None) -> bool:
             changed = True
         _config_filled.add(key)
     if changed:
-        workers._client = None  # rebuild against the new endpoint/key
+        workers.reset_client()  # rebuild against the new endpoint/key, closing the old pool
     return True
 
 

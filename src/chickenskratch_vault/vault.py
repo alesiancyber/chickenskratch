@@ -345,14 +345,27 @@ _vault: Vault | None = None
 
 
 def get_vault() -> Vault:
+    """The process's vault handle, built on first use.
+
+    Read the global ONCE, into a local, and hand back the local. The
+    obvious spelling — check the global, then return the global — has a
+    window between the two: applier.use_vault() nulls this singleton to
+    make a Spec.md `exclude` edit take effect, and it runs on the engine
+    thread while the UI server's threadpool readers call in here. A null
+    landing between the check and the return makes this function hand
+    back None, and the caller's next attribute access is an
+    AttributeError from an unrelated tool. Rare — a two-bytecode window —
+    and free to close.
+    """
     global _vault
-    if _vault is None:
+    v = _vault
+    if v is None:
         root = os.environ.get("CHICKENSKRATCH_VAULT_PATH")
         if not root:
             raise VaultError("CHICKENSKRATCH_VAULT_PATH is not set")
-        _vault = Vault(
+        v = _vault = Vault(
             root,
             chat_id=os.environ.get("HARNESS_CHAT_ID", ""),
             exclude=get_config(root).exclude,
         )
-    return _vault
+    return v

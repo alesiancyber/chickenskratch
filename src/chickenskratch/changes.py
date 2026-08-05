@@ -44,6 +44,32 @@ def is_machine_render(commit: dict, machine: set[str]) -> bool:
     return bool(commit["files"]) and all(f in machine for f in commit["files"])
 
 
+def harness_commits_since(v: Vault, before_sha: str, limit: int = 10) -> list[str]:
+    """The harness's OWN snapshot shas newer than `before_sha`, newest
+    first — the undo list for one action, in the order a revert applies.
+
+    The `harness:` subject test is the load-bearing part, not a tidiness
+    filter. Every mutation snapshots the tree BEFORE it writes, so any
+    uncommitted work the user had in flight rides in a `manual edits
+    (before harness: …)` commit sitting immediately beside the change.
+    Reverting the whole range therefore reverts the user's own writing
+    along with the harness's — which is the one thing an undo button may
+    never do. Only commits this harness authored are ours to take back.
+
+    One home because both consent paths need it and they were deriving
+    it differently: the autonomous applier filtered on the subject, and
+    the dashboard's decide route walked the same range without the
+    filter. Same idea, two implementations, and only one of them was
+    safe."""
+    out = []
+    for c in v.history(limit):
+        if c["sha"] == before_sha:
+            break
+        if c["subject"].startswith("harness:"):
+            out.append(c["sha"])
+    return out
+
+
 def recent_news(v: Vault, machine: set[str], limit: int = 20) -> list[dict]:
     """The commits worth showing: newest-first snapshots minus the
     harness redrawing its own surfaces. Both renderers of this list — the

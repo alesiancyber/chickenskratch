@@ -42,6 +42,7 @@ Config via env, mirroring CHICKENSKRATCH_VAULT_PATH:
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import datetime as dt
 import json
@@ -93,9 +94,38 @@ def new_client() -> AsyncOpenAI:
 
 def _worker_client() -> AsyncOpenAI:
     global _client
-    if _client is None:
-        _client = new_client()
-    return _client
+    c = _client
+    if c is None:
+        c = _client = new_client()
+    return c
+
+
+# Closes in flight, held so the loop can't collect them mid-close.
+_closing: set = set()
+
+
+def reset_client() -> None:
+    """Drop the worker client so the next call rebuilds it against the
+    current endpoint and key — and close the old one's connection pool.
+
+    Assigning None alone leaks an httpx pool (and its open sockets) every
+    time a vault's Spec.md `worker:` re-points the endpoint, which is
+    once per pass for a vault that keeps switching. The close is
+    scheduled on the running loop because this is called from
+    synchronous config code; with no loop there is nothing to schedule
+    on and the pool dies with the process, which is the same outcome by
+    a blunter route."""
+    global _client
+    old, _client = _client, None
+    if old is None:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    task = loop.create_task(old.close())
+    _closing.add(task)
+    task.add_done_callback(_closing.discard)
 
 
 def _splice(template: str, slot: str, text: str) -> str:
@@ -108,8 +138,9 @@ def _splice(template: str, slot: str, text: str) -> str:
     outside its VaultError contract, so it would crash every pass
     instead of failing one processor. One implementation for hedges and
     kinds both: the two eat-the-line rules can't drift apart."""
-    template = template.replace("{%s}\n" % slot, f"{text}\n" if text else "")
-    return template.replace("{%s}" % slot, text)
+    marker = "{" + slot + "}"
+    template = template.replace(marker + "\n", f"{text}\n" if text else "")
+    return template.replace(marker, text)
 
 
 def render_prompt(spec: WorkerSpec, **inputs) -> str:

@@ -36,6 +36,7 @@ import tempfile
 from pathlib import Path
 
 import yaml
+
 from chickenskratch_vault import jsonval
 from chickenskratch_vault import markdown as md
 from chickenskratch_vault import schemas as entity_schemas
@@ -49,6 +50,16 @@ from .bootstrap import DEFAULT_MODELS, ROOT
 from .config_store import ConfigError
 
 MODELS_YAML = Path(DEFAULT_MODELS)
+
+# Ceiling on one console test-run, independent of the spec's own
+# timeout_s (which build_worker allows up to an hour) and of any
+# WORKER_TIMEOUT_S override. This call runs in Starlette's threadpool,
+# which is bounded and shared with every sync read route on the
+# dashboard — a handful of test-runs waiting out a cold or wedged
+# endpoint would otherwise starve /api/today and the note editor. A
+# tuning round-trip that takes longer than this is a failure worth
+# reporting anyway.
+TEST_RUN_TIMEOUT_S = 90.0
 
 # The Spec.md keys the console owns. Everything here is a note edit the
 # engine picks up next pass — no restart, no process state. The AI layer
@@ -884,7 +895,8 @@ def test_worker(name: str, inputs: dict, text: str | None = None,
         # engine thread's event loop, and this runs in the threadpool.
         client = wk.new_client()
         try:
-            return await wk.run_worker(spec, client=client, **fill)
+            return await asyncio.wait_for(
+                wk.run_worker(spec, client=client, **fill), TEST_RUN_TIMEOUT_S)
         finally:
             await client.close()
 
@@ -893,6 +905,11 @@ def test_worker(name: str, inputs: dict, text: str | None = None,
         out["reply"] = asyncio.run(_call())
     except VaultError as e:
         out["error"] = str(e)
+    except TimeoutError:
+        out["error"] = (
+            f"no reply within {TEST_RUN_TIMEOUT_S:.0f}s — the endpoint is cold, "
+            f"wedged, or the prompt is too large for it "
+            f"({wk.worker_base_url()})")
     return out
 
 
