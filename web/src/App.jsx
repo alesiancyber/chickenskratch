@@ -189,6 +189,78 @@ function MoveChips({ r, moved, onMove, targets }) {
 
 /* a task row with the prototype's checkbox: click = done, through the
    gated set_task_status tool */
+/* The empty dashboard's one way forward.
+
+   "Nothing needs you." is the success condition of this whole system, so
+   it stays the headline and nothing is ever listed beside it — an empty
+   Today that immediately fills itself with suggestions is just an
+   infinite dashboard wearing a disguise. But an empty Today with no exit
+   moves the hunting somewhere else, which is the other failure.
+
+   So: a single quiet line under the empty state, and the groups only
+   after you ask. A group arrives whole (the errands from one dump, one
+   meeting's action items — see today._task_groups), because pulling in
+   related work one task at a time IS the hunting this exists to remove.
+
+   It needs no dismissal: adding a group makes Today non-empty, which
+   unmounts this on the next refetch. The way out is doing something. */
+function PullIn({ groups, onAdd, adding }) {
+  const [open, setOpen] = useState(false);
+  const openNote = useContext(OpenNote);
+  if (!groups?.length) return null;
+  if (!open) {
+    return (
+      <div className="pull-in small">
+        <button className="linklike" onClick={() => setOpen(true)}>
+          Bring something in…
+        </button>
+        <span className="ghost">
+          {" "}— {groups.length} group{groups.length > 1 ? "s" : ""} waiting
+        </span>
+      </div>
+    );
+  }
+  return (
+    <Section id="pull" label="Bring something in?" verb="pull">
+      {groups.map((g) => (
+        <div className="group" key={g.id}>
+          <div className="row">
+            <span className="grow">
+              {/* the full path, like the audit rows: a group's own tasks
+                  say WHAT it is on the line below, so the label's job is
+                  where it came from — and a bare "2026-08-04" answers
+                  neither */}
+              <button className="linklike doc-link" onClick={() => openNote(g.note)}>
+                {g.note.replace(/\.md$/, "")}
+              </button>
+              {g.notes.length > 1 && (
+                <span className="ghost small"> +{g.notes.length - 1} linked</span>
+              )}
+              {g.age_days > 0 && (
+                <span className="ghost small"> · {g.age_days}d old</span>
+              )}
+            </span>
+            <span className="chip">{g.size} task{g.size > 1 ? "s" : ""}</span>
+            {/* the panel's whole purpose, so it does NOT hide until
+                hover the way a secondary row verb does */}
+            <button className="linklike group-add" disabled={adding === g.id}
+                    onClick={() => onAdd(g)}>
+              {adding === g.id ? "adding…" : "add all → today"}
+            </button>
+          </div>
+          <div className="group-tasks ghost small">
+            {g.tasks.slice(0, 4).map((t) => t.text).join(" · ")}
+            {g.tasks.length > 4 && ` · +${g.tasks.length - 4}`}
+          </div>
+        </div>
+      ))}
+      <div className="fold small">
+        <button className="linklike" onClick={() => setOpen(false)}>show less</button>
+      </div>
+    </Section>
+  );
+}
+
 function TaskRow({ r, right, onDone, done }) {
   return (
     <NoteRow note={r.note} target={r.text} className={done ? "task-done" : ""}>
@@ -809,6 +881,28 @@ export default function App() {
      the one placement rule: a task is in today, this week, or later,
      and its chips are the other two, minus any move a hard 📅 makes a
      lie. Same gated ⏳ verb, same corpus row, wherever it's clicked. */
+  /* Pull one whole group into today. Loops the SAME gated ⏳ verb a
+     single promote uses — one snapshot and one corpus row per task, so a
+     group add is as revertible and as legible in the training stream as
+     four separate clicks, and there is no second write path to keep
+     honest. The refetch rides the vault_changed events those writes
+     already emit. */
+  const [addingGroup, setAddingGroup] = useState(null);
+  const addGroup = useCallback(async (g) => {
+    setAddingGroup(g.id);
+    try {
+      for (const t of g.tasks)
+        await postJSON("/api/task/plan",
+                       { note: t.note, text: t.text, when: today?.date ?? "" });
+      showToast(`Added ${g.size} to today — snapshot kept`);
+    } catch (e) {
+      // partial adds are fine and visible: whatever landed is on Today,
+      // and the rest is still in the group when it re-renders
+      showToast(`Couldn’t add the whole group: ${e.message || e}`);
+    }
+    setAddingGroup(null);
+  }, [today?.date, showToast]);
+
   const planChips = useCallback((r) => {
     const targets = planTargets(
       { due: r.due || "", scheduled: r.scheduled || "", owed: Boolean(r.owner) },
@@ -1058,7 +1152,12 @@ export default function App() {
         </div>
       )}
 
-      {nothing && !workerError && <div className="empty-state title">Nothing needs you.</div>}
+      {nothing && !workerError && (
+        <>
+          <div className="empty-state title">Nothing needs you.</div>
+          <PullIn groups={today.groups ?? []} onAdd={addGroup} adding={addingGroup} />
+        </>
+      )}
 
       <DoToday due={today.due} planned={today.planned ?? []}
                meetings={today.meetings} onDone={taskDone} doneKeys={doneKeys}

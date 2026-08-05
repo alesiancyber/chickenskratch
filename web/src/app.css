@@ -784,6 +784,27 @@ section { margin-bottom: var(--s5); }
 
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
+/* ---- the empty dashboard's one way forward ---- */
+/*
+   Deliberately quiet. "Nothing needs you." is the headline and this is a
+   footnote under it — a loud CTA there would make the empty state read
+   as a chore list with one item, which is the opposite of done.
+*/
+.pull-in { margin-top: var(--s3); color: var(--ink-3); }
+.group { margin-bottom: var(--s3); }
+/* the task texts are a preview of what arrives, not rows of their own:
+   indented under their group, never clickable, never checkable */
+.group-tasks {
+  padding-left: var(--s2);
+  margin-top: calc(-1 * var(--s1));
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* the panel's purpose, so unlike a row's secondary verb it is always
+   legible — you opened this to use it */
+.group-add { color: var(--ink-2); white-space: nowrap; }
+.group-add:hover { color: var(--accent); }
+.group-add:disabled { color: var(--ink-3); cursor: default; }
+
 /* ---- the management console (⌘;) ------------------------------------
    A modal ON PURPOSE. Settings are occasional, and stepping aside into a
    dialog is how the surface says so — you should know you are in it, and

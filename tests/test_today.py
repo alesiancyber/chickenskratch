@@ -298,3 +298,94 @@ def test_capture_with_week_language_lands_scheduled_not_due(vault, make_watcher)
     line = next(ln for ln in filed.splitlines()
                 if "vendor contract" in ln and not ln.startswith(">"))
     assert f"⏳ {sunday}" in line and "📅" not in line
+
+
+# ---- the empty dashboard's groups: what "belongs together" means ----
+
+
+def _groups(v):
+    """The group rows for a vault, straight off the view-model."""
+    from chickenskratch import today as T
+    from chickenskratch_vault.vault import Vault
+    from chickenskratch_vault.vaultconfig import get_config
+    cfg = get_config(str(v))
+    return T.collect(Vault(str(v), exclude=cfg.exclude), cfg, 0)["groups"]
+
+
+def test_a_source_note_is_a_group(vault):
+    """Tasks that arrived together are done together: one dump's errands
+    are one offer, not four separate ones to assemble by hand."""
+    (vault / "Captures").mkdir(exist_ok=True)
+    (vault / "Captures/errands.md").write_text(
+        "# Errands\n\n"
+        f"- [ ] check oil ➕ {day(-3)} ^t-aaa1\n"
+        f"- [ ] withdraw cash ➕ {day(-3)} ^t-aaa2\n"
+        f"- [ ] submit the offer ➕ {day(-3)} ^t-aaa3\n")
+    g = next(r for r in _groups(vault) if r["note"] == "Captures/errands.md")
+    assert g["size"] == 3
+    assert {t["text"] for t in g["tasks"]} == {
+        "check oil", "withdraw cash", "submit the offer"}
+    assert g["age_days"] == 3
+
+
+def test_a_link_merges_groups_across_notes(vault):
+    """A ⇄ link is a human verdict that two tasks are related — an
+    approved overlap proposal. A verdict already given must not have to
+    be given again, so the link pulls both notes into one offer."""
+    (vault / "Projects").mkdir(exist_ok=True)
+    (vault / "Projects/site.md").write_text(
+        "# Site\n\n"
+        f"- [ ] draft the pricing page ➕ {day(-4)} "
+        "⇄ [[Meetings/Kickoff#^t-bbb2]] ^t-bbb1\n")
+    (vault / "Meetings/Kickoff.md").write_text(
+        f"# Kickoff\n\n- [ ] review the copy ➕ {day(-4)} ^t-bbb2\n")
+    merged = next(g for g in _groups(vault)
+                  if any(t["id"] == "t-bbb1" for t in g["tasks"]))
+    assert merged["size"] == 2
+    assert merged["notes"] == ["Meetings/Kickoff.md", "Projects/site.md"]
+
+
+def test_a_tasks_own_ref_is_not_a_link_to_itself(vault):
+    """Every stamped task ends in its own ^id. Read as a link that would
+    make each task its own singleton group forever — and, worse, look
+    like the merge working."""
+    (vault / "Solo.md").write_text(f"- [ ] alone ➕ {day(-1)} ^t-ccc1\n")
+    g = next(r for r in _groups(vault) if r["note"] == "Solo.md")
+    assert g["size"] == 1 and g["tasks"][0]["id"] == "t-ccc1"
+
+
+def test_dated_and_planned_tasks_are_never_offered(vault):
+    """The offer is the BACKLOG — anything already carrying a 📅 or a ⏳
+    is placed, and re-offering it would be the dashboard proposing work
+    it is already showing somewhere else."""
+    (vault / "Mixed.md").write_text(
+        "# Mixed\n\n"
+        f"- [ ] undated one ➕ {day(-2)} ^t-ddd1\n"
+        f"- [ ] has a due 📅 {day(3)} ➕ {day(-2)} ^t-ddd2\n"
+        f"- [ ] has a plan ⏳ {day(1)} ➕ {day(-2)} ^t-ddd3\n"
+        f"- [x] done one ➕ {day(-2)} ^t-ddd4\n")
+    g = next(r for r in _groups(vault) if r["note"] == "Mixed.md")
+    assert [t["text"] for t in g["tasks"]] == ["undated one"]
+
+
+def test_groups_are_bounded_and_biggest_first(vault):
+    """One screen, or it isn't a dashboard: the offer is capped, and the
+    group most worth taking whole leads."""
+    from chickenskratch import today as T
+    (vault / "Big.md").write_text("# Big\n\n" + "".join(
+        f"- [ ] big task {i} ➕ {day(-1)} ^t-e{i:03d}\n" for i in range(6)))
+    for n in range(T.MAX_GROUPS + 3):
+        (vault / f"Small{n}.md").write_text(
+            f"- [ ] small {n} ➕ {day(-1)} ^t-f{n:03d}\n")
+    rows = _groups(vault)
+    assert len(rows) <= T.MAX_GROUPS
+    assert rows[0]["note"] == "Big.md" and rows[0]["size"] == 6
+
+
+def test_no_backlog_means_no_offer(vault, make_watcher):
+    """An empty dashboard with an empty backlog stays empty. The button
+    exists so "done" has a way forward, not so it is never reachable."""
+    for p in vault.rglob("*.md"):
+        if p.name != "Spec.md":
+            p.write_text("# nothing here\n")
+    assert _groups(vault) == []

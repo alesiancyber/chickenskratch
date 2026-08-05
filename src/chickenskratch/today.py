@@ -26,6 +26,7 @@ rollover on a quiet vault.
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 from chickenskratch_vault import kanban as kb
 from chickenskratch_vault import markdown as md
@@ -93,6 +94,11 @@ def collect(v: Vault, cfg, pending_decisions: int, today: dt.date | None = None)
         "next_week": next_week,
         "later": later,
         "backlog": _backlog(open_tasks, today),
+        # What an EMPTY Today can pull in without going hunting. Always
+        # computed (it is three passes over a list already in hand); the
+        # dashboard shows it only when there is nothing else, because the
+        # empty state is the success condition and must stay one.
+        "groups": _task_groups(open_tasks, today),
         "waiting": _waiting_rows(owed_tasks, today),
         "stranded": _stranded(open_tasks, today),
         "meetings": _meetings_today(v, cfg.meetings_dir, today),
@@ -209,6 +215,104 @@ def _backlog(open_tasks: list[tuple[tk.Task, str]],
                      "age_days": (today - born).days if born else None,
                      "id": task.block_id or ""})
     rows.sort(key=lambda r: -(r["age_days"] or -1))
+    return rows[:cap]
+
+
+# A block reference inside a task line — the ⇄ link's target. Matched
+# loosely (any ^id, not just the ⇄ form) because a link is a link
+# however it got written; the task's own trailing ref is excluded by id.
+_REF_RE = re.compile(r"\^([a-z]-[a-z0-9]+)")
+
+MAX_GROUPS = 5          # offered at once; more would be a backlog, not an offer
+GROUP_MIN_AGE_SORT = -1  # undatable groups sort last among equal sizes
+
+
+def _task_groups(open_tasks: list[tuple[tk.Task, str]], today: dt.date,
+                 cap: int = MAX_GROUPS) -> list[dict]:
+    """Backlog tasks that arrive together — what an empty Today offers to
+    pull in, so refilling it costs a click instead of a hunt.
+
+    The empty dashboard is the point of this system: "nothing needs you"
+    has to be reachable and has to be believed, which is why nothing here
+    is ever shown ALONGSIDE real work. But an empty Today with no way
+    forward just moves the hunting somewhere else, so the deterministic
+    answer to "what belongs together?" lives here.
+
+    A group is two rules, both structural:
+
+    - tasks sharing a source note are one group. Location IS provenance
+      in this vault — a dump's errands and a meeting's action items each
+      arrived together and are done together;
+    - a ⇄ link between two tasks merges their groups, transitively. That
+      link is a human verdict (an approved overlap proposal) that the two
+      are related, and a verdict already given should not have to be
+      given again.
+
+    No model and no network. This is a view (I5, views are free), and the
+    reason to prefer structure over an embedding cluster here is not
+    purity: a suggestion that goes quiet whenever an endpoint is down is
+    worse than one that is merely literal, because you cannot tell the
+    two states apart from the empty dashboard.
+    """
+    pool = [(t, rel) for t, rel in open_tasks
+            if not t.due and not t.scheduled
+            and t.raw.lstrip() == t.raw and t.block_id]
+    if not pool:
+        return []
+
+    # Union-find over block ids: notes first, then links merge across them.
+    parent = {t.block_id: t.block_id for t, _rel in pool}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]  # path halving
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    by_note: dict[str, list[str]] = {}
+    for t, rel in pool:
+        by_note.setdefault(rel, []).append(t.block_id)
+    for ids in by_note.values():
+        for other in ids[1:]:
+            union(ids[0], other)
+    for t, _rel in pool:
+        for ref in _REF_RE.findall(t.raw):
+            # a task's own trailing ^ref is not a link to anything
+            if ref != t.block_id and ref in parent:
+                union(t.block_id, ref)
+
+    clusters: dict[str, list[tuple[tk.Task, str]]] = {}
+    for t, rel in pool:
+        clusters.setdefault(find(t.block_id), []).append((t, rel))
+
+    rows = []
+    for members in clusters.values():
+        members.sort(key=lambda x: (x[0].created or "9999", x[1], x[0].block_id))
+        notes = sorted({rel for _t, rel in members})
+        born = [d for d in (_safe_date(t.created) if t.created else None
+                            for t, _rel in members) if d]
+        rows.append({
+            # stable across refetches: the oldest member's id
+            "id": members[0][0].block_id,
+            "note": notes[0],
+            "notes": notes,
+            "size": len(members),
+            "age_days": (today - min(born)).days if born else None,
+            # EVERY member, not a preview slice — "add all" must mean all,
+            # and the renderer is what decides how many to show.
+            "tasks": [{"text": t.text, "note": rel, "id": t.block_id}
+                      for t, rel in members],
+        })
+    # biggest first (a group is more useful than a straggler), then oldest
+    rows.sort(key=lambda r: (-r["size"],
+                             -(r["age_days"] if r["age_days"] is not None
+                               else GROUP_MIN_AGE_SORT),
+                             r["note"]))
     return rows[:cap]
 
 
