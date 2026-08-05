@@ -1,0 +1,58 @@
+description: Answers a question strictly from the packed notes; every quote is verified against its note before it may ride a link. Hedges push a small model toward "the notes don't say" over synthesis.
+inputs:
+- question
+- notes
+timeout_s: 120.0
+temperature: 0.1
+prompt: |
+  Answer the user's question strictly from their own notes below.
+
+  Return ONLY a JSON object of this shape, nothing else:
+  {{"answer": "...", "sources": ["Path/Note.md", ...],
+   "quotes": {{"Path/Note.md": "short verbatim quote"}}}}
+
+  Rules:
+  - Answer directly and completely: asked "how many", give the number AND
+    name the items; asked to list, list. Keep it short — a few sentences
+    or a compact list, in plain markdown. No preamble, no "based on your
+    notes".
+  - Use ONLY the notes below. When they don't contain the answer, say
+    exactly that in `answer` and return "sources": [].
+  - sources: the paths of the notes the answer actually draws on, spelled
+    exactly as given in their === headers, most relevant first.
+  - quotes: for each source, the single short passage (under 120
+    characters) that best supports the answer, copied CHARACTER FOR
+    CHARACTER from that note — it becomes the line the source link jumps
+    to. Never paraphrase, never include ], |, or # in a quote; omit a
+    source you cannot quote exactly.
+  {hedges}
+  Question: {question}
+
+  Notes:
+  {notes}
+hedges: |
+  - Quote the notes' own wording; never infer beyond what a note states.
+  - When unsure, say the notes don't answer it, with "sources": [].
+  - When unsure a quote is exact, leave it out of "quotes" entirely.
+  - Quotes must be SHORT: one clause, well under 120 characters, copied
+    exactly. A long quote fails verification even when accurate — pick
+    the shortest fragment that supports the answer, never a paragraph.
+schema:
+  type: object
+  required:
+  - answer
+  - sources
+  properties:
+    answer:
+      type: string
+      minLength: 1
+    sources:
+      type: array
+      items:
+        type: string
+    quotes:
+      type: object
+      additionalProperties:
+        type:
+        - string
+        - 'null'

@@ -1,0 +1,321 @@
+# Judgment cases for the extract_record worker — the capture lane's one
+# LLM call, and the hardest job a local model gets: kind detection, the
+# transcript-minutes exception, summary fidelity, and task extraction in
+# one reply. Run live:  uv run chickenskratch-worker-eval -k record
+#
+# Each reply is shaped into a real record plan by the PRODUCTION code
+# (_note_record/_capture_record per the schema files' record kinds) and
+# judged by the PRODUCTION gate (verify_record) — so a pass answers
+# "would this model's record have survived review", not "did the JSON
+# look right". Fidelity, attendee, and verbatim failures always count;
+# summary-prose flags count only under `gate: clean`.
+#
+# Case schema (worker: extract_record):
+#   text:              the dump
+#   kind:              expected record kind (meeting | capture)
+#   files_as:          note | daily-append
+#   gate: clean        verify_record must pass ENTIRELY — the auto-file bar
+#   attendees_include / attendees_forbid:  name substrings
+#   title_matches:     regex the record title must match (case-insensitive)
+#   summary_matches / summary_forbid / summary_empty:  summary pins
+#   expect / exact / forbid_text:  task pins, same schema as extract_tasks
+#   budget_s:          per-run time budget override (default 120s)
+
+# The auto-file bar: a bare task list must file with NO summary, no
+# invented prose, verbatim complete — the exact dump that earns full
+# autonomy even under gated posture. Any editorializing breaks it.
+- name: record-bare-task-list-autofiles
+  worker: extract_record
+  kind: capture
+  files_as: daily-append
+  gate: clean
+  summary_empty: true
+  text: |
+    renew the mail cert by friday
+    ping dana about the vpn profile
+    read the sentinel pricing page someday
+  expect:
+    - match: "(?i)cert"
+      due: "{plus5}"
+    - match: "(?i)dana"
+    - match: "(?i)sentinel pricing"
+      due: null
+  exact: true
+
+# Kind detection, positive: a narrated meeting with named people files
+# as a meeting note with attendees — the record every small model is
+# most tempted to flatten into a capture.
+- name: record-meeting-detected-and-filed
+  worker: extract_record
+  kind: meeting
+  files_as: note
+  attendees_include: [Priya, Marcus]
+  title_matches: "(?i)baseline|azure|review"
+  text: |
+    Met with Priya and Marcus this morning about the azure baseline
+    review. Priya walked through the conditional access gaps — legacy
+    auth is still enabled on two tenants. Marcus agreed to own the
+    remediation plan and wants it drafted by {plus7}. We decided the
+    review cadence moves to biweekly.
+  expect:
+    - match: "(?i)remediation plan"
+      due: "{plus7}"
+      owed_by: Marcus
+  summary_matches: ["legacy auth", "biweekly"]
+
+# Kind detection, negative: a solo status note mentions no meeting —
+# the hedge says unsure means capture. Product names that look like
+# people must not become attendees.
+- name: record-status-note-stays-capture
+  worker: extract_record
+  kind: capture
+  files_as: daily-append
+  attendees_forbid: [Meridian, Sentinel]
+  text: |
+    Status on the Meridian rollout: the Sentinel connector is ingesting
+    again after the schema change, backlog is drained. Still need to
+    update the runbook to cover the new connector settings.
+  expect:
+    - match: "(?i)runbook"
+  exact: true
+
+# The transcript EXCEPTION: speaker-labeled turns are a meeting even
+# with zero narrative framing, attendees come from the labels, and the
+# summary is minutes (decisions, numbers, who committed to what) —
+# never a turn-by-turn retelling. This is the case the exception
+# guidance exists for.
+- name: record-transcript-becomes-minutes
+  worker: extract_record
+  kind: meeting
+  files_as: note
+  attendees_include: [Dana, Rio, Priya]
+  text: |
+    Dana: ok, quarterly detection review. we're at 61 analytic rules live.
+    Rio: of those, nine haven't fired in six months. i want to retire them.
+    Dana: retire is strong. archive them so we can restore if the threat
+    model changes. agreed?
+    Rio: fine, archived not deleted. i'll have the list ready by {plus3}.
+    Priya: budget note while everyone's here — the ingest overage came to
+    $4,200 last month. if we keep the verbose diagnostics on the domain
+    controllers we'll blow the quarter.
+    Dana: drop verbose on the DCs, keep it on the tier zero jump boxes.
+    Priya: done. i'll change the DCRs tomorrow.
+    Rio: one more — the phishing simulation report. HR wants it before the
+    all-hands. that's {plus5} i think.
+    Dana: yes, and you own it. anything else? no? good session.
+  summary_matches: ["61", "4[,.]?200", "archiv"]
+  expect:
+    - match: "(?i)list|archive"
+      owed_by: Rio
+    - match: "(?i)DCR|diagnostic|verbose"
+      owed_by: Priya
+    - match: "(?i)phishing"
+      due: "{plus5}"
+      owed_by: Rio
+
+# Speaker-prefix backstop: a small model that returns "Rio: finish the
+# DNS migration" with owed_by null gets caught by _name_prefix_owed —
+# the prefix must land in owed_by and leave the text. Either way the
+# scored outcome is the same, which is the point of the backstop.
+- name: record-owner-prefix-lands-in-owed-by
+  worker: extract_record
+  kind: meeting
+  attendees_include: [Rio]
+  text: |
+    Rio: i'll finish the DNS migration this week, the registrar already
+    confirmed the transfer codes.
+    me: once that lands i need to update the SPF records.
+  expect:
+    - match: "(?i)DNS migration"
+      owed_by: Rio
+      scheduled: "{this_sunday}"
+    - match: "(?i)SPF"
+      owed_by: null
+  forbid_text: ["(?i)^rio:"]
+
+# Owed/own split inside a record: the other party's commitment routes to
+# waiting-on, the reader's own move stays theirs.
+- name: record-waiting-on-split
+  worker: extract_record
+  kind: capture
+  text: |
+    Talked to the vendor. Nadia will send the revised contract by {plus3}.
+    I need to review the indemnification section once it arrives.
+  expect:
+    - match: "(?i)contract"
+      owed_by: Nadia
+      due: "{plus3}"
+    - match: "(?i)indemnification|review"
+      owed_by: null
+
+# Plan language inside a record stamps the week anchors, never invented
+# dates — the ⏳ convention has to survive the bigger prompt too.
+- name: record-week-anchors-survive
+  worker: extract_record
+  kind: capture
+  text: |
+    Planning notes to self. This week: migrate the wiki to the new space.
+    Next week: decommission the old server. No hard deadlines on either,
+    it's just sequencing.
+  expect:
+    - match: "(?i)wiki"
+      scheduled: "{this_sunday}"
+      due: null
+    - match: "(?i)decommission|old server"
+      scheduled: "{next_sunday}"
+      due: null
+  exact: true
+
+# Decisions already made are records, not tasks. A model that files
+# "we decided X" as an action item pollutes every surface downstream.
+- name: record-decisions-are-not-tasks
+  worker: extract_record
+  kind: capture
+  text: |
+    Wrapped the framework debate: we're standardizing on the existing
+    stack, no rewrite. Everyone reviewed the proposal and approved it
+    last sprint. The one thing left to do is archive the rejected
+    rewrite branch.
+  expect:
+    - match: "(?i)archive"
+  exact: true
+  forbid_text: ["(?i)standardiz", "(?i)approve"]
+
+# Nothing actionable at all: the record is just a record. Padding the
+# task list from a diary entry is the failure being pinned.
+- name: record-no-tasks-invented
+  worker: extract_record
+  kind: capture
+  text: |
+    Quiet day. Cleared the inbox to zero, took a long walk at lunch,
+    and read two chapters of the distributed systems book. The chapter
+    on consensus was better than expected.
+  expect: []
+  exact: true
+
+# Markdown-hostile dump: headings, blockquotes, and a fake callout in
+# the dump itself. The verbatim gate demands every line rides in quoted
+# and complete — a model (or the shaping) that mangles structure fails
+# the production gate, which is exactly what we want to know.
+- name: record-hostile-markdown-verbatim-survives
+  worker: extract_record
+  kind: capture
+  text: |
+    ## Summary
+    this heading is part of my dump, not the record's
+    > someone quoted this in chat
+    > [!NOTE] not a real callout, just pasted text
+    todo: rotate the api keys for the staging environment
+  expect:
+    - match: "(?i)rotate.*api keys|api keys.*rotate"
+
+# Long messy braindump (~2.5KB): many tasks, mixed date language,
+# interleaved with noise. Small models drop items or invent dates at
+# exactly this length. Budget stays default — this size must be routine.
+- name: record-long-braindump-nothing-dropped
+  worker: extract_record
+  kind: capture
+  text: |
+    ok brain dump before i forget everything from today. the laptop
+    refresh for the analysts is approved, finance signed off this
+    morning, so i need to place the order with the reseller — sarah
+    said if it goes in before friday we make the hardware cutoff, so
+    that's a real deadline, {plus5} at the latest. while i was on with
+    her she mentioned the msp contract renewal is coming up but that's
+    months away, nothing to do yet.
+
+    the detection backlog is getting embarrassing. the two lateral
+    movement rules from the purple team exercise still aren't written.
+    no deadline but it's been three weeks. someday we should also build
+    that coverage map against the attack matrix everyone keeps talking
+    about — genuinely someday, not urgent.
+
+    ravi pinged me: he's owed a response from legal on the data
+    retention question, but the part i own is sending him the log
+    volume numbers — i said i'd do it today, so due today. he'll send
+    the updated dpa draft once legal answers, that one's on him.
+
+    random: the conference talk submission closes {plus14}. i keep
+    flip-flopping on whether to submit. put it down as a task anyway,
+    no priority, future me can decide.
+
+    oh and the standing reminder — next week i want to actually sit
+    down and do the quarterly access review instead of letting it slip
+    again. plan it for next week, not a deadline, an intention.
+  expect:
+    - match: "(?i)order|reseller|laptop"
+      due: "{plus5}"
+    - match: "(?i)lateral movement"
+      due: null
+    - match: "(?i)coverage map"
+      due: null
+    - match: "(?i)log volume"
+      due: "{today}"
+      owed_by: null
+    - match: "(?i)dpa"
+      owed_by: Ravi
+    - match: "(?i)conference|talk"
+      due: "{plus14}"
+    - match: "(?i)access review"
+      scheduled: "{next_sunday}"
+  forbid_text: ["(?i)msp contract"]   # explicitly nothing-to-do-yet
+
+# Long transcript (~4KB, four speakers): the input shape that made
+# extract_record's 180s timeout necessary. Attendees from labels,
+# minutes with the numbers preserved, commitments owed to their owners.
+# The budget is the case: a model that takes 4 minutes here is unusable
+# no matter how good the minutes are.
+- name: record-long-transcript-full-pipeline
+  worker: extract_record
+  kind: meeting
+  files_as: note
+  budget_s: 180
+  attendees_include: [Dana, Marcus, Priya, Rio]
+  text: |
+    Dana: alright, incident retro for the phishing wave from last week.
+    timeline first. first reported click was 09:14, first containment
+    action 09:52. thirty-eight minutes.
+    Marcus: and eleven of those were waiting on me to get out of a
+    meeting, which is the process gap. we need a documented escalation
+    that doesn't route through a single person.
+    Dana: agreed, that's finding one. write it up?
+    Marcus: i'll draft the escalation runbook. give me until {plus7}.
+    Priya: on scope — 214 users got the email, 9 clicked, 3 entered
+    credentials. all three reset within the hour and we saw no
+    successful logins from the attacker infrastructure afterwards.
+    Rio: the credential entries were all on the fake adfs page. which
+    raises the old question: we still don't enforce phishing-resistant
+    mfa for the finance group. the exemption from the erp migration is
+    still in place two years later.
+    Dana: is removing it disruptive?
+    Rio: the erp vendor finally supports fido keys as of their march
+    release, so no. it's a config change and a comms plan.
+    Dana: then that's finding two. rio owns removing the exemption.
+    Rio: i want to stage it — pilot with five finance users next week,
+    then the rest of the group.
+    Priya: i'll get the phishing domains into the blocklist feed today,
+    that part's already done actually, and the takedown request went to
+    the registrar an hour ago.
+    Dana: good. anything on detection?
+    Rio: the fake page was live for six hours before the first report.
+    a canary token in the login footer template would have caught the
+    clone at hour zero. cheap to do.
+    Dana: take it as finding three, no owner yet — put it in the
+    backlog rather than assign it today.
+    Marcus: one process note for the minutes: users who reported got no
+    acknowledgment, and two of them re-reported thinking it was lost.
+    auto-ack on the report button would fix that.
+    Dana: backlog that one too. to summarize: escalation runbook on
+    marcus by {plus7}, mfa exemption removal staged by rio starting
+    with the pilot next week, blocklist and takedown done by priya,
+    canary tokens and auto-ack to the backlog. good retro, everyone.
+  summary_matches: ["38|thirty.eight", "214", "fido|phishing.resistant"]
+  expect:
+    - match: "(?i)escalation runbook"
+      due: "{plus7}"
+      owed_by: Marcus
+    - match: "(?i)exemption|pilot"
+      owed_by: Rio
+    - match: "(?i)canary"
+    - match: "(?i)auto-ack|acknowledg"
+  forbid_text: ["(?i)blocklist"]   # already done in the dump — not a task

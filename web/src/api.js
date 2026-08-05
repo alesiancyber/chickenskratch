@@ -84,6 +84,10 @@ export function useDashboard() {
   const bumpVaultEvent = useCallback((note, reason) => {
     setVaultEvent((v) => ({ note, reason, n: (v?.n ?? 0) + 1 }));
   }, []);
+  // Bumped on every config_changed event (a console save — this tab's or
+  // another's). The open console reloads on it, so two surfaces can never
+  // show two different configs.
+  const [configVersion, setConfigVersion] = useState(0);
   const alive = useRef(true);
   /* Refetches overlap: pass_complete and vault_changed can land together,
      and each fires parallel requests. Sequence numbers are per KEY, so
@@ -151,6 +155,9 @@ export function useDashboard() {
       bumpVaultEvent("", "pass");      // auto-applies name no note
       refetch();                       // a pass can touch everything
     });
+    es.addEventListener("config_changed", () => {
+      setConfigVersion((n) => n + 1);
+    });
     es.addEventListener("vault_changed", (e) => {
       // one edit: the lists move, the git log and worker health don't.
       // The tree moves whenever a note can appear or vanish — which is
@@ -167,7 +174,7 @@ export function useDashboard() {
   }, [refetch, bumpVaultEvent]);
 
   return { ...state, live, lastPassAt, activity, workerError, vaultEvent,
-           clearWorkerError: () => setWorkerError(null), refetch };
+           configVersion, clearWorkerError: () => setWorkerError(null), refetch };
 }
 
 /* Note references open OUR editor. There is deliberately no

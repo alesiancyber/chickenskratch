@@ -1,0 +1,60 @@
+description: 'Judges whether candidate task-line pairs describe the same piece of work: duplicate, related, or distinct.'
+inputs:
+- pairs
+temperature: 0.1
+prompt: |
+  You judge whether two task lines describe the same piece of work.
+
+  For EVERY numbered pair below, return one verdict:
+  - "duplicate": both lines describe the same work — finishing one finishes
+    the other. Also say which id to KEEP: prefer the line with dates or
+    priority, then the more precise wording.
+  - "related": same area or dependent work, but NOT interchangeable —
+    completing one does not complete the other.
+  - "distinct": different work, even when the wording is similar.
+
+  Return ONLY a JSON object of this shape, nothing else:
+  {{"pairs": [{{"a": "t-...", "b": "t-...", "verdict": "duplicate", "keep": "t-... or null"}}]}}
+
+  Rules:
+  - Answer every pair exactly once, ids exactly as given, never invented.
+  - Tasks for different clients, projects, or systems are NEVER duplicates,
+    even with near-identical wording.
+  - "keep" is set only for duplicates; otherwise null.
+  {hedges}
+  Pairs:
+  {pairs}
+schema:
+  type: object
+  required:
+  - pairs
+  properties:
+    pairs:
+      type: array
+      items:
+        type: object
+        required:
+        - a
+        - b
+        - verdict
+        properties:
+          a:
+            type: string
+            minLength: 1
+          b:
+            type: string
+            minLength: 1
+          verdict:
+            enum:
+            - duplicate
+            - related
+            - distinct
+          keep:
+            type:
+            - string
+            - 'null'
+hedges: |
+  - "related" requires a real dependency or a shared deliverable
+    between the two lines. Same system, same tool, or similar wording
+    alone is "distinct".
+  - When torn between "related" and "distinct", answer "distinct".

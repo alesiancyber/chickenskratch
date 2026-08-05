@@ -190,6 +190,10 @@
       priority: lowest
   exact: true
 
+# Recalibrated 2026-08-02: two independent models split "order" and
+# "put in lockbox" as separate actions, which the split rule permits —
+# the case's POINT is that neither 3 nor 7 becomes a date, so both
+# halves are pinned due-null and the arity is left to the model.
 - name: numbers-are-not-dates
   text: |
     Order 3 replacement YubiKeys for the new hires and put them in
@@ -197,7 +201,8 @@
   expect:
     - match: "(?i)yubikey"
       due: null
-  exact: true
+    - match: "(?i)lockbox"
+      due: null
 
 - name: in-a-week-relative-date
   text: |
@@ -453,3 +458,156 @@
       owed_by: null
     - match: "(?i)unblock|heads.?up|clear"
       owed_by: "SOC"
+
+# ---- long-input cases: the sizes real dumps actually are ----
+# A local model that is flawless at 250 characters and lossy at 3KB is
+# unusable — meeting notes and email pastes are the normal case, not
+# the stress case. Budgets are per-case: long inputs may take longer,
+# but not unboundedly.
+
+# ~3KB of realistic meeting notes with eight expected items spread
+# start-to-end. The classic long-input failure is positional: items
+# from the middle vanish. Every expectation here is placed on purpose.
+- name: long-meeting-notes-nothing-vanishes
+  budget_s: 60
+  text: |
+    Weekly infra sync, long one today. Kicking off with the datacenter
+    move: rack elevations are approved, and I need to book the fiber
+    cross-connect install with the facility before {plus7} — they have
+    a four week lead time so this is the real gating item. Marta asked
+    whether we've priced redundant paths; we haven't, so add pricing
+    out a second cross-connect to the list, no deadline, just needs to
+    happen while we still have leverage on the first order.
+
+    Storage next. The array firmware advisory from last week turned
+    out to apply to our controllers after all. Vendor says the fix
+    window is flexible but recommends within the month. Schedule the
+    firmware update for next week during the low-usage window. Jonas
+    will send us the updated compatibility matrix — he promised it by
+    {plus3} — and we should not start the update before it arrives.
+
+    Mid-meeting detour about the observability bill that I'll spare
+    you, except for the one actionable: someone needs to turn off the
+    debug-level shipping from the staging cluster, it's forty percent
+    of the volume. I said I'd take it, urgent-ish, doing it today.
+
+    Network segment: the guest wifi captive portal cert is fine (auto
+    renews), but the RADIUS server is still on the deprecated distro.
+    Rebuilding it on the supported image is the kind of thing that
+    slips forever — putting it down for this week, priority medium.
+
+    Access reviews came up again. HR wants the contractor offboarding
+    checklist updated to include the new HRIS deprovisioning step
+    before the next audit cycle — the cycle starts {plus14}, so treat
+    that as the deadline. Dana volunteered to own the shared-mailbox
+    cleanup that fell out of the last review; she'll get us the list
+    of stale mailboxes by end of week, call it {plus5}.
+
+    Wrapping up: the postmortem for the DNS outage is still unwritten
+    and people have started referencing it as if it exists, which is
+    worse than it not existing. High priority, someone has to draft it
+    this week. And a small one — update the on-call phone's voicemail
+    greeting, it still names the old rotation.
+  expect:
+    - match: "(?i)cross.connect install|book the fiber"
+      due: "{plus7}"
+    - match: "(?i)pricing|second cross.connect"
+      due: null
+    - match: "(?i)firmware update"
+      scheduled: "{next_sunday}"
+    - match: "(?i)compatibility matrix"
+      owed_by: Jonas
+      due: "{plus3}"
+    - match: "(?i)debug.level|staging cluster"
+      due: "{today}"
+    - match: "(?i)RADIUS"
+      scheduled: "{this_sunday}"
+    - match: "(?i)offboarding checklist"
+      due: "{plus14}"
+    - match: "(?i)stale mailboxes|shared.mailbox"
+      owed_by: Dana
+      due: "{plus5}"
+    - match: "(?i)postmortem"
+      priority: high
+      scheduled: "{this_sunday}"
+    - match: "(?i)voicemail"
+      due: null
+
+# ~2.5KB email thread paste with quoted replies: the tasks live in the
+# newest message, the quoted history repeats OLD asks that were already
+# resolved inline. Extracting from the quoted tail is the failure.
+- name: long-email-thread-quoted-history-ignored
+  budget_s: 60
+  text: |
+    From: Priya
+    Subject: RE: RE: RE: vendor security review
+
+    Latest state after today's call, superseding the thread below:
+
+    The vendor accepted our DPA redlines, so legal is DONE — nobody
+    needs to chase them anymore. Two things remain on us. First, I
+    need the completed vendor questionnaire back from their CISO;
+    they committed to {plus5} and I'll hold them to it. Second, we
+    still owe the risk committee a one-page summary before the next
+    session — that lands {plus7}, and it can't slip because the
+    session sets the quarter's onboarding list.
+
+    Once those two close we can countersign. Nothing else survives
+    from the earlier mails.
+
+    > From: Priya
+    > Subject: RE: RE: vendor security review
+    >
+    > Reminder that legal still hasn't confirmed the DPA redlines —
+    > can someone chase them this week? Also the questionnaire hasn't
+    > gone out yet, I'll send it after the template update.
+    >
+    > > From: Marcus
+    > > Subject: RE: vendor security review
+    > >
+    > > We need to send the vendor the security questionnaire and get
+    > > legal's take on the DPA. I can own chasing legal if nobody
+    > > else wants it. Also someone should book the review call.
+  expect:
+    # owed_by deliberately unchecked (recalibrated 2026-08-02): two
+    # independent models read "back from their CISO; they committed"
+    # as a debt the CISO owes — and rereading the fixture, they're
+    # right. Exact owner spelling varies ("CISO"/"vendor's CISO"), so
+    # the pin checks the date and leaves attribution to judgment.
+    - match: "(?i)questionnaire"
+      due: "{plus5}"
+    - match: "(?i)one.page|risk committee|summary"
+      due: "{plus7}"
+  forbid_text: ["(?i)chase legal", "(?i)book the review call", "(?i)send.*questionnaire"]
+
+# ~2KB of log-and-noise paste with exactly one task buried in it: the
+# needle case inverted — precision under noise, not recall under bulk.
+- name: long-noise-paste-single-task
+  budget_s: 60
+  text: |
+    pasting the relevant chunk of the deploy log before i lose it:
+
+    2026-07-31T14:02:11Z INFO  rollout starting: api v2.14.0 -> v2.15.0
+    2026-07-31T14:02:14Z INFO  canary 1/3 healthy after 120s
+    2026-07-31T14:04:19Z INFO  canary 2/3 healthy after 120s
+    2026-07-31T14:06:22Z WARN  canary 3/3 slow start: readiness 87s (p95 baseline 21s)
+    2026-07-31T14:06:22Z INFO  proceeding: within absolute threshold
+    2026-07-31T14:09:41Z INFO  batch 1/6 complete
+    2026-07-31T14:12:03Z INFO  batch 2/6 complete
+    2026-07-31T14:14:44Z WARN  batch 3/6: two pods restarted during warmup (OOMKilled)
+    2026-07-31T14:15:01Z INFO  batch 3/6 complete after retry
+    2026-07-31T14:17:26Z INFO  batch 4/6 complete
+    2026-07-31T14:19:58Z INFO  batch 5/6 complete
+    2026-07-31T14:22:31Z INFO  batch 6/6 complete
+    2026-07-31T14:22:31Z INFO  rollout complete: 100% on v2.15.0
+    2026-07-31T14:40:12Z INFO  post-deploy checks passed
+
+    the rollout is fine and nobody needs to do anything about the slow
+    canary, that's the known image pull issue. but those OOMKills in
+    batch 3 are new — i should bump the warmup memory limit for the
+    api pods before the next deploy goes out.
+  expect:
+    - match: "(?i)memory limit|warmup memory"
+      due: null
+  exact: true
+  forbid_text: ["(?i)canary", "(?i)image pull"]

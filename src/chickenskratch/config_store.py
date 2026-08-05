@@ -85,6 +85,27 @@ def history(path: Path) -> list[Backup]:
     return sorted(out, key=lambda b: b.stamp, reverse=True)
 
 
+def removed(dir_path: Path) -> list[str]:
+    """File names under dir_path that no longer exist but still have
+    backups — what remove() left restorable. Without this the console's
+    delete toast ("its backups remain restorable") would be a promise
+    with no surface behind it: rows render from live files, so a deleted
+    file would vanish along with its only path to restore().
+
+    Membership is decided by round-trip, not prefix parsing: a backup
+    belongs to dir_path exactly when its slug is what _slug would mint
+    for that name in that dir — the same rule history() lives by."""
+    if not HISTORY_DIR.is_dir():
+        return []
+    names = set()
+    for p in HISTORY_DIR.glob("*.yaml"):
+        _, sep, slug = p.name.partition("_")   # stamps never contain "_"
+        name = slug.rsplit("__", 1)[-1]
+        if sep and name and slug == _slug(dir_path / name):
+            names.add(name)
+    return sorted(n for n in names if not (dir_path / n).is_file())
+
+
 def _snapshot(path: Path) -> None:
     """Keep the current bytes. A file that doesn't exist yet has nothing
     to keep — and restoring to "absent" is not something the console
@@ -119,6 +140,16 @@ def write(path: Path, text: str, validate=None) -> None:
         validate(text)
     _snapshot(path)
     atomic_write_text(path, text)
+
+
+def remove(path: Path) -> None:
+    """Delete a config file, snapshotting the bytes first so the deletion
+    is undoable — restore() writes a backup back whether or not the file
+    still exists, so "undo the delete" is the same gesture as any undo."""
+    if not path.is_file():
+        raise ConfigError(f"{path.name} does not exist")
+    _snapshot(path)
+    path.unlink()
 
 
 def restore(path: Path, stamp: str) -> None:

@@ -213,8 +213,8 @@ def test_canvas_ingest_splits_commands_from_capture(client, vault, monkeypatch):
     task list, fully verifiable, so the record files itself."""
     import datetime as _dt
 
-    from tests.conftest import record_reply
     from chickenskratch import commands as cmd_mod
+    from tests.conftest import record_reply
 
     async def fake_azure(args, vault_path):
         return f"- [Ranked hit for {args}](https://learn.microsoft.com/x)"
@@ -580,3 +580,118 @@ def test_today_ships_the_autonomy_audit_rows(client, vault):
     (row,) = client.get("/api/today").json()["recent_auto"]
     assert row["title"] == "Fix Home autonomously"
     assert row["undo"] == ["a" * 40] and row["unvouched"] is True
+
+
+# ---- the AI-layer console routes ----
+
+
+GOOD_WORKER_YAML = """\
+inputs: [text]
+prompt: |
+  Handle {text}.
+schema:
+  type: object
+  required: [ok]
+  properties:
+    ok: {type: string}
+"""
+
+
+@pytest.fixture()
+def ai_client(vault, tmp_path, monkeypatch):
+    """The server plus isolated workers/schemas dirs and models.yaml —
+    the AI-layer routes must never write the repo's own config."""
+    from chickenskratch import config_store, console
+    monkeypatch.setattr("chickenskratch.watcher.record_dashboard", lambda *a, **k: None)
+    monkeypatch.setattr("chickenskratch.proposals.dir_for",
+                        lambda vp: tmp_path / "proposals")
+    monkeypatch.setattr("chickenskratch.watcher.STATE_PATH", tmp_path / "state.json")
+    (tmp_path / "workers").mkdir()
+    (tmp_path / "schemas").mkdir()
+    (tmp_path / "vault.yaml").write_text(
+        "workers_dir: workers\nschemas_dir: schemas\n", encoding="utf-8")
+    monkeypatch.setenv("VAULT_CONFIG_PATH", str(tmp_path / "vault.yaml"))
+    models = tmp_path / "models.yaml"
+    models.write_text(
+        "default: big\nmodels:\n  big:\n    model: m\n    base_url: http://x/v1\n",
+        encoding="utf-8")
+    monkeypatch.setattr(console, "MODELS_YAML", models)
+    monkeypatch.setattr(config_store, "HISTORY_DIR", tmp_path / "history")
+    return TestClient(ui.build_app(str(vault)), base_url="http://127.0.0.1")
+
+
+def test_ai_routes_take_the_same_consent_gate(ai_client):
+    for path in ("/api/console/workers", "/api/console/workers/delete",
+                 "/api/console/workers/test", "/api/console/schemas",
+                 "/api/console/schemas/delete", "/api/console/models/profile",
+                 "/api/console/models/backend"):
+        assert ai_client.post(path, content="name=x").status_code == 415, path
+
+
+def test_worker_save_lands_and_announces_config_changed(ai_client, vault, tmp_path):
+    from chickenskratch import events
+    r = ai_client.post("/api/console/workers",
+                       json={"name": "greeter", "text": GOOD_WORKER_YAML})
+    assert r.status_code == 200 and r.json()["restart"] is False
+    assert (tmp_path / "workers" / "greeter.yaml").read_text() == GOOD_WORKER_YAML
+    logged = events.events_path(str(vault)).read_text()
+    assert '"config_changed"' in logged and "workers/greeter.yaml" in logged
+    # the console read model now carries it
+    names = [w["name"] for w in ai_client.get("/api/console").json()["workers"]["items"]]
+    assert "greeter" in names
+
+
+def test_a_refused_save_is_a_400_with_the_loader_reason(ai_client):
+    r = ai_client.post("/api/console/workers",
+                       json={"name": "greeter",
+                             "text": GOOD_WORKER_YAML.replace("{text}", "{typo}")})
+    assert r.status_code == 400 and "undeclared placeholder" in r.json()["error"]
+
+
+def test_reserved_worker_delete_is_refused_over_http(ai_client):
+    r = ai_client.post("/api/console/workers/delete", json={"name": "extract_record"})
+    assert r.status_code == 400 and "engine worker" in r.json()["error"]
+
+
+def test_test_run_round_trips_the_draft(ai_client, monkeypatch):
+    import json as _json
+    from types import SimpleNamespace
+
+    from chickenskratch import console
+
+    async def create(**kwargs):
+        return SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content=_json.dumps({"ok": "hi"})))])
+
+    async def _close():
+        return None
+
+    monkeypatch.setattr(
+        console.wk, "new_client",
+        lambda: SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
+            close=_close))
+    r = ai_client.post("/api/console/workers/test",
+                       json={"name": "greeter", "inputs": {"text": "sample"},
+                             "text": GOOD_WORKER_YAML})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["reply"] == {"ok": "hi"} and "Handle sample." in body["prompt"]
+
+
+def test_schema_create_via_route_extends_the_console_model(ai_client, tmp_path):
+    # the default kind exists first, as it always does in a real deployment
+    (tmp_path / "schemas" / "capture.yaml").write_text(
+        "record:\n  kind: capture\n  default: true\n  cues: '- everything else'\n",
+        encoding="utf-8")
+    r = ai_client.post("/api/console/schemas", json={
+        "name": "standup",
+        "fields": {"description": "a standup", "id_prefix": "s",
+                   "record": {"kind": "standup", "files_as": "note",
+                              "dir_key": "meetings_dir",
+                              "cues": "- kind \"standup\" for round-ups."},
+                   "fields": []}})
+    assert r.status_code == 200, r.text
+    rows = ai_client.get("/api/console").json()["schemas"]["items"]
+    row = next(x for x in rows if x["name"] == "standup")
+    assert row["record"]["kind"] == "standup" and row["id_prefix"] == "s"

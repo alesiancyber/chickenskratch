@@ -79,6 +79,7 @@ def resolve_worker_env(config: Config) -> None:
     # "" when the profile sets no ceiling — same contract as
     # apply_worker_profile, so a later switch has something to re-point.
     _fill_worker_env("WORKER_MAX_TOKENS", str(prof.worker_max_tokens or ""))
+    _fill_worker_env("WORKER_TIMEOUT_S", str(prof.worker_timeout_s or ""))
     if prof.api_key and prof.api_key != "ollama":
         _fill_worker_env("WORKER_API_KEY", prof.api_key)
 
@@ -110,6 +111,9 @@ def apply_worker_profile(name: str, config: Config | None = None) -> bool:
         # profile says "no override": _env_number reads an empty value as
         # absent and falls back to each spec's own max_tokens.
         ("WORKER_MAX_TOKENS", str(prof.worker_max_tokens or "")),
+        # Same always-re-pointed rule: leaving a cold-start profile's
+        # 300s on a resident-model profile would hide real hangs.
+        ("WORKER_TIMEOUT_S", str(prof.worker_timeout_s or "")),
     ):
         if key in os.environ and key not in _config_filled:
             continue  # user-set: env always wins

@@ -64,8 +64,16 @@ from .bootstrap import ROOT
 from .watcher import LockBusy
 
 WEB_DIST = ROOT / "web" / "dist"
-SSE_POLL_SECONDS = 1.0
-SSE_HEARTBEAT_TICKS = 15
+# SSE pacing: fast ticks only while events are flowing, long ticks once
+# the stream has gone quiet. Own-process events arrive instantly either
+# way (the queue wait returns the moment one is published); the tick
+# only paces the cross-process file tail and the disconnect check — and
+# a permanent 1Hz waker per connection is exactly the kind of quiet
+# battery drain a laptop off the charger feels.
+SSE_POLL_SECONDS = 1.0        # while active: file-tail latency ≤ 1s
+SSE_IDLE_POLL_SECONDS = 15.0  # quiet stream: one wake per 15s
+SSE_ACTIVE_WINDOW_S = 60.0    # how long after the last event fast ticks persist
+SSE_PING_SECONDS = 15.0       # comment ping cadence (time-based, not ticks)
 # Shutdown's budget for the chat sessions the stop button replaced. Longer
 # than one session's own 30s close(), so a single unwinding turn finishes;
 # bounded, so a wedged one can't hold the process open.
@@ -85,12 +93,14 @@ def _vault(vault_path: str) -> Vault:
 
 
 def _sse_response(request, pump, cleanup=None) -> StreamingResponse:
-    """One SSE stream shape for both event sources. `pump` is an async
-    callable returning this tick's (event_name, payload) pairs and owning
-    its own pacing — a queue wait or a poll sleep, roughly one second
-    either way. Everything else is boilerplate that was written twice:
-    the reconnect hint, the disconnect check, and the periodic comment
-    ping that stops browsers and proxies reaping an idle stream.
+    """One SSE stream shape for both event sources. `pump(timeout)` is an
+    async callable returning this tick's (event_name, payload) pairs,
+    waiting at most `timeout` for one — the response owns the pacing:
+    fast while events flow, SSE_IDLE_POLL_SECONDS once quiet, snapping
+    back the moment anything arrives. Everything else is boilerplate
+    that was written twice: the reconnect hint, the disconnect check,
+    and the periodic comment ping that stops browsers and proxies
+    reaping an idle stream.
 
     `cleanup` runs when the stream ends however it ends — browsers drop
     and re-open SSE connections routinely, so a listener that isn't
@@ -98,13 +108,18 @@ def _sse_response(request, pump, cleanup=None) -> StreamingResponse:
     async def stream():
         try:
             yield "retry: 2000\n\n"
-            ticks = 0
+            last_event = 0.0            # epoch of monotonic clock: start idle
+            last_ping = time.monotonic()
             while not await request.is_disconnected():
-                for name, payload in await pump():
+                active = time.monotonic() - last_event < SSE_ACTIVE_WINDOW_S
+                out = await pump(SSE_POLL_SECONDS if active else SSE_IDLE_POLL_SECONDS)
+                if out:
+                    last_event = time.monotonic()
+                for name, payload in out:
                     yield f"event: {name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
-                ticks += 1
-                if ticks % SSE_HEARTBEAT_TICKS == 0:
+                if time.monotonic() - last_ping >= SSE_PING_SECONDS:
                     yield ": ping\n\n"
+                    last_ping = time.monotonic()
         finally:
             if cleanup is not None:
                 cleanup()
@@ -564,32 +579,102 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
     async def console_route(request):
         return JSONResponse(await run_in_threadpool(console.model, vault_path))
 
-    def _console_write(fn):
+    def _console_write(fn, changed=None):
         """Every console write: same consent gate, same error shapes.
         ConfigError is the user's mistake stated back to them (400);
-        VaultLocked is the engine mid-pass (503, try again)."""
+        VaultLocked is the engine mid-pass (503, try again). `changed`
+        names what a successful write touched — emitted as one
+        config_changed event so every open surface (a second tab, the
+        console itself) refetches instead of showing stale config."""
         async def route(request):
             body, err = await guard_write(request)
             if err:
                 return err
             try:
-                return JSONResponse(await run_in_threadpool(fn, body))
+                result = await run_in_threadpool(fn, body)
             except console.ConfigError as e:
                 return JSONResponse({"error": str(e)}, status_code=400)
             except VaultLocked as e:
                 return JSONResponse({"error": str(e)}, status_code=503)
             except VaultError as e:
                 return JSONResponse({"error": str(e)}, status_code=409)
+            if changed is not None:
+                events.emit(vault_path, "config_changed",
+                            {"file": changed(body) if callable(changed) else changed})
+            return JSONResponse(result)
         return route
 
+    def _named(template):
+        """A changed-file label from the request's `name`, sanitized the
+        cheap way — the label is display-only, never a path."""
+        return lambda body: template.format(
+            name=str(body.get("name", ""))[:64].replace("/", "_"))
+
     console_spec_route = _console_write(
-        lambda body: console.save_spec(vault_path, dict(body.get("fields") or {})))
+        lambda body: console.save_spec(vault_path, dict(body.get("fields") or {})),
+        changed="Harness/Spec.md")
     console_models_route = _console_write(
-        lambda body: console.save_model_fields(dict(body.get("patch") or {})))
+        lambda body: console.save_model_fields(dict(body.get("patch") or {})),
+        changed="models.yaml")
     console_models_text_route = _console_write(
-        lambda body: console.save_models_text(str(body.get("text", ""))))
+        lambda body: console.save_models_text(str(body.get("text", ""))),
+        changed="models.yaml")
     console_restore_route = _console_write(
-        lambda body: console.restore_models(str(body.get("stamp", ""))))
+        lambda body: console.restore_models(str(body.get("stamp", ""))),
+        changed="models.yaml")
+
+    # The AI layer: worker specs and entity schemas, plus structural
+    # models.yaml edits (profile/backend create + delete). All validate
+    # against the real loaders and back up through config_store; worker
+    # and schema files are read fresh each pass, so none need a restart.
+    console_worker_save_route = _console_write(
+        lambda body: console.save_worker(
+            str(body.get("name", "")),
+            text=body.get("text"),
+            fields=body.get("fields")),
+        changed=_named("workers/{name}.yaml"))
+    console_worker_delete_route = _console_write(
+        lambda body: console.delete_worker(str(body.get("name", ""))),
+        changed=_named("workers/{name}.yaml"))
+    console_worker_restore_route = _console_write(
+        lambda body: console.restore_worker(
+            str(body.get("name", "")), str(body.get("stamp", ""))),
+        changed=_named("workers/{name}.yaml"))
+    console_worker_seed_route = _console_write(
+        lambda body: console.seed_worker(str(body.get("name", ""))))
+    console_worker_test_route = _console_write(
+        lambda body: console.test_worker(
+            str(body.get("name", "")),
+            dict(body.get("inputs") or {}),
+            text=body.get("text"),
+            fields=body.get("fields")))
+    console_schema_save_route = _console_write(
+        lambda body: console.save_schema(
+            str(body.get("name", "")),
+            text=body.get("text"),
+            fields=body.get("fields")),
+        changed=_named("schemas/{name}.yaml"))
+    console_schema_delete_route = _console_write(
+        lambda body: console.delete_schema(str(body.get("name", "")), vault_path),
+        changed=_named("schemas/{name}.yaml"))
+    console_schema_restore_route = _console_write(
+        lambda body: console.restore_schema(
+            str(body.get("name", "")), str(body.get("stamp", ""))),
+        changed=_named("schemas/{name}.yaml"))
+    console_profile_route = _console_write(
+        lambda body: console.create_profile(
+            str(body.get("name", "")), dict(body.get("fields") or {})),
+        changed="models.yaml")
+    console_profile_delete_route = _console_write(
+        lambda body: console.delete_profile(str(body.get("name", "")), vault_path),
+        changed="models.yaml")
+    console_backend_route = _console_write(
+        lambda body: console.create_backend(
+            str(body.get("name", "")), dict(body.get("fields") or {})),
+        changed="models.yaml")
+    console_backend_delete_route = _console_write(
+        lambda body: console.delete_backend(str(body.get("name", ""))),
+        changed="models.yaml")
 
     chat_tasks: set[asyncio.Task] = set()
 
@@ -678,9 +763,9 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         session = chat
         queue = session.events.subscribe()
 
-        async def pump():
+        async def pump(timeout):
             try:
-                ev = await asyncio.wait_for(queue.get(), SSE_POLL_SECONDS)
+                ev = await asyncio.wait_for(queue.get(), timeout)
             except TimeoutError:
                 return []  # idle tick; the wait paced it
             # "error" is EventSource's reserved connection-error name;
@@ -701,10 +786,10 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
             offset = 0
         queue = events.subscribe()
 
-        async def pump():
+        async def pump(timeout):
             nonlocal offset
             try:
-                rec = await asyncio.wait_for(queue.get(), SSE_POLL_SECONDS)
+                rec = await asyncio.wait_for(queue.get(), timeout)
             except TimeoutError:
                 offset, recs = events.read_new(vault_path, offset)
                 return [(r["event"], r) for r in recs]
@@ -741,6 +826,18 @@ def build_app(vault_path: str, chat_agent_factory=None) -> Starlette:
         Route("/api/console/models", console_models_route, methods=["POST"]),
         Route("/api/console/models/text", console_models_text_route, methods=["POST"]),
         Route("/api/console/models/restore", console_restore_route, methods=["POST"]),
+        Route("/api/console/models/profile", console_profile_route, methods=["POST"]),
+        Route("/api/console/models/profile/delete", console_profile_delete_route, methods=["POST"]),
+        Route("/api/console/models/backend", console_backend_route, methods=["POST"]),
+        Route("/api/console/models/backend/delete", console_backend_delete_route, methods=["POST"]),
+        Route("/api/console/workers", console_worker_save_route, methods=["POST"]),
+        Route("/api/console/workers/delete", console_worker_delete_route, methods=["POST"]),
+        Route("/api/console/workers/restore", console_worker_restore_route, methods=["POST"]),
+        Route("/api/console/workers/seed", console_worker_seed_route, methods=["POST"]),
+        Route("/api/console/workers/test", console_worker_test_route, methods=["POST"]),
+        Route("/api/console/schemas", console_schema_save_route, methods=["POST"]),
+        Route("/api/console/schemas/delete", console_schema_delete_route, methods=["POST"]),
+        Route("/api/console/schemas/restore", console_schema_restore_route, methods=["POST"]),
         Route("/api/pass", pass_route, methods=["POST"]),
         Route("/api/cancel", cancel_route, methods=["POST"]),
         Route("/api/chat", chat_send_route, methods=["POST"]),

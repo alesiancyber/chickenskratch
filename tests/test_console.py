@@ -297,3 +297,269 @@ def test_an_unknown_profile_or_field_is_refused(models_yaml):
         console.save_model_fields({"profiles": {"small": {"base_url": "http://evil"}}})
     with pytest.raises(ConfigError, match="worker_adapt must be"):
         console.save_model_fields({"profiles": {"small": {"worker_adapt": "medium"}}})
+
+
+# ---- the AI layer: workers, schemas, profile/backend structure ----
+
+
+GOOD_WORKER = """\
+description: test worker
+inputs: [text]
+prompt: |
+  Do the thing with {text}.
+schema:
+  type: object
+  required: [ok]
+  properties:
+    ok: {type: string}
+"""
+
+
+@pytest.fixture()
+def ai_dirs(tmp_path, monkeypatch, models_yaml):
+    """Isolated workers/ + schemas/ dirs wired through VAULT_CONFIG_PATH,
+    with history redirected — the console must never touch the repo's
+    own config from a test."""
+    (tmp_path / "workers").mkdir()
+    (tmp_path / "schemas").mkdir()
+    (tmp_path / "vault.yaml").write_text(
+        "workers_dir: workers\nschemas_dir: schemas\n", encoding="utf-8")
+    monkeypatch.setenv("VAULT_CONFIG_PATH", str(tmp_path / "vault.yaml"))
+    return tmp_path
+
+
+def test_worker_save_validates_with_the_real_loader(ai_dirs):
+    console.save_worker("greeter", text=GOOD_WORKER)
+    assert (ai_dirs / "workers" / "greeter.yaml").read_text() == GOOD_WORKER
+    with pytest.raises(ConfigError, match="undeclared placeholder"):
+        console.save_worker("greeter", text=GOOD_WORKER.replace("{text}", "{typo}"))
+    # the rejected write left the good file alone
+    assert (ai_dirs / "workers" / "greeter.yaml").read_text() == GOOD_WORKER
+
+
+def test_worker_form_save_renders_canonical_yaml(ai_dirs):
+    console.save_worker("greeter", fields={
+        "description": "says hi",
+        "inputs": ["text"],
+        "timeout_s": 30, "temperature": 0.2, "max_tokens": 400,
+        "prompt": "Say hi to {text}.\n{hedges}\n",
+        "hedges": "- politely\n",
+        "schema": "type: object\nrequired: [ok]\nproperties:\n  ok: {type: string}\n",
+    })
+    from chickenskratch_vault import workers as wk
+    spec = wk.get_worker("greeter")
+    assert spec.description == "says hi"
+    assert spec.hedges == "- politely\n"
+    assert spec.timeout_s == 30 and spec.max_tokens == 400
+    # round-trip: what the console reads back parses to the same spec
+    row = next(r for r in console.model(str(ai_dirs))["workers"]["items"]
+               if r["name"] == "greeter")
+    assert row["prompt"] == spec.prompt and row["hedges"] == spec.hedges
+
+
+def test_engine_workers_refuse_deletion_by_name(ai_dirs):
+    with pytest.raises(ConfigError, match="engine worker"):
+        console.delete_worker("extract_record")
+
+
+def test_worker_delete_is_undoable_via_restore(ai_dirs):
+    console.save_worker("greeter", text=GOOD_WORKER)
+    console.delete_worker("greeter")
+    assert not (ai_dirs / "workers" / "greeter.yaml").exists()
+    stamp = config_store.history(ai_dirs / "workers" / "greeter.yaml")[0].stamp
+    console.restore_worker("greeter", stamp)
+    assert (ai_dirs / "workers" / "greeter.yaml").read_text() == GOOD_WORKER
+
+
+def test_test_worker_runs_the_draft_not_the_file(ai_dirs, monkeypatch):
+    """Try-before-commit: the panel sends the unsaved draft, and the
+    reply (or the worker's own refusal) comes back as the result."""
+    import json as _json
+    from types import SimpleNamespace
+
+    async def create(**kwargs):
+        return SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content=_json.dumps({"ok": "ran"})))])
+
+    monkeypatch.setattr(
+        console.wk, "new_client",
+        lambda: SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
+            close=lambda: _noop()))
+
+    async def _noop():
+        return None
+
+    out = console.test_worker("greeter", {"text": "sample"}, text=GOOD_WORKER)
+    assert out["reply"] == {"ok": "ran"}
+    assert "Do the thing with sample." in out["prompt"]
+    # a worker-side failure IS the result, not an HTTP error
+    async def bad(**kwargs):
+        return SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content='{"wrong": 1}'))])
+    monkeypatch.setattr(
+        console.wk, "new_client",
+        lambda: SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=bad)),
+            close=lambda: _noop()))
+    out = console.test_worker("greeter", {"text": "s"}, text=GOOD_WORKER)
+    assert "schema-invalid" in out["error"]
+
+
+def test_schema_save_and_the_form_round_trip(ai_dirs):
+    console.save_schema("widget", fields={
+        "description": "a widget", "id_prefix": "w",
+        "fields": [
+            {"name": "id", "kind": "string", "required": True, "nullable": False,
+             "pattern": "^w-", "min_length": 0, "enum": [], "const": None},
+            {"name": "status", "kind": "enum", "required": False, "nullable": True,
+             "pattern": "", "min_length": 0, "enum": ["open", "done"], "const": None},
+        ],
+    })
+    row = next(r for r in console.model(str(ai_dirs))["schemas"]["items"]
+               if r["name"] == "widget")
+    assert row["formable"] and row["id_prefix"] == "w"
+    assert {f["name"] for f in row["form"]} == {"id", "status"}
+    from chickenskratch_vault import schemas as vsch
+    assert vsch.validate_frontmatter("widget", {"status": "open"}) != []  # id required
+
+
+def test_engine_schemas_refuse_deletion_and_folder_referenced_refuse(ai_dirs, vault):
+    with pytest.raises(ConfigError, match="engine schema"):
+        console.delete_schema("proposal", str(vault))
+    (vault / "Harness").mkdir(exist_ok=True)
+    (vault / "Harness/Spec.md").write_text(
+        "---\nfolders: {Meetings: meeting}\n---\n", encoding="utf-8")
+    (ai_dirs / "schemas" / "meeting.yaml").write_text("type: object\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="folder"):
+        console.delete_schema("meeting", str(vault))
+
+
+def test_the_default_record_kind_cannot_be_deleted(ai_dirs, vault):
+    (ai_dirs / "schemas" / "scrap.yaml").write_text(
+        "record:\n  kind: scrap\n  default: true\n  cues: '- x'\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="DEFAULT record kind"):
+        console.delete_schema("scrap", str(vault))
+
+
+def test_one_broken_schema_file_never_takes_down_the_console(ai_dirs):
+    """The console is where you go to FIX a broken file — so a schema
+    file with bad YAML must render as a broken row (raw text + reason),
+    not 500 the whole model() through a worker's kind composition."""
+    (ai_dirs / "schemas" / "capture.yaml").write_text(
+        "record: {kind: capture, default: true, cues: '- x'}\n", encoding="utf-8")
+    console.save_worker("rec", text=(
+        "inputs: [text]\n"
+        "prompt: |\n  {kinds}\n  {text}\n"
+        "schema:\n  type: object\n  properties:\n    record:\n"
+        "      type: object\n      properties:\n        kind: {enum: [x]}\n"))
+    assert not next(r for r in console.model(str(ai_dirs))["workers"]["items"]
+                    if r["name"] == "rec")["invalid"]
+    (ai_dirs / "schemas" / "broken.yaml").write_text("description: [unclosed",
+                                                     encoding="utf-8")
+    model = console.model(str(ai_dirs))   # must not raise
+    worker_row = next(r for r in model["workers"]["items"] if r["name"] == "rec")
+    assert "broken.yaml" in worker_row["invalid"]
+    schema_row = next(r for r in model["schemas"]["items"] if r["name"] == "broken")
+    assert schema_row["invalid"] and schema_row["text"] == "description: [unclosed"
+
+
+def test_a_deleted_file_still_offers_its_backups(ai_dirs):
+    """The delete toast promises the backups remain restorable; the rows
+    must keep that promise — a deleted worker appears as a deleted row
+    carrying its backup list, and restoring it through the normal
+    restore path brings the file back."""
+    console.save_worker("greeter", text=GOOD_WORKER)
+    console.delete_worker("greeter")
+    row = next(r for r in console.model(str(ai_dirs))["workers"]["items"]
+               if r["name"] == "greeter")
+    assert row["deleted"] and row["file"]["backups"]
+    console.restore_worker("greeter", row["file"]["backups"][0]["stamp"])
+    assert (ai_dirs / "workers" / "greeter.yaml").read_text() == GOOD_WORKER
+    # restored: back to a normal, editable row
+    row = next(r for r in console.model(str(ai_dirs))["workers"]["items"]
+               if r["name"] == "greeter")
+    assert not row.get("deleted")
+
+
+def test_a_numeric_enum_is_raw_editor_only(ai_dirs):
+    """The form's enum input round-trips strings. Numbers would come
+    back retyped as strings — a silent schema rewrite — so such a file
+    is honest about being beyond the form."""
+    (ai_dirs / "schemas" / "scored.yaml").write_text(
+        "type: object\nproperties:\n  level:\n    enum: [1, 2, 3]\n",
+        encoding="utf-8")
+    row = next(r for r in console.model(str(ai_dirs))["schemas"]["items"]
+               if r["name"] == "scored")
+    assert not row["formable"]
+
+
+def test_a_nullable_boolean_survives_the_form(ai_dirs):
+    """The nullable checkbox must mean something for every kind that
+    shows it — a boolean that silently dropped it saved a schema the
+    user didn't ask for."""
+    console.save_schema("flags", fields={
+        "description": "", "id_prefix": "",
+        "fields": [{"name": "archived", "kind": "boolean", "required": False,
+                    "nullable": True, "pattern": "", "min_length": 0,
+                    "enum": [], "const": None}],
+    })
+    row = next(r for r in console.model(str(ai_dirs))["schemas"]["items"]
+               if r["name"] == "flags")
+    assert row["formable"]
+    field = next(f for f in row["form"] if f["name"] == "archived")
+    assert field["kind"] == "boolean" and field["nullable"]
+    parsed = yaml.safe_load((ai_dirs / "schemas" / "flags.yaml").read_text())
+    assert parsed["properties"]["archived"]["type"] == ["boolean", "null"]
+
+
+def test_a_second_default_kind_is_refused_at_save(ai_dirs):
+    console.save_schema("one", text="record:\n  kind: one\n  default: true\n  cues: '- x'\n")
+    with pytest.raises(ConfigError, match="exactly one record kind"):
+        console.save_schema("two", text="record:\n  kind: two\n  default: true\n  cues: '- y'\n")
+
+
+def test_profile_create_and_delete_preserve_every_other_byte(models_yaml):
+    before = models_yaml.read_text()
+    console.create_profile("homelab", {
+        "model": "qwen3.5:72b", "base_url": "http://192.168.1.50:8000/v1",
+        "worker_max_tokens": 8000})
+    text = models_yaml.read_text()
+    assert "# what chat talks to" in text          # comments survive
+    parsed = yaml.safe_load(text)["models"]["homelab"]
+    assert parsed == {"model": "qwen3.5:72b",
+                      "base_url": "http://192.168.1.50:8000/v1",
+                      "worker_max_tokens": 8000}
+    console.delete_profile("homelab", "/nonexistent-vault")
+    assert models_yaml.read_text() == before       # byte-identical round trip
+
+
+def test_profiles_in_use_refuse_deletion(models_yaml):
+    with pytest.raises(ConfigError, match="chat default"):
+        console.delete_profile("big", "/nonexistent-vault")
+    with pytest.raises(ConfigError, match="worker profile"):
+        console.delete_profile("small", "/nonexistent-vault")
+
+
+def test_api_key_env_takes_a_name_never_a_key(models_yaml):
+    with pytest.raises(ConfigError, match="NAME of an environment variable"):
+        console.create_profile("leaky", {
+            "model": "m", "base_url": "http://x/v1",
+            "api_key_env": "sk-abc123-the-actual-key"})
+
+
+def test_backend_create_and_delete(models_yaml):
+    console.create_backend("mlx-test", {
+        "url": "http://127.0.0.1:9999/v1", "command": "echo serve"})
+    assert yaml.safe_load(models_yaml.read_text())["backends"]["mlx-test"] == {
+        "url": "http://127.0.0.1:9999/v1", "command": "echo serve"}
+    console.delete_backend("mlx-test")
+    assert "backends" not in (yaml.safe_load(models_yaml.read_text()) or {}) or \
+        "mlx-test" not in (yaml.safe_load(models_yaml.read_text()).get("backends") or {})
+
+
+def test_the_enlarged_model_still_never_carries_a_secret(
+        spec_vault, models_yaml, ai_dirs, monkeypatch):
+    monkeypatch.setenv("FAKE_KEY", "sk-secret-value")
+    payload = json.dumps(console.model(str(spec_vault)))
+    assert "sk-secret-value" not in payload

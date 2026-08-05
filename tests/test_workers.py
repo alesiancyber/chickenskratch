@@ -151,7 +151,7 @@ def test_hedges_are_extra_rules_not_a_different_contract(monkeypatch):
     asyncio.run(workers.extract_tasks("x", "2026-07-20"))
     hedged = captured["prompt"]
     assert "dependency is usually TWO items" in hedged  # base rule still there
-    assert workers.WORKERS["extract_tasks"].schema is not None
+    assert workers.get_worker("extract_tasks").schema is not None
 
 
 def test_an_inline_hedges_slot_is_filled_not_left_for_format(monkeypatch):

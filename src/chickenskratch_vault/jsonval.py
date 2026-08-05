@@ -24,6 +24,17 @@ def _validator(schema_json: str) -> Draft202012Validator:
     return Draft202012Validator(json.loads(schema_json))
 
 
+def check_schema(schema: dict) -> list[str]:
+    """Is `schema` itself a valid Draft 2020-12 jsonschema? Empty list =
+    yes. The gate every config-authored schema (worker replies, entity
+    files) passes before it may judge anything."""
+    try:
+        Draft202012Validator.check_schema(schema)
+    except Exception as e:  # SchemaError, but also unhashable-junk TypeErrors
+        return [str(getattr(e, "message", e))]
+    return []
+
+
 def validate(instance, schema: dict) -> list[str]:
     """Validate `instance` against a jsonschema. Empty list = conforms.
 

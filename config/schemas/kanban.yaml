@@ -1,7 +1,8 @@
-# Note entity: a kanban board's frontmatter. project/client are the
-# optional boundary metadata grouping uses (two projects on one vault
-# must never have their tasks mixed — the boundary is structural, not
-# inferred from text).
+description: >
+  A kanban board's frontmatter. project/client are the optional boundary
+  metadata grouping uses (two projects on one vault must never have
+  their tasks mixed — the boundary is structural, not inferred from text).
+id_prefix: b
 type: object
 required: [id, kanban-plugin]
 properties:

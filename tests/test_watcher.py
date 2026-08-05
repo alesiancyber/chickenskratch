@@ -451,8 +451,8 @@ def test_capture_approved_after_disabling_still_resets_the_surface(vault, make_w
     already-drafted work: a pending capture proposal approved after
     `disabled_processors: [capture]` still runs on_applied, so the
     surface resets instead of re-offering the same dump forever."""
-    from tests.conftest import record_worker_returning
     from chickenskratch.processors import CAPTURE_SKELETON
+    from tests.conftest import record_worker_returning
 
     # the summary keeps it on the queue path (bare lists auto-file now)
     worker = record_worker_returning(

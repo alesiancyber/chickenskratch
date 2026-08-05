@@ -1,0 +1,12 @@
+description: >
+  The fallback record kind — a dated capture note, one per day, holding
+  each dump's summary, task lines, and folded verbatim. Deliberately NO
+  schema keys: a frontmatter schema here would set schema_fix loose on
+  every dated capture note. This file exists for its record block only.
+record:
+  kind: capture
+  default: true
+  files_as: daily-append
+  cues: |
+    - Everything else — task lists, ideas, research scraps, status notes —
+      is kind "capture".

@@ -1,0 +1,261 @@
+# Judgment cases for the answer worker — //ask's engine. Run live:
+#   uv run chickenskratch-worker-eval -k answer
+#
+# The pack is the case's own notes (=== rel === blocks, same shape
+# query.ask sends), so scoring is closed-book: every claim is checkable.
+# Citation discipline is scored HARDER than production enforces —
+# query.ask silently drops an invented source; here it is a failure,
+# because fabricated citations are the signal we're buying a model to
+# avoid. Quote pins run through the real gate (query._verified_quotes):
+# `min_verified_quotes: 1` means at least one citation earns its jump
+# link with a character-for-character quote.
+#
+# Case schema (worker: answer):
+#   question:            what the user asked
+#   notes:               [{rel, text}] — the pack, verbatim
+#   answer_matches / answer_forbid:  regexes on the answer (case-insensitive)
+#   must_cite / must_not_cite:       source rel pins
+#   expect_no_sources: true          the notes don't answer it — say so
+#   min_verified_quotes: N           quotes that must survive verification
+
+# Count-and-name: "how many" must give the number AND the items — the
+# prompt's own first rule, and the one small models shortcut.
+- name: answer-how-many-names-the-items
+  worker: answer
+  question: how many detection rules are still unwritten, and which ones?
+  min_verified_quotes: 1
+  must_cite: [Projects/Detection Backlog.md]
+  answer_matches: ["\\b3\\b|three", "(?i)kerberoast", "(?i)dcsync", "(?i)pass.the.hash"]
+  notes:
+    - rel: Projects/Detection Backlog.md
+      text: |
+        # Detection Backlog
+
+        Rules still unwritten after the purple team exercise:
+
+        - [ ] kerberoasting detection for the tier zero accounts
+        - [ ] DCSync attempt alert scoped to non-DC sources
+        - [ ] pass-the-hash correlation across the jump boxes
+
+        Everything else from the exercise shipped in the June batch.
+    - rel: Meetings/2026-06-20 Purple Team Recap.md
+      text: |
+        # Purple Team Recap
+
+        Good exercise overall. The red team landed four techniques out
+        of eleven attempted. Full findings live in the backlog note.
+
+# Exact-figure retrieval with a decoy note carrying a DIFFERENT number
+# for a similar-sounding thing — the classic wrong-note answer.
+- name: answer-exact-figure-right-note
+  worker: answer
+  question: what did the ingest overage cost last month?
+  must_cite: [Finance/Ingest Costs.md]
+  must_not_cite: [Finance/License Renewal.md]
+  answer_matches: ["4[,.]?200"]
+  answer_forbid: ["6[,.]?800"]
+  min_verified_quotes: 1
+  notes:
+    - rel: Finance/Ingest Costs.md
+      text: |
+        # Ingest Costs
+
+        Last month's ingest overage came to $4,200, almost entirely the
+        verbose diagnostics on the domain controllers. Dropping those
+        should bring next month back inside the commit.
+    - rel: Finance/License Renewal.md
+      text: |
+        # License Renewal
+
+        The endpoint license renewal quote came in at $6,800 for the
+        year, up nine percent. Renewal deadline is end of quarter.
+
+# Refusal: the notes genuinely don't answer it. The hedged behavior —
+# "say the notes don't answer it, sources: []" — is worth more than any
+# plausible synthesis, and a local model that can't refuse is unusable.
+- name: answer-refuses-when-notes-are-silent
+  worker: answer
+  question: what is the wifi password for the guest network?
+  expect_no_sources: true
+  answer_forbid: ["(?i)password is", "(?i)the guest network uses"]
+  notes:
+    - rel: Ops/Network Notes.md
+      text: |
+        # Network Notes
+
+        The guest vlan is 40, isolated from corp. Captive portal cert
+        renews via the usual acme job. Do not put printers on guest.
+    - rel: Ops/Onboarding.md
+      text: |
+        # Onboarding
+
+        New starters get their accounts from the identity team and
+        collect hardware from the it desk on floor two.
+
+# Synthesis across two notes: the answer needs both, so both are cited.
+- name: answer-synthesis-cites-both-notes
+  worker: answer
+  question: is the erp vendor ready for the fido key rollout, and who owns removing the mfa exemption?
+  must_cite: [Vendors/ERP Notes.md, Meetings/2026-07-25 Incident Retro.md]
+  answer_matches: ["(?i)fido|march release", "(?i)rio"]
+  notes:
+    - rel: Vendors/ERP Notes.md
+      text: |
+        # ERP Vendor Notes
+
+        Their march release added fido key support, confirmed in the
+        vendor call. That removes the last technical blocker for
+        phishing-resistant mfa on the finance group.
+    - rel: Meetings/2026-07-25 Incident Retro.md
+      text: |
+        # Incident Retro
+
+        Finding two from the retro: the finance group mfa exemption is
+        still in place. Rio owns removing it, staged as a pilot with
+        five users first.
+
+# Distractor resistance: a note that SOUNDS relevant (same product,
+# different question) must not be cited for authority it doesn't have.
+- name: answer-ignores-the-near-miss-note
+  worker: answer
+  question: when does the registrar transfer window for the DNS migration close?
+  must_cite: [Projects/DNS Migration.md]
+  must_not_cite: [Projects/Website Redesign.md]
+  answer_matches: ["august 15|aug(ust)? 15|08-15"]
+  notes:
+    - rel: Projects/DNS Migration.md
+      text: |
+        # DNS Migration
+
+        Registrar confirmed the transfer codes. The transfer window
+        closes august 15 — after that we re-request codes and start
+        the clock again.
+    - rel: Projects/Website Redesign.md
+      text: |
+        # Website Redesign
+
+        The redesign launch also touches DNS: new CDN cnames go in at
+        launch. Target date for launch is september 3, pending the
+        content freeze.
+
+# List question: enumerate, don't summarize. Every member matters.
+- name: answer-list-question-lists-all
+  worker: answer
+  question: which findings came out of the phishing incident retro?
+  must_cite: [Meetings/2026-07-25 Incident Retro.md]
+  answer_matches: ["(?i)escalation", "(?i)exemption|mfa", "(?i)canary"]
+  min_verified_quotes: 1
+  notes:
+    - rel: Meetings/2026-07-25 Incident Retro.md
+      text: |
+        # Incident Retro
+
+        Finding one: no documented escalation path — the containment
+        delay traced to a single-person bottleneck.
+        Finding two: the finance group mfa exemption is still active.
+        Finding three: no canary tokens in the login page template, so
+        the cloned page ran six hours before a human reported it.
+    - rel: Daily/2026-07-25.md
+      text: |
+        # 2026-07-25
+
+        Retro day. Long one. Notes filed in the meeting record.
+
+# Quote-hostile source: the supporting lines contain the characters the
+# link grammar forbids (] | #). The model must pick or trim a quote that
+# survives, or omit it — never break the link. min_verified_quotes stays
+# 0: the pin is that the ANSWER is right and no junk quote fails silently
+# into a link (verification enforces that mechanically).
+- name: answer-quote-hostile-characters
+  worker: answer
+  question: which host was the beacon traffic coming from?
+  must_cite: [Ops/Hunt Log.md]
+  answer_matches: ["(?i)ws-fin-07"]
+  notes:
+    - rel: Ops/Hunt Log.md
+      text: |
+        # Hunt Log
+
+        [2026-07-29 | shift 2] beacon-like traffic traced to WS-FIN-07
+        (see #hunt-channel), c2 domain sinkholed after confirmation.
+
+# The long pack (~10KB): the needle is one line deep inside a long ops
+# journal, surrounded by plausible distractors. This is the //ask shape
+# that actually happens once a vault has months of records — and where
+# a small-context or attention-poor model answers from the wrong month.
+- name: answer-long-pack-needle
+  worker: answer
+  budget_s: 90
+  question: what was the root cause of the backup job failures in june?
+  must_cite: [Ops/Journal 2026-06.md]
+  must_not_cite: [Ops/Journal 2026-05.md]
+  answer_matches: ["(?i)certificate|cert expired|expired cert"]
+  answer_forbid: ["(?i)disk space|out of space"]
+  min_verified_quotes: 1
+  notes:
+    - rel: Ops/Journal 2026-05.md
+      text: |
+        # Ops Journal — May 2026
+
+        Week 1. The backup job failed twice this week — traced to the
+        target volume running out of space after the retention change.
+        Extended the volume and re-ran, clean since. Also rotated the
+        service account credentials for the sync tooling, no issues.
+
+        Week 2. Patch tuesday went through the ring deployment without
+        incident. The pilot ring flagged one driver regression on the
+        dock firmware; vendor advisory says roll back to the february
+        package until their july release. Documented in the fleet note.
+
+        Week 3. Quiet week. Closed out the audit evidence requests for
+        the access review. The reviewers asked for screenshots of the
+        conditional access policies which took most of a morning to
+        collect. Suggested we script the export for next cycle.
+
+        Week 4. The proxy migration cutover happened saturday. Two
+        breakages monday morning: the legacy timeclock app pinned to
+        the old proxy address, and one lab subnet missing the wpad
+        update. Both fixed by noon. Otherwise the month closed clean.
+    - rel: Ops/Journal 2026-06.md
+      text: |
+        # Ops Journal — June 2026
+
+        Week 1. Onboarded the two new analysts — hardware, accounts,
+        and the shadowing rotation. The senior rotation calendar now
+        lives in the team space rather than my head, overdue change.
+        The vulnerability scanner ran its first authenticated sweep of
+        the server segment; finding volume tripled as expected, mostly
+        end-of-life runtimes on the app tier. Handed the list to the
+        platform team with a ninety day window agreed with their lead.
+
+        Week 2. Mid-month the backup job started failing every night.
+        First guess was a repeat of may's disk space issue but the
+        volume was fine — the actual root cause was the expired
+        certificate on the backup target's management interface; the
+        job authenticated over https and the client rejects expired
+        certs since the april agent update. Renewed the cert, added it
+        to the expiry dashboard, failures stopped immediately.
+
+        Week 3. The quarterly restore test used the new runbook for
+        the first time. Restore of the finance file share completed in
+        forty minutes against a target of one hour. One gap: the
+        runbook assumed the restore operator has storage admin rights,
+        which the on-call rotation doesn't. Split the role or amend
+        the runbook — decision parked for the ops sync.
+
+        Week 4. Closed the month with the license true-up. Two vendors
+        reconciled cleanly. The endpoint agent count ran eleven seats
+        over, traced to stale device records from the spring refresh —
+        cleaned up rather than paid for. Also drafted the on-call
+        handover template people keep asking for; it's in the team
+        space under templates, feedback welcome before it becomes
+        policy next month.
+
+        Week 5 (partial). Started prep for the july patch cycle and
+        the datacenter switch firmware window. Nothing notable yet.
+    - rel: Daily/2026-06-15.md
+      text: |
+        # 2026-06-15
+
+        Backup failures again overnight. Digging in today — journal
+        will get the write-up once the root cause is confirmed.

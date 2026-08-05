@@ -6,8 +6,8 @@ exclusions) live in the frontmatter of `Harness/Spec.md` *inside the
 vault* — editable like any note, read fresh each engine pass.
 `config/vault.yaml` supplies the defaults a new vault's Spec.md is
 seeded from (and the fallback when no vault is resolvable, e.g. the MCP
-server starting cold). Machine concerns — surface paths, schemas_dir —
-stay repo-side: moving a surface is a code decision, not a note edit.
+server starting cold). Surface paths, schemas_dir, and workers_dir stay
+repo-side; the files INSIDE those dirs are console-managed.
 """
 
 from __future__ import annotations
@@ -44,6 +44,10 @@ class VaultConfig:
     exclude: tuple[str, ...]
     surfaces: dict[str, str]
     schemas_dir: Path
+    # Worker spec files (prompt + reply schema + hedges + bounds), one
+    # YAML per worker. Repo-side like schemas_dir; edited via the console,
+    # read fresh each pass.
+    workers_dir: Path = Path("workers")
     # Where completed tasks get filed out of the working task notes (the
     # archive_done_tasks tool). Empty string disables archiving.
     done_archive: str = "Tasks/Archive.md"
@@ -128,10 +132,11 @@ def load_config(path: str | Path | None = None) -> VaultConfig:
     p = Path(path or os.environ.get("VAULT_CONFIG_PATH") or _DEFAULT_PATH)
     if not p.exists():
         return VaultConfig(
-            folder_types={}, exclude=("Private",), surfaces={}, schemas_dir=p.parent / "schemas"
+            folder_types={}, exclude=("Private",), surfaces={},
+            schemas_dir=p.parent / "schemas", workers_dir=p.parent / "workers",
         )
     raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    known = {"folders", "exclude", "surfaces", "schemas_dir",
+    known = {"folders", "exclude", "surfaces", "schemas_dir", "workers_dir",
              "done_archive", "capture_archive"}
     ignored = sorted(set(raw) - known)
     if ignored:
@@ -145,6 +150,7 @@ def load_config(path: str | Path | None = None) -> VaultConfig:
         exclude=tuple(str(e) for e in (raw.get("exclude") or [])),
         surfaces={str(k): str(v) for k, v in (raw.get("surfaces") or {}).items()},
         schemas_dir=p.parent / str(raw.get("schemas_dir") or "schemas"),
+        workers_dir=p.parent / str(raw.get("workers_dir") or "workers"),
         done_archive=str(raw.get("done_archive", "Tasks/Archive.md") or ""),
         capture_archive=str(raw.get("capture_archive", "Captures") or ""),
     )
@@ -185,11 +191,15 @@ def _spec_overrides(base: VaultConfig, fm: dict) -> VaultConfig:
 
 
 _base_cache: dict[str, VaultConfig] = {}
-# vault root -> (spec-note mtime, effective config). Keyed by root, not a
-# single slot: one checkout legitimately serves several vaults (the engine
-# and the UI server both key their state by vault_digest), and a one-entry
-# cache thrashed into a re-read on every alternating call.
-_merged_cache: dict[str, tuple[float | None, VaultConfig]] = {}
+# (base config path, vault root) -> (spec-note mtime, effective config).
+# Keyed by root, not a single slot: one checkout legitimately serves
+# several vaults (the engine and the UI server both key their state by
+# vault_digest), and a one-entry cache thrashed into a re-read on every
+# alternating call. The BASE path is part of the key because the merged
+# value derives from it — a cache that omits an input can serve a config
+# built over a base the caller no longer points at (VAULT_CONFIG_PATH
+# moved, as the test suite does per test).
+_merged_cache: dict[tuple[str, str], tuple[float | None, VaultConfig]] = {}
 
 
 def get_config(vault_path: str | None = None) -> VaultConfig:
@@ -210,7 +220,7 @@ def get_config(vault_path: str | None = None) -> VaultConfig:
         mtime: float | None = spec.stat().st_mtime
     except OSError:
         mtime = None
-    key = str(Path(root))
+    key = (base_key, str(Path(root)))
     hit = _merged_cache.get(key)
     if hit is not None and hit[0] == mtime:
         return hit[1]

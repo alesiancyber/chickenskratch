@@ -39,6 +39,11 @@ class Profile:
     # thought BEFORE the JSON, so ceilings sized for local workers
     # truncate their replies mid-object.
     worker_max_tokens: int = 0
+    # Worker call timeout when this profile runs the workers; 0 keeps
+    # each spec's own bound. Model-swapping endpoints (llama-swap) cold
+    # start a non-resident model for minutes — a per-endpoint fact, so
+    # it lives here, not in every spec's timeout_s.
+    worker_timeout_s: float = 0
 
 
 @dataclass

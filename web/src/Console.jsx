@@ -5,12 +5,18 @@ import { getJSON, postJSON } from "./api.js";
    configuration, in one place, with the split that decides how a change
    behaves stated on the surface rather than left to be discovered:
 
-   - Vault  — Harness/Spec.md. How THIS vault behaves. A gated note write,
-              so every change is a revertible snapshot, and the engine
-              re-reads it next pass. No restart.
-   - Models — config/models.yaml. What the harness IS. Outside the vault,
-              so writes are validated and backed up instead (restore is
-              right here), and some fields only take effect on restart.
+   - Vault     — Harness/Spec.md. How THIS vault behaves. A gated note
+                 write, so every change is a revertible snapshot, and the
+                 engine re-reads it next pass. No restart.
+   - Models    — config/models.yaml. What the harness talks to. Outside
+                 the vault, so writes are validated and backed up instead
+                 (restore is right here); some fields need a restart.
+   - Behaviors — config/workers/*.yaml. What the AI does: each worker's
+                 prompt, small-model hedges, reply schema and bounds.
+                 Read fresh every pass — an edit is live next pass.
+   - Schemas   — config/schemas/*.yaml. What entities look like, and
+                 (via record blocks) which capture kinds exist. Also
+                 read fresh every pass.
 
    Secrets never appear. A profile names the env var holding its key; the
    console reports the NAME and whether it is set. */
@@ -236,13 +242,47 @@ function VaultTab({ data, onSaved, onError }) {
   );
 }
 
-function ProfileCard({ p, fields, onField }) {
+/* The undo the vault's git snapshots can't provide out here. `path` +
+   `payload` name the restore endpoint, since worker/schema files restore
+   through their own routes; the response's `restart` says whether the
+   engine picks it up on its own. */
+function Backups({ file, path = "/api/console/models/restore", payload = {},
+                   onSaved, onError }) {
+  const restore = async (stamp) => {
+    try {
+      const r = await postJSON(path, { ...payload, stamp });
+      onSaved(`Restored ${file.name} from ${stamp}` +
+              (r.restart === false ? " — live next pass"
+                                   : " — restart chickenskratch-ui to load it"));
+    } catch (e) { onError(String(e.message || e)); }
+  };
+  return (
+    <div className="cfg-backups">
+      <div className="cfg-label">Previous versions</div>
+      {file.backups.length === 0
+        ? <div className="ghost small">None yet — a backup is kept each time this file is saved.</div>
+        : file.backups.slice(0, 8).map((b) => (
+            <div className="row" key={b.stamp}>
+              <span className="grow mono small">{b.when}</span>
+              <button className="affordance linklike" onClick={() => restore(b.stamp)}>
+                restore
+              </button>
+            </div>
+          ))}
+    </div>
+  );
+}
+
+function ProfileCard({ p, fields, onField, onDelete }) {
   return (
     <div className="cfg-profile">
       <div className="cfg-profile-head">
         <span className="grow"><strong>{p.name}</strong> <span className="mono ghost small">{p.model}</span></span>
         {p.is_default && <span className="chip verdict-approve">chat default</span>}
         {p.is_worker && <span className="chip">worker</span>}
+        {!p.is_default && !p.is_worker && onDelete && (
+          <button className="linklike small" onClick={() => onDelete(p.name)}>delete</button>
+        )}
       </div>
       <div className="ghost small mono">{p.base_url}</div>
       <div className="small">
@@ -281,10 +321,58 @@ function ProfileCard({ p, fields, onField }) {
   );
 }
 
+/* Creating a profile is a form, not a YAML exercise: the server renders
+   the block, validates the whole file, and refuses rather than break it.
+   api_key_env takes the NAME of an env var — the form says so because
+   pasting the key itself here would write it into a file in a repo. */
+function NewProfileForm({ onSaved, onError }) {
+  const empty = { name: "", model: "", base_url: "", api_key_env: "" };
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState(empty);
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setF((d) => ({ ...d, [k]: e.target.value }));
+  const create = async () => {
+    setBusy(true);
+    try {
+      const { name, ...fields } = f;
+      await postJSON("/api/console/models/profile", { name, fields });
+      onSaved(`Profile ${name} created — restart chickenskratch-ui to chat on it`);
+      setF(empty); setOpen(false);
+    } catch (e) { onError(String(e.message || e)); }
+    setBusy(false);
+  };
+  if (!open) {
+    return <button className="linklike" onClick={() => setOpen(true)}>+ New profile</button>;
+  }
+  return (
+    <div className="cfg-profile">
+      <div className="cfg-profile-head"><strong>New profile</strong></div>
+      <div className="cfg-grid">
+        <label className="cfg-inline"><span className="ghost small">name</span>
+          <input value={f.name} onChange={set("name")} placeholder="homelab-70b" /></label>
+        <label className="cfg-inline"><span className="ghost small">model id</span>
+          <input value={f.model} onChange={set("model")} placeholder="qwen3.5:72b" /></label>
+        <label className="cfg-inline"><span className="ghost small">base_url</span>
+          <input value={f.base_url} onChange={set("base_url")}
+                 placeholder="http://192.168.1.50:8000/v1" /></label>
+        <label className="cfg-inline"><span className="ghost small">api_key_env (env var NAME, optional)</span>
+          <input value={f.api_key_env} onChange={set("api_key_env")}
+                 placeholder="MY_API_KEY" /></label>
+      </div>
+      <div className="cfg-actions">
+        <button className="decide approve" disabled={busy || !f.name || !f.model || !f.base_url}
+                onClick={create}>Create</button>
+        <button className="linklike" onClick={() => { setF(empty); setOpen(false); }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 function ModelsTab({ data, onSaved, onError, refresh }) {
   const [raw, setRaw] = useState(null);       // null = form view
   const [text, setText] = useState(data.text);
   const [busy, setBusy] = useState(false);
+  const [backendForm, setBackendForm] = useState(null); // {name,url,command} | null
   useEffect(() => { setText(data.text); }, [data.text]);
 
   const send = async (path, body, note) => {
@@ -351,14 +439,53 @@ function ModelsTab({ data, onSaved, onError, refresh }) {
                      onField={(name, field, value) => send(
                        "/api/console/models",
                        { patch: { profiles: { [name]: { [field]: value } } } },
-                       `${name}.${field} → ${value}`)} />
+                       `${name}.${field} → ${value}`)}
+                     onDelete={(name) => send(
+                       "/api/console/models/profile/delete", { name },
+                       `Profile ${name} deleted`)} />
       ))}
+      <NewProfileForm onSaved={(m) => { onSaved(m); }} onError={onError} />
 
-      {data.backends.length > 0 && (
-        <p className="ghost small">
-          Local backends startable with <span className="mono">chickenskratch-backends</span>:{" "}
-          {data.backends.join(", ")}
-        </p>
+      <div className="cfg-label" style={{ marginTop: "var(--s4)" }}>Local backends</div>
+      <p className="ghost small">
+        Model servers startable with <span className="mono">chickenskratch-backends</span>.
+      </p>
+      {data.backends.map((b) => (
+        <div className="row" key={b}>
+          <span className="grow mono small">{b}</span>
+          <button className="linklike small"
+                  onClick={() => send("/api/console/models/backend/delete", { name: b },
+                                      `Backend ${b} deleted`)}>delete</button>
+        </div>
+      ))}
+      {backendForm ? (
+        <div className="cfg-profile">
+          <div className="cfg-grid">
+            {[["name", "mlx-worker"], ["url", "http://127.0.0.1:8081/v1"],
+              ["command", "uv tool run --from mlx-lm mlx_lm.server --port 8081"]].map(([k, ph]) => (
+              <label key={k} className="cfg-inline"><span className="ghost small">{k}</span>
+                <input value={backendForm[k]} placeholder={ph}
+                       onChange={(e) => setBackendForm((d) => ({ ...d, [k]: e.target.value }))} />
+              </label>
+            ))}
+          </div>
+          <div className="cfg-actions">
+            <button className="decide approve"
+                    disabled={busy || !backendForm.name || !backendForm.url || !backendForm.command}
+                    onClick={async () => {
+                      const { name, ...fields } = backendForm;
+                      await send("/api/console/models/backend", { name, fields },
+                                 `Backend ${name} created`);
+                      setBackendForm(null);
+                    }}>Create</button>
+            <button className="linklike" onClick={() => setBackendForm(null)}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button className="linklike"
+                onClick={() => setBackendForm({ name: "", url: "", command: "" })}>
+          + New backend
+        </button>
       )}
 
       <div className="cfg-actions">
@@ -366,7 +493,7 @@ function ModelsTab({ data, onSaved, onError, refresh }) {
           {raw ? "Hide" : "Edit"} models.yaml directly
         </button>
         <span className="ghost small">
-          adding or removing a profile, backends, server allowlists
+          server allowlists, comments, anything the forms don't cover
         </span>
       </div>
       {raw && (
@@ -391,32 +518,546 @@ function ModelsTab({ data, onSaved, onError, refresh }) {
   );
 }
 
-/* The undo the vault's git snapshots can't provide out here. */
-function Backups({ file, onSaved, onError }) {
-  const restore = async (stamp) => {
+/* ---- Behaviors: config/workers/*.yaml ---- */
+
+/* Local-time ISO date. toISOString is UTC — in any western timezone an
+   evening session would prefill TOMORROW as {today} and hand the worker
+   anchors the engine (which uses local dates throughout) disagrees with. */
+const localISO = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-` +
+  String(d.getDate()).padStart(2, "0");
+
+/* Mirrors tasks.week_end server-side: the Sunday ending d's week. */
+const sundayFrom = (d, weeksAhead = 0) => {
+  const out = new Date(d);
+  out.setDate(d.getDate() + ((7 - d.getDay()) % 7) + weeksAhead * 7);
+  return localISO(out);
+};
+
+/* Try a worker before committing it: paste sample input, run it on the
+   current worker profile, read the reply (or the refusal — a
+   schema-invalid reply is exactly what you came here to see). */
+function TestRunPanel({ name, inputs, draft, onError }) {
+  const today = new Date();
+  const prefill = { today: localISO(today),
+                    this_sunday: sundayFrom(today), next_sunday: sundayFrom(today, 1) };
+  const [vals, setVals] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [showPrompt, setShowPrompt] = useState(false);
+
+  const run = async () => {
+    setBusy(true); setResult(null);
     try {
-      await postJSON("/api/console/models/restore", { stamp });
-      onSaved(`Restored ${file.name} from ${stamp} — restart chickenskratch-ui to load it`);
+      const body = { name, inputs: {} };
+      for (const k of inputs) body.inputs[k] = vals[k] ?? prefill[k] ?? "";
+      if (draft?.text != null) body.text = draft.text;
+      else if (draft?.fields != null) body.fields = draft.fields;
+      setResult(await postJSON("/api/console/workers/test", body));
     } catch (e) { onError(String(e.message || e)); }
+    setBusy(false);
   };
+
   return (
-    <div className="cfg-backups">
-      <div className="cfg-label">Previous versions</div>
-      {file.backups.length === 0
-        ? <div className="ghost small">None yet — a backup is kept each time this file is saved.</div>
-        : file.backups.slice(0, 8).map((b) => (
-            <div className="row" key={b.stamp}>
-              <span className="grow mono small">{b.when}</span>
-              <button className="affordance linklike" onClick={() => restore(b.stamp)}>
-                restore
-              </button>
-            </div>
-          ))}
+    <div className="cfg-test">
+      <div className="cfg-label">Try it</div>
+      {inputs.map((k) => (
+        <label key={k} className="cfg-inline">
+          <span className="ghost small mono">{k}</span>
+          {k === "text" || k === "notes" || k === "content" ? (
+            <textarea rows={4} value={vals[k] ?? ""} placeholder="paste sample input"
+                      onChange={(e) => setVals((v) => ({ ...v, [k]: e.target.value }))} />
+          ) : (
+            <input value={vals[k] ?? prefill[k] ?? ""}
+                   onChange={(e) => setVals((v) => ({ ...v, [k]: e.target.value }))} />
+          )}
+        </label>
+      ))}
+      <div className="cfg-actions">
+        <button className="decide approve" disabled={busy} onClick={run}>
+          {busy ? "Running…" : "Run" + (draft ? " (unsaved draft)" : "")}
+        </button>
+        {result && <span className="ghost small mono">{result.model} · adapt {result.adapt}</span>}
+      </div>
+      {result && (
+        <>
+          <button className="linklike small" onClick={() => setShowPrompt((v) => !v)}>
+            {showPrompt ? "Hide" : "Show"} the exact prompt sent
+          </button>
+          {showPrompt && <pre className="cfg-pre">{result.prompt}</pre>}
+          {result.error
+            ? <div className="cfg-note small attention">{result.error}</div>
+            : <pre className="cfg-pre">{JSON.stringify(result.reply, null, 2)}</pre>}
+        </>
+      )}
     </div>
   );
 }
 
-export default function Console({ open, onClose }) {
+/* A file deleted since its last backup: name plus the restore list.
+   Without this card the delete toast's "its backups remain restorable"
+   would promise a path the surface doesn't offer — rows normally render
+   from live files only. Shared by Behaviors and Schemas. */
+function DeletedCard({ item, restorePath, onSaved, onError }) {
+  return (
+    <div className="cfg-profile">
+      <div className="cfg-profile-head">
+        <span className="grow"><strong>{item.name}</strong></span>
+        <span className="chip">deleted</span>
+      </div>
+      <Backups file={item.file} path={restorePath}
+               payload={{ name: item.name }} onSaved={onSaved} onError={onError} />
+    </div>
+  );
+}
+
+function WorkerCard({ item, onSaved, onError }) {
+  const toDraft = (it) => ({
+    description: it.description || "",
+    inputs: (it.inputs || []).join(", "),
+    timeout_s: it.timeout_s, temperature: it.temperature, max_tokens: it.max_tokens,
+    prompt: it.prompt || "", hedges: it.hedges || "", schema: it.schema_text || "",
+  });
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(() => toDraft(item));
+  const [rawMode, setRawMode] = useState(Boolean(item.invalid));
+  const [text, setText] = useState(item.text);
+  const [busy, setBusy] = useState(false);
+  const [showGenerated, setShowGenerated] = useState(false);
+  useEffect(() => { setDraft(toDraft(item)); setText(item.text); }, [item]);
+
+  const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
+  const fields = () => ({ ...draft,
+    inputs: draft.inputs.split(",").map((s) => s.trim()).filter(Boolean) });
+  const dirty = rawMode ? text !== item.text
+    : JSON.stringify(draft) !== JSON.stringify(toDraft(item));
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const body = rawMode ? { name: item.name, text }
+                           : { name: item.name, fields: fields() };
+      await postJSON("/api/console/workers", body);
+      onSaved(`${item.name} saved — live next pass`);
+    } catch (e) { onError(String(e.message || e)); }
+    setBusy(false);
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await postJSON("/api/console/workers/delete", { name: item.name });
+      onSaved(`${item.name} deleted — its backups remain restorable`);
+    } catch (e) { onError(String(e.message || e)); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="cfg-profile">
+      <div className="cfg-profile-head">
+        <button className="linklike grow cfg-cardtoggle" onClick={() => setOpen((v) => !v)}>
+          <strong>{item.name}</strong>
+          {item.description && <span className="ghost small"> — {item.description}</span>}
+        </button>
+        {item.reserved && <span className="chip">engine</span>}
+        {item.invalid && <span className="chip attention">broken</span>}
+        {!item.reserved && (
+          <button className="linklike small" disabled={busy} onClick={remove}>delete</button>
+        )}
+      </div>
+      {item.invalid && <div className="cfg-note small attention">{item.invalid}</div>}
+      {open && (
+        <>
+          {!item.invalid && (
+            <div className="cfg-actions">
+              <button className="linklike small" onClick={() => setRawMode((v) => !v)}>
+                {rawMode ? "Form view" : "Edit file directly"}
+              </button>
+            </div>
+          )}
+          {rawMode ? (
+            <textarea className="cfg-raw" rows={20} value={text}
+                      onChange={(e) => setText(e.target.value)} />
+          ) : (
+            <>
+              <Field label="Description">
+                <input value={draft.description} onChange={set("description")} />
+              </Field>
+              <Field label="Inputs"
+                     help={item.reserved
+                       ? "The engine fills exactly these placeholders when it invokes\nthis worker — they are its calling contract, so they are fixed."
+                       : "Comma-separated placeholder names. Each must appear in the\nprompt as {name}, and the test panel offers a field per input."}>
+                <input value={draft.inputs} onChange={set("inputs")}
+                       disabled={item.reserved} className="mono" />
+              </Field>
+              <Field label="Prompt"
+                     help={"The capable-model reading. {hedges} marks where the\nsmall-model rules splice in; {input} slots fill per call.\n\nDescribe the JSON shape in prose here — the reply schema below\nis what actually enforces it."}>
+                <textarea className="cfg-raw" rows={14} value={draft.prompt}
+                          onChange={set("prompt")} />
+              </Field>
+              <Field label="Hedges (small-model rules)"
+                     help={"The adapt layer: extra conservative rules spliced into the\nprompt's {hedges} slot only when the worker profile says\nworker_adapt: small. The base prompt stays the capable-model\nreading; the reply schema is never tiered."}>
+                <textarea className="cfg-raw" rows={5} value={draft.hedges}
+                          onChange={set("hedges")} />
+              </Field>
+              <div className="cfg-grid">
+                {[["timeout_s", "1"], ["temperature", "0.1"], ["max_tokens", "1"]].map(([k, step]) => (
+                  <label key={k} className="cfg-inline">
+                    <span className="ghost small">{k}</span>
+                    <input type="number" step={step} value={draft[k]} onChange={set(k)} />
+                  </label>
+                ))}
+              </div>
+              <Field label="Reply schema (YAML)"
+                     help={"The jsonschema every reply must satisfy — the API, validated\nafter each call. A reply that drops required fields fails loud\ninstead of being silently cleaned."}>
+                <textarea className="cfg-raw" rows={10} value={draft.schema}
+                          onChange={set("schema")} />
+              </Field>
+            </>
+          )}
+          {item.generated && (
+            <>
+              <button className="linklike small" onClick={() => setShowGenerated((v) => !v)}>
+                {showGenerated ? "Hide" : "Show"} the composed prompt (record kinds:{" "}
+                {item.generated.kind_enum.join(", ")})
+              </button>
+              {showGenerated && <pre className="cfg-pre">{item.generated.prompt}</pre>}
+            </>
+          )}
+          <div className="cfg-actions">
+            <button className="decide approve" disabled={!dirty || busy} onClick={save}>
+              {busy ? "Saving…" : "Save"}
+            </button>
+            {dirty && (
+              <button className="linklike"
+                      onClick={() => { setDraft(toDraft(item)); setText(item.text); }}>
+                Discard
+              </button>
+            )}
+          </div>
+          {!item.invalid && (
+            <TestRunPanel name={item.name} inputs={fields().inputs}
+                          draft={dirty ? (rawMode ? { text } : { fields: fields() }) : null}
+                          onError={onError} />
+          )}
+          <Backups file={item.file} path="/api/console/workers/restore"
+                   payload={{ name: item.name }} onSaved={onSaved} onError={onError} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function BehaviorsTab({ data, onSaved, onError }) {
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const create = async () => {
+    setBusy(true);
+    try {
+      const seeded = await postJSON("/api/console/workers/seed", { name: newName.trim() });
+      await postJSON("/api/console/workers", { name: seeded.name, text: seeded.text });
+      onSaved(`${seeded.name} created — fill in its prompt and schema below`);
+      setNewName("");
+    } catch (e) { onError(String(e.message || e)); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="cfg-body">
+      <p className="ghost small">
+        {data.dir}/ — each worker is one file: prompt, small-model hedges,
+        reply schema, bounds. Backed up on every save, and the engine
+        reads them fresh each pass — no restart. Workers marked{" "}
+        <span className="chip">engine</span> are invoked by the pipeline
+        and can be edited but not deleted.
+      </p>
+      {data.items.map((it) => (
+        it.deleted
+          ? <DeletedCard key={it.name} item={it} restorePath="/api/console/workers/restore"
+                         onSaved={onSaved} onError={onError} />
+          : <WorkerCard key={it.name} item={it} onSaved={onSaved} onError={onError} />
+      ))}
+      <div className="cfg-actions">
+        <input value={newName} placeholder="new_behavior_name" className="mono"
+               onChange={(e) => setNewName(e.target.value)} />
+        <button className="decide approve" disabled={busy || !newName.trim()} onClick={create}>
+          + New behavior
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---- Schemas: config/schemas/*.yaml ---- */
+
+const FIELD_KINDS = ["string", "date", "number", "boolean", "array", "enum", "const"];
+
+function FieldRows({ rows, onChange }) {
+  const set = (i, k, v) => onChange(rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+  return (
+    <div className="cfg-checklist">
+      {rows.map((r, i) => (
+        <div className="cfg-fieldrow" key={i}>
+          <input className="mono" value={r.name} placeholder="field"
+                 onChange={(e) => set(i, "name", e.target.value)} />
+          <select value={r.kind} onChange={(e) => set(i, "kind", e.target.value)}>
+            {FIELD_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+          </select>
+          <label className="small"><input type="checkbox" checked={r.required}
+                 onChange={(e) => set(i, "required", e.target.checked)} /> required</label>
+          {/* array and const have no null spelling in the compiler —
+              showing the box would silently drop the choice on save */}
+          {!["array", "const"].includes(r.kind) && (
+            <label className="small"><input type="checkbox" checked={r.nullable}
+                   onChange={(e) => set(i, "nullable", e.target.checked)} /> nullable</label>
+          )}
+          {r.kind === "string" && (
+            <input className="mono grow" value={r.pattern} placeholder="pattern (regex, optional)"
+                   onChange={(e) => set(i, "pattern", e.target.value)} />
+          )}
+          {r.kind === "enum" && (
+            <input className="mono grow" value={(r.enum || []).join(", ")}
+                   placeholder="values, comma separated"
+                   onChange={(e) => set(i, "enum",
+                     e.target.value.split(",").map((s) => s.trim()).filter(Boolean))} />
+          )}
+          {r.kind === "const" && (
+            <input className="mono grow" value={r.const ?? ""} placeholder="constant value"
+                   onChange={(e) => set(i, "const", e.target.value)} />
+          )}
+          <button className="linklike small"
+                  onClick={() => onChange(rows.filter((_, j) => j !== i))}>✕</button>
+        </div>
+      ))}
+      <button className="linklike small"
+              onClick={() => onChange([...rows, { name: "", kind: "string", required: false,
+                nullable: false, pattern: "", min_length: 0, enum: [], const: null }])}>
+        + field
+      </button>
+    </div>
+  );
+}
+
+/* A record block makes this schema a CAPTURE KIND: extract_record's kind
+   list and reply enum are generated from these, so the cues here are
+   literally part of the prompt. */
+function RecordEditor({ record, dirKeys, onChange }) {
+  if (!record) {
+    return (
+      <button className="linklike small"
+              onClick={() => onChange({ kind: "", default: false, files_as: "daily-append",
+                                        dir_key: "", cues: "", guidance: "" })}>
+        + Make this a capture kind (recognized and filed by extract_record)
+      </button>
+    );
+  }
+  const set = (k) => (e) => onChange({ ...record,
+    [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
+  return (
+    <div className="cfg-inert">
+      <div className="cfg-label">Capture kind
+        <button className="linklike small" onClick={() => onChange(null)}>remove</button>
+      </div>
+      <div className="cfg-grid">
+        <label className="cfg-inline"><span className="ghost small">kind name</span>
+          <input className="mono" value={record.kind || ""} onChange={set("kind")} /></label>
+        <label className="cfg-inline"><span className="ghost small">files as</span>
+          <select value={record.files_as || "daily-append"} onChange={set("files_as")}>
+            <option value="daily-append">daily-append — a block in the dated capture note</option>
+            <option value="note">note — its own note per record</option>
+          </select></label>
+        {record.files_as === "note" && (
+          <label className="cfg-inline"><span className="ghost small">files into (vault setting)</span>
+            <select value={record.dir_key || ""} onChange={set("dir_key")}>
+              <option value="">choose…</option>
+              {dirKeys.map((k) => <option key={k} value={k}>{k}</option>)}
+            </select></label>
+        )}
+        <label className="cfg-check"><input type="checkbox" checked={Boolean(record.default)}
+               onChange={set("default")} />
+          <span className="small">default kind (every unmatched dump files through it)</span></label>
+      </div>
+      <Field label="Detection cues"
+             help={"Prompt bullets, verbatim: when is a dump THIS kind? These are\nspliced into extract_record's generated kind list, so write them\nas '- kind \"x\" when …' bullets."}>
+        <textarea className="cfg-raw" rows={3} value={record.cues || ""} onChange={set("cues")} />
+      </Field>
+      <Field label="Extra guidance (optional)"
+             help={"More bullets appended after every kind's cues — exceptions,\nformatting rules (the meeting transcript EXCEPTION lives here)."}>
+        <textarea className="cfg-raw" rows={3} value={record.guidance || ""} onChange={set("guidance")} />
+      </Field>
+    </div>
+  );
+}
+
+function SchemaCard({ item, dirKeys, onSaved, onError }) {
+  const toDraft = (it) => ({
+    description: it.description || "", id_prefix: it.id_prefix || "",
+    record: it.record ? {
+      kind: it.record.kind || it.name, default: Boolean(it.record.default),
+      files_as: it.record.files_as || "daily-append", dir_key: it.record.dir_key || "",
+      cues: it.record.cues || "", guidance: it.record.guidance || "",
+    } : null,
+    fields: it.form || [],
+  });
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(() => toDraft(item));
+  const [rawMode, setRawMode] = useState(Boolean(item.invalid) || !item.formable);
+  const [text, setText] = useState(item.text);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setDraft(toDraft(item)); setText(item.text);
+    setRawMode(Boolean(item.invalid) || !item.formable);
+  }, [item]);
+
+  const dirty = rawMode ? text !== item.text
+    : JSON.stringify(draft) !== JSON.stringify(toDraft(item));
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const body = rawMode ? { name: item.name, text } : { name: item.name, fields: draft };
+      await postJSON("/api/console/schemas", body);
+      onSaved(`${item.name} saved — live next pass`);
+    } catch (e) { onError(String(e.message || e)); }
+    setBusy(false);
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await postJSON("/api/console/schemas/delete", { name: item.name });
+      onSaved(`${item.name} deleted — its backups remain restorable`);
+    } catch (e) { onError(String(e.message || e)); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="cfg-profile">
+      <div className="cfg-profile-head">
+        <button className="linklike grow cfg-cardtoggle" onClick={() => setOpen((v) => !v)}>
+          <strong>{item.name}</strong>
+          {item.record && <span className="ghost small"> · capture kind
+            {item.record.default ? " (default)" : ""}</span>}
+          {item.description && <span className="ghost small"> — {item.description}</span>}
+        </button>
+        {item.engine && <span className="chip">engine</span>}
+        {item.invalid && <span className="chip attention">broken</span>}
+        {!item.engine && (
+          <button className="linklike small" disabled={busy} onClick={remove}>delete</button>
+        )}
+      </div>
+      {item.used_by?.length > 0 && (
+        <div className="ghost small">folder map: {item.used_by.join(", ")}</div>
+      )}
+      {item.invalid && <div className="cfg-note small attention">{item.invalid}</div>}
+      {open && (
+        <>
+          {!item.invalid && item.formable && (
+            <div className="cfg-actions">
+              <button className="linklike small" onClick={() => setRawMode((v) => !v)}>
+                {rawMode ? "Form view" : "Edit file directly"}
+              </button>
+            </div>
+          )}
+          {!item.invalid && !item.formable && (
+            <p className="ghost small">
+              This schema's shape is beyond the form (nested structures) —
+              it edits as raw YAML.
+            </p>
+          )}
+          {rawMode ? (
+            <textarea className="cfg-raw" rows={16} value={text}
+                      onChange={(e) => setText(e.target.value)} />
+          ) : (
+            <>
+              <div className="cfg-grid">
+                <label className="cfg-inline"><span className="ghost small">description</span>
+                  <input value={draft.description}
+                         onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} /></label>
+                <label className="cfg-inline"><span className="ghost small">id prefix (stamped ids: x-…)</span>
+                  <input className="mono" value={draft.id_prefix}
+                         onChange={(e) => setDraft((d) => ({ ...d, id_prefix: e.target.value }))} /></label>
+              </div>
+              <div className="cfg-label">Frontmatter fields</div>
+              <FieldRows rows={draft.fields}
+                         onChange={(rows) => setDraft((d) => ({ ...d, fields: rows }))} />
+              <div style={{ marginTop: "var(--s3)" }}>
+                <RecordEditor record={draft.record} dirKeys={dirKeys}
+                              onChange={(r) => setDraft((d) => ({ ...d, record: r }))} />
+              </div>
+            </>
+          )}
+          <div className="cfg-actions">
+            <button className="decide approve" disabled={!dirty || busy} onClick={save}>
+              {busy ? "Saving…" : "Save"}
+            </button>
+            {dirty && (
+              <button className="linklike"
+                      onClick={() => { setDraft(toDraft(item)); setText(item.text); }}>
+                Discard
+              </button>
+            )}
+          </div>
+          <Backups file={item.file} path="/api/console/schemas/restore"
+                   payload={{ name: item.name }} onSaved={onSaved} onError={onError} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function SchemasTab({ data, onSaved, onError }) {
+  const [newName, setNewName] = useState("");
+  const [newKind, setNewKind] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const create = async () => {
+    setBusy(true);
+    try {
+      const name = newName.trim();
+      const fields = { description: "", id_prefix: "", fields: [] };
+      if (newKind) {
+        fields.record = { kind: name, default: false, files_as: "daily-append", dir_key: "",
+                          cues: `- kind "${name}" when the dump is … (describe the shape)` };
+      }
+      await postJSON("/api/console/schemas", { name, fields });
+      onSaved(`${name} created — add its fields below`);
+      setNewName(""); setNewKind(false);
+    } catch (e) { onError(String(e.message || e)); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="cfg-body">
+      <p className="ghost small">
+        {data.dir}/ — one file per entity type: its frontmatter schema,
+        id prefix, and (optionally) a record block that makes it a
+        capture kind extract_record can recognize and file. Backed up on
+        every save, read fresh each pass. <span className="chip">engine</span>{" "}
+        schemas validate the machinery's own files and can't be deleted.
+      </p>
+      {data.items.map((it) => (
+        it.deleted
+          ? <DeletedCard key={it.name} item={it} restorePath="/api/console/schemas/restore"
+                         onSaved={onSaved} onError={onError} />
+          : <SchemaCard key={it.name} item={it} dirKeys={data.dir_keys}
+                        onSaved={onSaved} onError={onError} />
+      ))}
+      <div className="cfg-actions">
+        <input value={newName} placeholder="new_type_name" className="mono"
+               onChange={(e) => setNewName(e.target.value)} />
+        <label className="small"><input type="checkbox" checked={newKind}
+               onChange={(e) => setNewKind(e.target.checked)} /> also a capture kind</label>
+        <button className="decide approve" disabled={busy || !newName.trim()} onClick={create}>
+          + New schema
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default function Console({ open, onClose, configVersion }) {
   const [tab, setTab] = useState("vault");
   const [data, setData] = useState(null);
   const [note, setNote] = useState("");
@@ -429,7 +1070,10 @@ export default function Console({ open, onClose }) {
     } catch (e) { setError(String(e.message || e)); }
   }, []);
 
-  useEffect(() => { if (open) load(); }, [open, load]);
+  // configVersion bumps on every config_changed event — a save from this
+  // console, another tab, or a restore — so an open console never shows
+  // a config the disk has moved past.
+  useEffect(() => { if (open) load(); }, [open, load, configVersion]);
 
   // Esc closes — but not while a field has focus: there esc is the
   // control's own cancel, and closing would unmount the tabs and silently
@@ -461,7 +1105,8 @@ export default function Console({ open, onClose }) {
         <div className="cfg-head">
           <strong>Console</strong>
           <div className="cfg-tabs">
-            {[["vault", "Vault"], ["models", "Models"]].map(([id, label]) => (
+            {[["vault", "Vault"], ["models", "Models"],
+              ["workers", "Behaviors"], ["schemas", "Schemas"]].map(([id, label]) => (
               <button key={id} className={"navlink" + (tab === id ? " current" : "")}
                       onClick={() => setTab(id)}>{label}</button>
             ))}
@@ -483,8 +1128,12 @@ export default function Console({ open, onClose }) {
             ? <VaultTab data={{ ...data.vault,
                                 profiles: data.models.profiles.map((p) => p.name) }}
                         onSaved={saved} onError={failed} />
-            : <ModelsTab data={data.models} onSaved={saved} onError={failed}
-                         refresh={load} />}
+          : tab === "models"
+            ? <ModelsTab data={data.models} onSaved={saved} onError={failed}
+                         refresh={load} />
+          : tab === "workers"
+            ? <BehaviorsTab data={data.workers} onSaved={saved} onError={failed} />
+            : <SchemasTab data={data.schemas} onSaved={saved} onError={failed} />}
       </div>
     </div>
   );

@@ -1,0 +1,42 @@
+description: Partitions the flat task list into a few thematic groups; every id appears in exactly one group.
+inputs:
+- tasks
+temperature: 0.1
+prompt: |
+  Organize the flat task list below into a few thematic groups.
+
+  Return ONLY a JSON object of this shape, nothing else:
+  {{"groups": [{{"name": "Short group heading", "member_ids": ["t-..."]}}]}}
+
+  Rules:
+  - Every task id appears in exactly one group. Never invent, drop, or repeat ids.
+  - Group by what the work is actually about. Tasks that belong to different
+    clients, projects, or systems must NEVER share a group, even when their
+    wording is similar.
+  - Use 2 to 6 groups. A task that fits nowhere goes in a group named "Ungrouped".
+  - Group names are short noun phrases, not sentences.
+
+  Tasks (id: text):
+  {tasks}
+schema:
+  type: object
+  required:
+  - groups
+  properties:
+    groups:
+      type: array
+      minItems: 1
+      items:
+        type: object
+        required:
+        - name
+        - member_ids
+        properties:
+          name:
+            type: string
+            minLength: 1
+          member_ids:
+            type: array
+            minItems: 1
+            items:
+              type: string

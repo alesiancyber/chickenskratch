@@ -1,0 +1,2650 @@
+[
+  {
+    "name": "answer-how-many-names-the-items",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "only 0 quote(s) survive verification (need 1); offered: {'Projects/Detection Backlog.md': 'kerberoasting detection for the tier zero accounts\\nDCSync attempt alert scoped to non-DC sources'}",
+      "over time budget: mean 184.6s/run > 60s"
+    ],
+    "seconds": 553.7,
+    "mean_seconds": 184.6,
+    "budget_s": 60.0,
+    "last_reply": {
+      "answer": "There are 3 unwritten detection rules: kerberoasting detection for the tier zero accounts, DCSync attempt alert scoped to non-DC sources, and pass-the-hash correlation across the jump boxes.",
+      "sources": [
+        "Projects/Detection Backlog.md"
+      ],
+      "quotes": {
+        "Projects/Detection Backlog.md": "kerberoasting detection for the tier zero accounts"
+      }
+    }
+  },
+  {
+    "name": "answer-exact-figure-right-note",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 45.5,
+    "mean_seconds": 15.2,
+    "budget_s": 60.0,
+    "last_reply": {
+      "answer": "$4,200",
+      "sources": [
+        "Finance/Ingest Costs.md"
+      ],
+      "quotes": {
+        "Finance/Ingest Costs.md": "Last month's ingest overage came to $4,200"
+      }
+    }
+  },
+  {
+    "name": "answer-refuses-when-notes-are-silent",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 48.5,
+    "mean_seconds": 16.2,
+    "budget_s": 60.0,
+    "last_reply": {
+      "answer": "The notes don't answer it.",
+      "sources": [],
+      "quotes": {}
+    }
+  },
+  {
+    "name": "answer-synthesis-cites-both-notes",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 75.1,
+    "mean_seconds": 25.0,
+    "budget_s": 60.0,
+    "last_reply": {
+      "answer": "Yes, the vendor's March release added FIDO key support, removing the last technical blocker. Rio owns removing the finance group's MFA exemption.",
+      "sources": [
+        "Vendors/ERP Notes.md",
+        "Meetings/2026-07-25 Incident Retro.md"
+      ],
+      "quotes": {
+        "Vendors/ERP Notes.md": "Their march release added fido key support",
+        "Meetings/2026-07-25 Incident Retro.md": "Rio owns removing it"
+      }
+    }
+  },
+  {
+    "name": "answer-ignores-the-near-miss-note",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 40.6,
+    "mean_seconds": 13.5,
+    "budget_s": 60.0,
+    "last_reply": {
+      "answer": "The transfer window closes august 15.",
+      "sources": [
+        "Projects/DNS Migration.md"
+      ],
+      "quotes": {
+        "Projects/DNS Migration.md": "The transfer window closes august 15"
+      }
+    }
+  },
+  {
+    "name": "answer-list-question-lists-all",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "only 0 quote(s) survive verification (need 1); offered: {'Meetings/2026-07-25 Incident Retro.md': 'Finding one: no documented escalation path — the containment delay traced to a single-person bottleneck.'}",
+      "over time budget: mean 177.4s/run > 60s"
+    ],
+    "seconds": 532.2,
+    "mean_seconds": 177.4,
+    "budget_s": 60.0,
+    "last_reply": null
+  },
+  {
+    "name": "answer-quote-hostile-characters",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 39.1,
+    "mean_seconds": 13.0,
+    "budget_s": 60.0,
+    "last_reply": {
+      "answer": "The beacon-like traffic was coming from WS-FIN-07.",
+      "sources": [
+        "Ops/Hunt Log.md"
+      ],
+      "quotes": {
+        "Ops/Hunt Log.md": "beacon-like traffic traced to WS-FIN-07"
+      }
+    }
+  },
+  {
+    "name": "answer-long-pack-needle",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "only 0 quote(s) survive verification (need 1); offered: {'Ops/Journal 2026-06.md': \"the actual root cause was the expired certificate on the backup target's management interface\"}",
+      "over time budget: mean 111.1s/run > 90s"
+    ],
+    "seconds": 333.4,
+    "mean_seconds": 111.1,
+    "budget_s": 90,
+    "last_reply": {
+      "answer": "The root cause was the expired certificate on the backup target's management interface; the job authenticated over https and the client rejects expired certs since the april agent update.",
+      "sources": [
+        "Ops/Journal 2026-06.md"
+      ],
+      "quotes": {
+        "Ops/Journal 2026-06.md": "the actual root cause was the expired certificate on the backup target's management interface"
+      }
+    }
+  },
+  {
+    "name": "record-bare-task-list-autofiles",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 87.3,
+    "mean_seconds": 29.1,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "capture",
+        "title": "",
+        "attendees": [],
+        "summary": ""
+      },
+      "tasks": [
+        {
+          "text": "Renew the mail cert",
+          "due": "2026-08-07",
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        },
+        {
+          "text": "Ping Dana about the vpn profile",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        },
+        {
+          "text": "Read the sentinel pricing page",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-meeting-detected-and-filed",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "gate: only 65% of 'Draft the remediation plan' traces to any source line"
+    ],
+    "seconds": 103.7,
+    "mean_seconds": 34.6,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "meeting",
+        "title": "azure baseline review",
+        "attendees": [
+          "Priya",
+          "Marcus"
+        ],
+        "summary": "Priya reviewed the conditional access gaps, noting that legacy authentication is still enabled on two tenants. Marcus will own the remediation plan. The team decided to move the review cadence to biweekly."
+      },
+      "tasks": [
+        {
+          "text": "Draft the remediation plan",
+          "due": "2026-08-09",
+          "scheduled": null,
+          "priority": null,
+          "owed_by": "Marcus"
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-status-note-stays-capture",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 73.1,
+    "mean_seconds": 24.4,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "capture",
+        "title": "Meridian rollout status",
+        "attendees": [],
+        "summary": "The Sentinel connector is ingesting again after the schema change, and the backlog is drained. The runbook still needs to be updated to cover the new connector settings."
+      },
+      "tasks": [
+        {
+          "text": "Update the runbook to cover the new connector settings",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-transcript-becomes-minutes",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 221.0s/run > 120s"
+    ],
+    "seconds": 662.9,
+    "mean_seconds": 221.0,
+    "budget_s": 120.0,
+    "last_reply": null
+  },
+  {
+    "name": "record-owner-prefix-lands-in-owed-by",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 217.0s/run > 120s"
+    ],
+    "seconds": 650.9,
+    "mean_seconds": 217.0,
+    "budget_s": 120.0,
+    "last_reply": null
+  },
+  {
+    "name": "record-waiting-on-split",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 122.5s/run > 120s"
+    ],
+    "seconds": 367.5,
+    "mean_seconds": 122.5,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "meeting",
+        "title": "Vendor contract discussion",
+        "attendees": [
+          "Nadia"
+        ],
+        "summary": "Spoke with the vendor. Nadia will send the revised contract by 2026-08-05. The indemnification section needs to be reviewed once the contract arrives."
+      },
+      "tasks": [
+        {
+          "text": "Send the revised contract",
+          "due": "2026-08-05",
+          "scheduled": null,
+          "priority": null,
+          "owed_by": "Nadia"
+        },
+        {
+          "text": "Review the indemnification section once the contract arrives",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-week-anchors-survive",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "gate: only 53% of 'Wiki and server migration planning' traces to any source line"
+    ],
+    "seconds": 94.3,
+    "mean_seconds": 31.4,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "capture",
+        "title": "Wiki and server migration planning",
+        "attendees": [],
+        "summary": "The plan is to migrate the wiki to the new space this week and decommission the old server next week. There are no hard deadlines for either task; it is just sequencing."
+      },
+      "tasks": [
+        {
+          "text": "Migrate the wiki to the new space",
+          "due": null,
+          "scheduled": "2026-08-02",
+          "priority": null,
+          "owed_by": null
+        },
+        {
+          "text": "Decommission the old server",
+          "due": null,
+          "scheduled": "2026-08-09",
+          "priority": null,
+          "owed_by": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-decisions-are-not-tasks",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "gate: only 57% of 'Archive the rejected rewrite branch' traces to any source line"
+    ],
+    "seconds": 92.3,
+    "mean_seconds": 30.8,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "capture",
+        "title": "framework standardization",
+        "attendees": [],
+        "summary": "The framework debate has concluded with a decision to standardize on the existing stack rather than performing a rewrite. Everyone reviewed and approved the proposal during the last sprint. The remaining task is to archive the rejected rewrite branch."
+      },
+      "tasks": [
+        {
+          "text": "Archive the rejected rewrite branch",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-no-tasks-invented",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 76.7,
+    "mean_seconds": 25.6,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "capture",
+        "title": "",
+        "attendees": [],
+        "summary": "The day was quiet. The inbox was cleared to zero, a long walk was taken at lunch, and two chapters of the distributed systems book were read. The chapter on consensus was better than expected."
+      },
+      "tasks": []
+    }
+  },
+  {
+    "name": "record-hostile-markdown-verbatim-survives",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "gate: invented word(s) ['key'] in 'API key rotation'"
+    ],
+    "seconds": 75.6,
+    "mean_seconds": 25.2,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "capture",
+        "title": "API key rotation",
+        "attendees": [],
+        "summary": ""
+      },
+      "tasks": [
+        {
+          "text": "Rotate the API keys for the staging environment",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-long-braindump-nothing-dropped",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 222.7s/run > 120s"
+    ],
+    "seconds": 668.0,
+    "mean_seconds": 222.7,
+    "budget_s": 120.0,
+    "last_reply": null
+  },
+  {
+    "name": "record-long-transcript-full-pipeline",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 226.5s/run > 180s"
+    ],
+    "seconds": 679.4,
+    "mean_seconds": 226.5,
+    "budget_s": 180,
+    "last_reply": null
+  },
+  {
+    "name": "urgent-priority-mapping",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 43.7,
+    "mean_seconds": 14.6,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Renew the cert on the mail server",
+        "due": "2026-08-02",
+        "scheduled": null,
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "someday-item-kept",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 45.3,
+    "mean_seconds": 15.1,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Redesign the pricing page",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "relative-date-two-weeks",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 87.7,
+    "mean_seconds": 29.2,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Send the vendor contract",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Nadia"
+      },
+      {
+        "text": "Review the vendor contract",
+        "due": "2026-08-16",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "owed-commitment-followup",
+    "passed": false,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "over time budget: mean 31.9s/run > 30s"
+    ],
+    "seconds": 95.6,
+    "mean_seconds": 31.9,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Get the firewall logs",
+        "due": "2026-08-03",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Marcus"
+      },
+      {
+        "text": "Draft the Sigma detection rule",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "completed-item-excluded",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "'(?i)postmortem': due=None, expected '{tomorrow}'",
+      "over time budget: mean 30.2s/run > 30s"
+    ],
+    "seconds": 90.7,
+    "mean_seconds": 30.2,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Schedule the postmortem",
+        "due": null,
+        "scheduled": "2026-08-03",
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "no-tasks-pure-status",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 18.1,
+    "mean_seconds": 6.0,
+    "budget_s": 30.0,
+    "last_reply": []
+  },
+  {
+    "name": "decision-is-not-a-task",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 21.3,
+    "mean_seconds": 7.1,
+    "budget_s": 30.0,
+    "last_reply": []
+  },
+  {
+    "name": "multiple-tasks-mixed",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 107.1s/run > 30s"
+    ],
+    "seconds": 321.2,
+    "mean_seconds": 107.1,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "File the quarterly taxes",
+        "due": "2026-08-07",
+        "scheduled": null,
+        "priority": "high",
+        "owed_by": "Sam"
+      },
+      {
+        "text": "Update the onboarding doc",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Rotate the leaked API key",
+        "due": "2026-08-02",
+        "scheduled": null,
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "date-not-repeated-in-text",
+    "passed": false,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "over time budget: mean 34.7s/run > 30s"
+    ],
+    "seconds": 104.2,
+    "mean_seconds": 34.7,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Remind me to submit the expense report",
+        "due": "2026-08-03",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "cancelled-plan-is-not-a-task",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 14.6,
+    "mean_seconds": 4.9,
+    "budget_s": 30.0,
+    "last_reply": []
+  },
+  {
+    "name": "negated-instruction-not-inverted",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 161.2s/run > 30s"
+    ],
+    "seconds": 483.6,
+    "mean_seconds": 161.2,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Schedule the legal review",
+        "due": null,
+        "scheduled": "2026-08-05",
+        "priority": null,
+        "owed_by": "Sam"
+      }
+    ]
+  },
+  {
+    "name": "two-people-owe-things",
+    "passed": false,
+    "clean_runs": 1,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 178.5s/run > 30s"
+    ],
+    "seconds": 535.5,
+    "mean_seconds": 178.5,
+    "budget_s": 30.0,
+    "last_reply": null
+  },
+  {
+    "name": "delegated-by-me-is-owed",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 113.0s/run > 30s"
+    ],
+    "seconds": 339.0,
+    "mean_seconds": 113.0,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Update the on-call rotation doc",
+        "due": "2026-08-07",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Priya"
+      },
+      {
+        "text": "Take the pager",
+        "due": null,
+        "scheduled": "2026-08-02",
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "waiting-on-phrasing",
+    "passed": false,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "over time budget: mean 39.9s/run > 30s"
+    ],
+    "seconds": 119.6,
+    "mean_seconds": 39.9,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Deliver the Q2 detection coverage report",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Northwind"
+      },
+      {
+        "text": "Map our log sources against MITRE",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "critical-severity-mapping",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 51.9,
+    "mean_seconds": 17.3,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Patch the CVE in the edge gateway",
+        "due": "2026-08-02",
+        "scheduled": null,
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "low-priority-phrasing",
+    "passed": false,
+    "clean_runs": 1,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "'(?i)tags|tidy': priority=None, expected 'lowest'"
+    ],
+    "seconds": 43.2,
+    "mean_seconds": 14.4,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Tidy up the tags in the research notes",
+        "due": null,
+        "scheduled": null,
+        "priority": "lowest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "numbers-are-not-dates",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "expected exactly 1 task(s), got 2; extra: ['Put them in lockbox 7']",
+      "over time budget: mean 52.7s/run > 30s"
+    ],
+    "seconds": 158.1,
+    "mean_seconds": 52.7,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Order 3 replacement YubiKeys for the new hires",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Put them in lockbox 7",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "in-a-week-relative-date",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 71.3,
+    "mean_seconds": 23.8,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Decide whether to buy Obsidian Sync",
+        "due": "2026-08-09",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "eod-tomorrow",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 80.1,
+    "mean_seconds": 26.7,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Provide the reconciled invoice list to Finance",
+        "due": "2026-08-03",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "duplicate-mention-extracted-once",
+    "passed": false,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "over time budget: mean 37.7s/run > 30s"
+    ],
+    "seconds": 113.1,
+    "mean_seconds": 37.7,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Renew the wildcard cert",
+        "due": null,
+        "scheduled": null,
+        "priority": "high",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "reference-material-is-not-a-task",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "expected exactly 0 task(s), got 2; extra: ['Pivot on the process tree', 'Baseline PowerShell usage per host']"
+    ],
+    "seconds": 77.6,
+    "mean_seconds": 25.9,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Pivot on the process tree",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Baseline PowerShell usage per host",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "task-buried-mid-paragraph",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 46.4,
+    "mean_seconds": 15.5,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Regenerate the firewall rule export",
+        "due": "2026-08-09",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "braindump-fragments",
+    "passed": false,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "over time budget: mean 73.0s/run > 30s"
+    ],
+    "seconds": 219.1,
+    "mean_seconds": 73.0,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Replace laptop battery",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Ask Alex about SSO timeline",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "forwarded-email-style",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 55.4,
+    "mean_seconds": 18.5,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Re-enroll MFA devices",
+        "due": "2026-08-16",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "past-recap-plus-single-action",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 35.7,
+    "mean_seconds": 11.9,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Write the retro doc",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "suggestion-we-should-is-a-task",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 60.8,
+    "mean_seconds": 20.3,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Add canary tokens to the file shares",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "date-and-priority-both-stated",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 27.8,
+    "mean_seconds": 9.3,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Submit the SOC 2 evidence bundle",
+        "due": "2026-08-07",
+        "scheduled": null,
+        "priority": "high",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "negation-hold-off-variant",
+    "passed": false,
+    "clean_runs": 1,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "forbidden pattern '(?i)^email the customer list' in task text 'Email the customer list'",
+      "over time budget: mean 201.2s/run > 30s"
+    ],
+    "seconds": 603.5,
+    "mean_seconds": 201.2,
+    "budget_s": 30.0,
+    "last_reply": null
+  },
+  {
+    "name": "cancellation-scrapped-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 33.6,
+    "mean_seconds": 11.2,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Cancel the venue deposit",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "already-handled-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 33.5,
+    "mean_seconds": 11.2,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Publish the findings internally",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "promised-phrasing-variant",
+    "passed": false,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "over time budget: mean 41.0s/run > 30s"
+    ],
+    "seconds": 122.9,
+    "mean_seconds": 41.0,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Send the pentest report",
+        "due": "2026-08-05",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Alex"
+      },
+      {
+        "text": "Summarize the pentest report for leadership",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "going-to-send-variant",
+    "passed": false,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "over time budget: mean 32.7s/run > 30s"
+    ],
+    "seconds": 98.0,
+    "mean_seconds": 32.7,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Send over the corrected budget numbers",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Camille"
+      },
+      {
+        "text": "Load the corrected budget numbers into the tracker",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "drop-everything-priority-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 47.4,
+    "mean_seconds": 15.8,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Rerun the customer database backup",
+        "due": "2026-08-02",
+        "scheduled": null,
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "weekly-wrap-no-tasks-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 18.3,
+    "mean_seconds": 6.1,
+    "budget_s": 30.0,
+    "last_reply": []
+  },
+  {
+    "name": "signoff-not-a-task-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 20.6,
+    "mean_seconds": 6.9,
+    "budget_s": 30.0,
+    "last_reply": []
+  },
+  {
+    "name": "ought-to-someday-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 56.5,
+    "mean_seconds": 18.8,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Consolidate the three logging pipelines into one",
+        "due": null,
+        "scheduled": null,
+        "priority": "lowest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "in-five-days-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 36.5,
+    "mean_seconds": 12.2,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Review the draft SOW",
+        "due": "2026-08-07",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "buried-task-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 58.6,
+    "mean_seconds": 19.5,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Swap the failing disk in the NAS",
+        "due": "2026-08-07",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "dedupe-reworded-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 70.9,
+    "mean_seconds": 23.6,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Rotate the admin API keys",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "extract-week-plans-vs-deadlines",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 80.4,
+    "mean_seconds": 26.8,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Sort out the vendor contract",
+        "due": null,
+        "scheduled": "2026-08-02",
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Start the budget review",
+        "due": null,
+        "scheduled": "2026-08-09",
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Send the SOW to legal",
+        "due": "2026-08-03",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "blocker-splits-into-task-and-owed",
+    "passed": false,
+    "clean_runs": 1,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 190.4s/run > 30s"
+    ],
+    "seconds": 571.3,
+    "mean_seconds": 190.4,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Let SOC know about the change freeze",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Unblock the sentinel rollout and give a heads up once it's clear",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "SOC"
+      }
+    ]
+  },
+  {
+    "name": "long-meeting-notes-nothing-vanishes",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 224.4s/run > 60s"
+    ],
+    "seconds": 673.2,
+    "mean_seconds": 224.4,
+    "budget_s": 60,
+    "last_reply": null
+  },
+  {
+    "name": "long-email-thread-quoted-history-ignored",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 220.6s/run > 60s"
+    ],
+    "seconds": 661.7,
+    "mean_seconds": 220.6,
+    "budget_s": 60,
+    "last_reply": null
+  },
+  {
+    "name": "long-noise-paste-single-task",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 57.6,
+    "mean_seconds": 19.2,
+    "budget_s": 60,
+    "last_reply": [
+      {
+        "text": "bump the warmup memory limit for the api pods",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "grouping-thematic-split",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 28.0,
+    "mean_seconds": 9.3,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Pricing Page",
+          "member_ids": [
+            "t-aaaaaaaaaaa1",
+            "t-aaaaaaaaaaa2"
+          ]
+        },
+        {
+          "name": "Mail Server",
+          "member_ids": [
+            "t-aaaaaaaaaaa3",
+            "t-aaaaaaaaaaa4"
+          ]
+        },
+        {
+          "name": "Offsite",
+          "member_ids": [
+            "t-aaaaaaaaaaa5"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-customer-boundary",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 35.6,
+    "mean_seconds": 11.9,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Acme Corp",
+          "member_ids": [
+            "t-acme00000001",
+            "t-acme00000002"
+          ]
+        },
+        {
+          "name": "Globex",
+          "member_ids": [
+            "t-glbx00000001",
+            "t-glbx00000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-three-way-split",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 42.7,
+    "mean_seconds": 14.2,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Detection Engineering",
+          "member_ids": [
+            "t-det000000001",
+            "t-det000000002"
+          ]
+        },
+        {
+          "name": "Infrastructure Management",
+          "member_ids": [
+            "t-inf000000001",
+            "t-inf000000002"
+          ]
+        },
+        {
+          "name": "Administration",
+          "member_ids": [
+            "t-adm000000001",
+            "t-adm000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-misfit-stays-out",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 73.4,
+    "mean_seconds": 24.5,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Website Maintenance",
+          "member_ids": [
+            "t-web000000001",
+            "t-web000000002",
+            "t-web000000003",
+            "t-web000000004"
+          ]
+        },
+        {
+          "name": "Personal",
+          "member_ids": [
+            "t-mis000000001"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-same-verb-different-systems",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 28.9,
+    "mean_seconds": 9.6,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Documentation",
+          "member_ids": [
+            "t-doc000000001",
+            "t-doc000000002"
+          ]
+        },
+        {
+          "name": "Network Security",
+          "member_ids": [
+            "t-fwl000000001",
+            "t-fwl000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-three-client-boundary",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 52.7,
+    "mean_seconds": 17.6,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Acme",
+          "member_ids": [
+            "t-acm000000001",
+            "t-acm000000002"
+          ]
+        },
+        {
+          "name": "Globex",
+          "member_ids": [
+            "t-glx000000001",
+            "t-glx000000002"
+          ]
+        },
+        {
+          "name": "Initech",
+          "member_ids": [
+            "t-ini000000001",
+            "t-ini000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-personal-vs-work",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 30.9,
+    "mean_seconds": 10.3,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Personal",
+          "member_ids": [
+            "t-per000000001",
+            "t-per000000002"
+          ]
+        },
+        {
+          "name": "Work",
+          "member_ids": [
+            "t-wrk000000001",
+            "t-wrk000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-research-and-build-same-topic",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 35.4,
+    "mean_seconds": 11.8,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "LLM Development",
+          "member_ids": [
+            "t-llm000000001",
+            "t-llm000000002",
+            "t-llm000000003"
+          ]
+        },
+        {
+          "name": "Home Maintenance",
+          "member_ids": [
+            "t-hme000000001",
+            "t-hme000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-prod-incident-vs-feature-work",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 44.3,
+    "mean_seconds": 14.8,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Incident Management",
+          "member_ids": [
+            "t-inc000000001",
+            "t-inc000000002"
+          ]
+        },
+        {
+          "name": "Feature Design",
+          "member_ids": [
+            "t-fea000000001",
+            "t-fea000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-two-misfits-dont-force-merge",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "['t-sec000000001', 't-sec000000002', 't-sec000000003'] should share a group; got ['AWS Security', 'Registrar Security']",
+      "over time budget: mean 136.8s/run > 30s"
+    ],
+    "seconds": 410.4,
+    "mean_seconds": 136.8,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Taxes",
+          "member_ids": [
+            "t-tax000000001"
+          ]
+        },
+        {
+          "name": "Pets",
+          "member_ids": [
+            "t-dog000000001"
+          ]
+        },
+        {
+          "name": "AWS",
+          "member_ids": [
+            "t-sec000000001",
+            "t-sec000000003"
+          ]
+        },
+        {
+          "name": "Registrar",
+          "member_ids": [
+            "t-sec000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-ten-tasks-three-themes",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 63.4,
+    "mean_seconds": 21.1,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "KQL Development",
+          "member_ids": [
+            "t-kql000000001",
+            "t-kql000000002",
+            "t-kql000000003"
+          ]
+        },
+        {
+          "name": "Network Infrastructure",
+          "member_ids": [
+            "t-net000000001",
+            "t-net000000002",
+            "t-net000000003"
+          ]
+        },
+        {
+          "name": "Recruitment",
+          "member_ids": [
+            "t-hir000000001",
+            "t-hir000000002",
+            "t-hir000000003",
+            "t-hir000000004"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-vendor-vs-internal-same-product",
+    "passed": false,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "over time budget: mean 43.3s/run > 30s"
+    ],
+    "seconds": 129.8,
+    "mean_seconds": 43.3,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Microsoft Vendor Management",
+          "member_ids": [
+            "t-ven000000001",
+            "t-ven000000002"
+          ]
+        },
+        {
+          "name": "Sentinel Engineering",
+          "member_ids": [
+            "t-int000000001",
+            "t-int000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-client-possessive-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 34.5,
+    "mean_seconds": 11.5,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Acme",
+          "member_ids": [
+            "t-acp000000001",
+            "t-acp000000002"
+          ]
+        },
+        {
+          "name": "Globex",
+          "member_ids": [
+            "t-glp000000001",
+            "t-glp000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-client-ticket-prefix-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 38.0,
+    "mean_seconds": 12.7,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "ACME",
+          "member_ids": [
+            "t-tka000000001",
+            "t-tka000000002"
+          ]
+        },
+        {
+          "name": "GLBX",
+          "member_ids": [
+            "t-tkg000000001",
+            "t-tkg000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-misfit-different-domain-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 42.0,
+    "mean_seconds": 14.0,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Power Systems",
+          "member_ids": [
+            "t-ifr000000001",
+            "t-ifr000000002",
+            "t-ifr000000003"
+          ]
+        },
+        {
+          "name": "Personal",
+          "member_ids": [
+            "t-rcp000000001"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-plain-duplicate",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 45.8,
+    "mean_seconds": 15.3,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-aaaaaaaaaaa1",
+          "b": "t-aaaaaaaaaaa2",
+          "verdict": "duplicate",
+          "keep": "t-aaaaaaaaaaa2"
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-related-not-duplicate",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 11.4,
+    "mean_seconds": 3.8,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-bbbbbbbbbbb1",
+          "b": "t-bbbbbbbbbbb2",
+          "verdict": "related",
+          "keep": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-client-boundary",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 72.0s/run > 30s"
+    ],
+    "seconds": 215.9,
+    "mean_seconds": 72.0,
+    "budget_s": 30.0,
+    "last_reply": null
+  },
+  {
+    "name": "overlap-mixed-batch",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 63.9,
+    "mean_seconds": 21.3,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-ccccccccccc1",
+          "b": "t-ccccccccccc2",
+          "verdict": "duplicate",
+          "keep": "t-ccccccccccc1"
+        },
+        {
+          "a": "t-ddddddddddd1",
+          "b": "t-ddddddddddd2",
+          "verdict": "distinct",
+          "keep": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-keep-prefers-the-dated-line",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 21.8,
+    "mean_seconds": 7.3,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-keep00000001",
+          "b": "t-keep00000002",
+          "verdict": "duplicate",
+          "keep": "t-keep00000001"
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-rephrased-duplicate",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 40.1,
+    "mean_seconds": 13.4,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-reph00000001",
+          "b": "t-reph00000002",
+          "verdict": "duplicate",
+          "keep": "t-reph00000002"
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-dependency-is-related",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 15.4,
+    "mean_seconds": 5.1,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-depd00000001",
+          "b": "t-depd00000002",
+          "verdict": "related",
+          "keep": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-same-noun-different-work",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "['t-verb00000001', 't-verb00000002']: verdict='related', expected 'distinct'"
+    ],
+    "seconds": 14.3,
+    "mean_seconds": 4.8,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-verb00000001",
+          "b": "t-verb00000002",
+          "verdict": "related",
+          "keep": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-system-boundary",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "['t-syst00000001', 't-syst00000002']: verdict='related', expected 'distinct'",
+      "over time budget: mean 72.5s/run > 30s"
+    ],
+    "seconds": 217.5,
+    "mean_seconds": 72.5,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-syst00000001",
+          "b": "t-syst00000002",
+          "verdict": "related",
+          "keep": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-five-pair-batch",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "['t-btch00000005', 't-btch00000006']: verdict='related', expected 'distinct'",
+      "over time budget: mean 49.0s/run > 30s"
+    ],
+    "seconds": 146.9,
+    "mean_seconds": 49.0,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-btch00000001",
+          "b": "t-btch00000002",
+          "verdict": "duplicate",
+          "keep": "t-btch00000001"
+        },
+        {
+          "a": "t-btch00000003",
+          "b": "t-btch00000004",
+          "verdict": "distinct",
+          "keep": null
+        },
+        {
+          "a": "t-btch00000005",
+          "b": "t-btch00000006",
+          "verdict": "related",
+          "keep": null
+        },
+        {
+          "a": "t-btch00000007",
+          "b": "t-btch00000008",
+          "verdict": "related",
+          "keep": null
+        },
+        {
+          "a": "t-btch00000009",
+          "b": "t-btch00000010",
+          "verdict": "duplicate",
+          "keep": "t-btch00000009"
+        }
+      ]
+    }
+  },
+  {
+    "name": "plan-picks-nothing-from-a-quiet-pool",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 18.8,
+    "mean_seconds": 6.3,
+    "budget_s": 30.0,
+    "last_reply": {
+      "picks": []
+    }
+  },
+  {
+    "name": "plan-restraint-when-day-is-full",
+    "passed": false,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "over time budget: mean 98.2s/run > 30s"
+    ],
+    "seconds": 294.6,
+    "mean_seconds": 98.2,
+    "budget_s": 30.0,
+    "last_reply": {
+      "picks": [
+        {
+          "id": "t-full00000002",
+          "reason": "unblocks Ravi and is a quick win"
+        }
+      ]
+    }
+  },
+  {
+    "name": "plan-prefers-unblocking-people",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 31.1,
+    "mean_seconds": 10.4,
+    "budget_s": 30.0,
+    "last_reply": {
+      "picks": [
+        {
+          "id": "t-unblk0000001",
+          "reason": "Unblocks Priya on the DCR change list"
+        }
+      ]
+    }
+  },
+  {
+    "name": "plan-hears-time-pressure-in-the-wording",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 39.5,
+    "mean_seconds": 13.2,
+    "budget_s": 30.0,
+    "last_reply": {
+      "picks": [
+        {
+          "id": "t-press0000001",
+          "reason": "Audit window is closing, implying time pressure."
+        }
+      ]
+    }
+  },
+  {
+    "name": "plan-skips-blocked-work",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 68.8,
+    "mean_seconds": 22.9,
+    "budget_s": 30.0,
+    "last_reply": {
+      "picks": [
+        {
+          "id": "t-blokd0000002",
+          "reason": "High priority task involving an external reseller"
+        },
+        {
+          "id": "t-blokd0000003",
+          "reason": "Oldest task in the backlog"
+        }
+      ]
+    }
+  },
+  {
+    "name": "plan-oldest-external-item-surfaces",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 37.1,
+    "mean_seconds": 12.4,
+    "budget_s": 30.0,
+    "last_reply": {
+      "picks": [
+        {
+          "id": "t-aged00000001",
+          "reason": "Chasing an external party for a long-overdue item"
+        }
+      ]
+    }
+  },
+  {
+    "name": "plan-id-discipline-large-pool",
+    "passed": false,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "over time budget: mean 89.5s/run > 30s"
+    ],
+    "seconds": 268.4,
+    "mean_seconds": 89.5,
+    "budget_s": 30.0,
+    "last_reply": {
+      "picks": [
+        {
+          "id": "t-pool00000001",
+          "reason": "Oldest task and critical for mail service"
+        },
+        {
+          "id": "t-pool00000003",
+          "reason": "Unblocks new hires via onboarding runbook"
+        },
+        {
+          "id": "t-pool00000004",
+          "reason": "Quick win to clear mental load"
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-meeting-missing-id",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 45.9,
+    "mean_seconds": 15.3,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add missing id to frontmatter",
+      "summary": "Added the required id property to the frontmatter.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-15 Sprint Sync.md",
+            "key": "id",
+            "value": "m-0123456789ab"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-meeting-date-from-filename",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 82.5,
+    "mean_seconds": 27.5,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add missing id and date to frontmatter",
+      "summary": "Added the required id and date properties to the meeting's frontmatter.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-15 Incident Retro.md",
+            "key": "id",
+            "value": "m-00aa11bb22cc"
+          }
+        },
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-15 Incident Retro.md",
+            "key": "date",
+            "value": "2026-07-15"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-meeting-prose-untouched",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 46.6,
+    "mean_seconds": 15.5,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add missing id to frontmatter",
+      "summary": "Added the required id property to the frontmatter.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-10 Vendor Call.md",
+            "key": "id",
+            "value": "m-feedbeefcafe"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-research-missing-sources",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 141.5s/run > 60s"
+    ],
+    "seconds": 424.5,
+    "mean_seconds": 141.5,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add Sources section",
+      "summary": "Added the required '## Sources' section to the research note.",
+      "apply": [
+        {
+          "tool": "append_to_note",
+          "args": {
+            "path": "Tasks/EDR Vendor Comparison.md",
+            "content": "\n## Sources\n",
+            "section": null
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-research-id-and-sources",
+    "passed": false,
+    "clean_runs": 1,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 179.8s/run > 60s"
+    ],
+    "seconds": 539.5,
+    "mean_seconds": 179.8,
+    "budget_s": 60.0,
+    "last_reply": null
+  },
+  {
+    "name": "schema-research-missing-status",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 208.2s/run > 60s"
+    ],
+    "seconds": 624.6,
+    "mean_seconds": 208.2,
+    "budget_s": 60.0,
+    "last_reply": null
+  },
+  {
+    "name": "schema-tasks-stamp-two-in-order",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 161.3s/run > 60s"
+    ],
+    "seconds": 484.0,
+    "mean_seconds": 161.3,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add block IDs to tasks",
+      "summary": "Appended block references to task lines to satisfy the schema.",
+      "apply": [
+        {
+          "tool": "replace_section",
+          "args": {
+            "path": "Tasks/Backlog.md",
+            "heading": "# Backlog",
+            "content": "\n- [ ] buy replacement UPS batteries ^t-aaaaaaaaaaa1\n- [ ] call the vendor about renewal ^t-aaaaaaaaaaa2"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-tasks-stamp-preserves-metadata",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 169.6s/run > 60s"
+    ],
+    "seconds": 508.7,
+    "mean_seconds": 169.6,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add missing task ID",
+      "summary": "Added a block reference to the first task in the Ops section to satisfy the schema.",
+      "apply": [
+        {
+          "tool": "replace_section",
+          "args": {
+            "path": "Tasks/Ops.md",
+            "heading": "# Ops",
+            "content": "\n- [ ] rotate the DKIM keys ⏫ 📅 2026-08-01 ^t-bbbbbbbbbbb1\n- [ ] archive old logs ^t-ccccccccccc9"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-typo-is-not-ours-to-fix",
+    "passed": false,
+    "clean_runs": 1,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 180.7s/run > 60s"
+    ],
+    "seconds": 542.1,
+    "mean_seconds": 180.7,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add block ref to task",
+      "summary": "Appended the required block reference ID to the task on line 3.",
+      "apply": [
+        {
+          "tool": "replace_section",
+          "args": {
+            "path": "Tasks/Chores.md",
+            "heading": "# Chores",
+            "content": "\n- [ ] verfy teh backup restore path ^t-ddddddddddd1"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-done-task-stamped-without-reopening",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 207.6s/run > 60s"
+    ],
+    "seconds": 622.9,
+    "mean_seconds": 207.6,
+    "budget_s": 60.0,
+    "last_reply": null
+  },
+  {
+    "name": "schema-meeting-with-action-items",
+    "passed": false,
+    "clean_runs": 1,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 203.0s/run > 60s"
+    ],
+    "seconds": 609.1,
+    "mean_seconds": 203.0,
+    "budget_s": 60.0,
+    "last_reply": null
+  },
+  {
+    "name": "schema-unlisted-issues-left-alone",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 35.7,
+    "mean_seconds": 11.9,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add missing id to frontmatter",
+      "summary": "Added the required id property to the frontmatter.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-18 One on One.md",
+            "key": "id",
+            "value": "m-abcdefabcdef"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-typo-in-prose-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 46.1,
+    "mean_seconds": 15.4,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add missing id to frontmatter",
+      "summary": "Added the required id property to the frontmatter.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-19 Standup.md",
+            "key": "id",
+            "value": "m-5566778899aa"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-typo-in-task-with-metadata-variant",
+    "passed": false,
+    "clean_runs": 1,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "run error: VaultError: worker (gemma-4-26b-a4b) returned empty content — thinking-mode model? Disable thinking (e.g. mlx_lm.server --chat-template-args '{\"enable_thinking\": false}') or use a non-thinking variant.",
+      "over time budget: mean 202.9s/run > 60s"
+    ],
+    "seconds": 608.6,
+    "mean_seconds": 202.9,
+    "budget_s": 60.0,
+    "last_reply": null
+  },
+  {
+    "name": "schema-empty-tags-not-populated-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 31.1,
+    "mean_seconds": 10.4,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add missing id to frontmatter",
+      "summary": "Added the required id property to the note's frontmatter to satisfy the research entity schema.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Tasks/SOAR Playbooks Survey.md",
+            "key": "id",
+            "value": "r-fedcba987654"
+          }
+        }
+      ]
+    }
+  }
+]

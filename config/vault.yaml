@@ -29,8 +29,15 @@ folders:
   Captures: capture   # dated capture records, one note per day
 
 # Entity schema files live in config/schemas/<type>.yaml (relative to
-# this file's directory).
+# this file's directory). Created and edited from the console's Schemas
+# tab; the engine reads them fresh each pass.
 schemas_dir: schemas
+
+# Worker spec files (prompt + reply schema + hedges + bounds) live in
+# config/workers/<name>.yaml (relative to this file's directory).
+# Created and edited from the console's Behaviors tab; read fresh each
+# pass — no restart.
+workers_dir: workers
 
 # Machine surfaces the harness owns inside the vault. The watcher never
 # scans these and ignores its own writes to them.

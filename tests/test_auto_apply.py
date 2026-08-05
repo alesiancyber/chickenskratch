@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import record_worker_returning
 from chickenskratch import proposals
 from chickenskratch.processors import CAPTURE_SKELETON
+from tests.conftest import record_worker_returning
 
 TODAY = _dt.date.today().isoformat()
 

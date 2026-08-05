@@ -1,0 +1,159 @@
+# Judgment cases for the plan_today worker — pure judgment over the
+# undated pool. Run live:  uv run chickenskratch-worker-eval -k plan
+#
+# Calls go through the PRODUCTION drafter (watcher.draft_plan_today), so
+# the prompt lines a model is judged on are the lines production sends.
+# Id discipline (never invented, never repeated, never over max_picks)
+# is enforced on every case automatically; the pins below test the
+# restraint rules small models pad straight through.
+#
+# Case schema (worker: plan_today):
+#   tasks:        the pool, [{id, text, created, priority, note}]
+#   committed:    tasks already committed today (the restraint input)
+#   must_pick / must_not_pick / expect_empty / max_expected:  judgment pins
+
+# Picking NONE is a correct answer. Every item here is explicitly
+# someday-flavored with zero external pressure — a model that pads a
+# pick list out of these will pad every quiet day on the dashboard.
+- name: plan-picks-nothing-from-a-quiet-pool
+  worker: plan_today
+  committed: 0
+  expect_empty: true
+  tasks:
+    - id: t-quiet0000001
+      text: someday reorganize the bookmarks folder, zero urgency
+      created: "{yesterday}"
+      note: Daily/Notes.md
+    - id: t-quiet0000002
+      text: maybe try that new terminal emulator at some point
+      created: "{yesterday}"
+      note: Daily/Notes.md
+
+# The committed-day rule: 3 or more already committed means at most one
+# pick, no matter how attractive the pool is. This is the rule the
+# prompt states outright — failing it is failing to read.
+- name: plan-restraint-when-day-is-full
+  worker: plan_today
+  committed: 4
+  max_expected: 1
+  tasks:
+    - id: t-full00000001
+      text: draft the escalation runbook everyone asked for
+      created: 2026-06-01
+      priority: high
+      note: Meetings/Incident Retro.md
+    - id: t-full00000002
+      text: send the log volume numbers Ravi is waiting on
+      created: "{yesterday}"
+      note: Daily/Notes.md
+    - id: t-full00000003
+      text: review the indemnification section of the vendor contract
+      created: 2026-07-01
+      note: Projects/Vendor.md
+    - id: t-full00000004
+      text: write the kerberoasting detection rule
+      created: 2026-06-10
+      priority: medium
+      note: Projects/Detections.md
+
+# Unblocking others outranks personal polish: one task has a named
+# person waiting, one is self-directed tidying of the same age.
+- name: plan-prefers-unblocking-people
+  worker: plan_today
+  committed: 0
+  must_pick: [t-unblk0000001]
+  tasks:
+    - id: t-unblk0000001
+      text: send Priya the DCR change list she is blocked on
+      created: 2026-07-20
+      note: Meetings/Ops Sync.md
+    - id: t-unblk0000002
+      text: tidy up my dotfiles repo
+      created: 2026-07-20
+      note: Daily/Notes.md
+    - id: t-unblk0000003
+      text: alphabetize the team wiki sidebar
+      created: 2026-07-25
+      note: Daily/Notes.md
+
+# Time-pressure wording without a date field still reads as pressure:
+# "before the audit window closes" should beat two evergreen chores.
+- name: plan-hears-time-pressure-in-the-wording
+  worker: plan_today
+  committed: 0
+  must_pick: [t-press0000001]
+  tasks:
+    - id: t-press0000001
+      text: collect the access review evidence before the audit window closes
+      created: 2026-07-15
+      note: Projects/Audit.md
+    - id: t-press0000002
+      text: read the distributed systems book chapter on consensus
+      created: 2026-07-15
+      note: Daily/Notes.md
+    - id: t-press0000003
+      text: refactor the vault backup script for readability
+      created: 2026-07-15
+      note: Projects/Homelab.md
+
+# Explicitly blocked work is a wasted pick: the wording says it cannot
+# move today, and picking it burns one of a bounded number of slots.
+- name: plan-skips-blocked-work
+  worker: plan_today
+  committed: 0
+  must_not_pick: [t-blokd0000001]
+  tasks:
+    - id: t-blokd0000001
+      text: respond to the data retention question — blocked until legal answers
+      created: 2026-07-10
+      note: Projects/Legal.md
+    - id: t-blokd0000002
+      text: place the analyst laptop order with the reseller
+      created: 2026-07-22
+      priority: high
+      note: Daily/Notes.md
+    - id: t-blokd0000003
+      text: write the pass-the-hash correlation rule
+      created: 2026-06-25
+      note: Projects/Detections.md
+
+# Age is a signal: an item that has sat six weeks with an external
+# party implied should beat this week's arrivals.
+- name: plan-oldest-external-item-surfaces
+  worker: plan_today
+  committed: 0
+  must_pick: [t-aged00000001]
+  tasks:
+    - id: t-aged00000001
+      text: chase the MSSP for the onboarding runbook they promised
+      created: 2026-06-15
+      note: Projects/MSSP.md
+    - id: t-aged00000002
+      text: try the new dashboard layout
+      created: "{yesterday}"
+      note: Daily/Notes.md
+    - id: t-aged00000003
+      text: skim the vendor changelog
+      created: "{yesterday}"
+      note: Daily/Notes.md
+
+# Pure id discipline at scale: a twelve-item pool, no judgment pins at
+# all. The automatic checks (real ids, no repeats, at most max_picks)
+# are the whole test — the failure mode is a model that answers with
+# prose ids like "the backup one" or pads past the cap.
+- name: plan-id-discipline-large-pool
+  worker: plan_today
+  committed: 0
+  tasks:
+    - {id: t-pool00000001, text: renew the mail server certificate, created: 2026-07-01, note: Ops/Certs.md}
+    - {id: t-pool00000002, text: write the lateral movement detection, created: 2026-07-02, note: Projects/Detections.md}
+    - {id: t-pool00000003, text: update the onboarding runbook, created: 2026-07-03, note: Ops/Runbooks.md}
+    - {id: t-pool00000004, text: archive the rejected rewrite branch, created: 2026-07-04, note: Projects/Stack.md}
+    - {id: t-pool00000005, text: script the conditional access export, created: 2026-07-05, note: Projects/Audit.md}
+    - {id: t-pool00000006, text: pilot fido keys with five finance users, created: 2026-07-06, note: Meetings/Incident Retro.md}
+    - {id: t-pool00000007, text: add canary tokens to the login template, created: 2026-07-07, note: Meetings/Incident Retro.md}
+    - {id: t-pool00000008, text: clean up stale device records, created: 2026-07-08, note: Ops/Fleet.md}
+    - {id: t-pool00000009, text: draft the on-call handover template, created: 2026-07-09, note: Ops/Runbooks.md}
+    - {id: t-pool00000010, text: split the storage admin role for restores, created: 2026-07-10, note: Ops/Backups.md}
+    - {id: t-pool00000011, text: review the phishing simulation report, created: 2026-07-11, note: Projects/Awareness.md}
+    - {id: t-pool00000012, text: reconcile the endpoint agent seat count, created: 2026-07-12, note: Finance/Licenses.md}

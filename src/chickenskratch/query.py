@@ -13,6 +13,13 @@ the pack could hold, the answer says so — a partial answer must never
 present as a complete one. And the walk is iter_knowledge_notes on a
 Vault built WITH the exclusions, so Private/ is as invisible to a
 question as to everything else (I4).
+
+Provenance rule (2026-07-30): the context is PRE-AI text only — the
+user's verbatim dumps and hand-typed notes, never model prose (see
+user_text). An answer sourced from an earlier model's summary would
+compound that summary's errors invisibly; the deterministic views
+(task counts, due lists) stay factual regardless because they read
+structure, not prose.
 """
 
 from __future__ import annotations
@@ -34,14 +41,78 @@ _STOP = {
 }
 _WORD_RE = re.compile(r"[a-z0-9][a-z0-9'-]+")
 
-MAX_NOTES = 8          # notes per pack — sources stay skimmable
-NOTE_CHAR_CAP = 8000   # per note: a transcript record must not eat the pack
-PACK_CHAR_BUDGET = 40000  # total; bounded even on a huge-context worker
+# Pack bounds, sized for a ~32K-token serving context (the B70's tuned
+# llama-swap configs; raised 2026-08-02 from the 8K/40K caps that fit
+# 16GB-Mac local models). ~80K chars ≈ 20-27K tokens of notes leaves
+# room for the prompt's rules and the reply. The worker-eval's
+# answer-monster-pack case exercises this ceiling — if a serving config
+# can't take it, the eval says so before //ask does.
+MAX_NOTES = 10         # notes per pack — sources stay skimmable
+NOTE_CHAR_CAP = 48000  # per note: even a half-year journal rides whole
+PACK_CHAR_BUDGET = 80000  # total; bounded even on a huge-context worker
+
+# The two machine-written callout shapes, matched by their canonical
+# titles: the record pipeline's verbatim fold (processors._verbatim_callout
+# writes `> [!NOTE]- Verbatim — HH:MM`) and a command's answer written
+# back into a note (commands.render_callout writes `> [!NOTE] //ask …`).
+_VERBATIM_RE = re.compile(r"^> ?\[!NOTE\]- Verbatim\s*(—.*)?$")
+_CMD_CALLOUT_RE = re.compile(r"^> ?\[!\w+\]-?\s*//")
+_QUOTE_PREFIX_RE = re.compile(r"^\s*>\s?")
 
 
 def _terms(question: str) -> list[str]:
     return [w for w in _WORD_RE.findall(question.lower())
             if w not in _STOP and len(w) >= 3]
+
+
+def user_text(text: str) -> str:
+    """The note reduced to what the USER wrote — //ask's context rule.
+
+    //ask must never answer from model prose: an answer built on an
+    earlier model's summary compounds that summary's errors, invisibly.
+    So the context is pre-AI text only, and the vault's own grammar
+    says which is which:
+
+    - A note holding Verbatim callouts is a pipeline record — the
+      callout bodies are the user's own dump, machine-folded; the
+      prose and tasks around them are model output. Only the bodies
+      ride (records always carry their verbatim: verify_record fails
+      one that doesn't, so this never empties a real record).
+    - A note without one was never drafted by the pipeline: the user's
+      hand-typed text, packed whole — minus any //command answer
+      callouts written back into it, which are model output wherever
+      they sit.
+
+    Deterministic views (task counts, due lists) are unaffected: they
+    read structure, not prose, and stay correct even on AI-touched
+    notes. Every packed line — the callout header included — is the raw
+    note's own line minus its quote prefix, so ANY verified quote is a
+    substring of a real line and the source link's jump lands. A
+    prettier synthetic header here would be quotable text that exists
+    nowhere in the note."""
+    lines = text.splitlines()
+    verbatim: list[str] = []
+    kept: list[str] = []
+    i = 0
+    while i < len(lines):
+        if _VERBATIM_RE.match(lines[i]):
+            body = [_QUOTE_PREFIX_RE.sub("", lines[i], count=1)]
+            i += 1
+            while i < len(lines) and _QUOTE_PREFIX_RE.match(lines[i]):
+                body.append(_QUOTE_PREFIX_RE.sub("", lines[i], count=1))
+                i += 1
+            verbatim.append("\n".join(body))
+            continue
+        if _CMD_CALLOUT_RE.match(lines[i]):
+            i += 1
+            while i < len(lines) and _QUOTE_PREFIX_RE.match(lines[i]):
+                i += 1
+            continue
+        kept.append(lines[i])
+        i += 1
+    if verbatim:
+        return "\n\n".join(verbatim)
+    return "\n".join(kept)
 
 
 def gather(vault_path: str, question: str) -> tuple[list[tuple[str, str]], int]:
@@ -51,13 +122,18 @@ def gather(vault_path: str, question: str) -> tuple[list[tuple[str, str]], int]:
     matches — or the question has no content words — the fallback is
     the most recently modified notes: recency is the best deterministic
     guess at "what we were just talking about", and the worker's own
-    rule ("say when the notes don't answer it") covers the miss."""
+    rule ("say when the notes don't answer it") covers the miss.
+
+    Every note is reduced to user_text FIRST — scoring included, so a
+    note can never rank on model-summary words its pack won't contain."""
     cfg = get_config(vault_path)
     v = Vault(vault_path, exclude=cfg.exclude)
     terms = _terms(question)
     rows = []  # (score, mtime, rel, text)
     for p, rel in v.iter_knowledge_notes(cfg.surface_dirs):
-        text = read_lossy(p)
+        text = user_text(read_lossy(p))
+        if not text.strip():
+            continue  # nothing the user wrote: nothing to answer from
         low = text.lower()
         stem = rel.rsplit("/", 1)[-1].lower()
         score = sum(3 * stem.count(t) + low.count(t) for t in terms)
@@ -142,7 +218,7 @@ async def ask(vault_path: str, question: str) -> str:
     if not picked:
         return "_no notes to search yet_"
     notes = "\n\n".join(f"=== {rel} ===\n{text}" for rel, text in picked)
-    data = await wk.run_worker(wk.WORKERS["answer"], question=question, notes=notes)
+    data = await wk.run_worker(wk.get_worker("answer"), question=question, notes=notes)
     offered = {rel for rel, _ in picked}
     sources: list[str] = []
     for s in data.get("sources") or []:

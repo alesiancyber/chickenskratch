@@ -1,0 +1,551 @@
+# The context-ceiling case: one ~50K-char journal (≈13-16K tokens) with
+# the needle mid-file (week 14: crane permit denied) and a plausible-wrong
+# distractor late (week 22: a DIFFERENT postponement, staffing). Exists to
+# keep the benchmark honest at the serving context the //ask pack budgets
+# assume — a -c too small, or attention that thins mid-context, fails HERE
+# instead of in production. Generated deterministically; regenerate via
+# the snippet in git history if the shape ever needs to change.
+- name: answer-monster-pack
+  worker: answer
+  budget_s: 120
+  question: why was the colo migration postponed?
+  must_cite:
+  - Ops/Journal 2026-H1.md
+  answer_matches:
+  - (?i)crane|permit|generator lift
+  answer_forbid:
+  - (?i)staffing
+  min_verified_quotes: 1
+  notes:
+  - rel: Ops/Journal 2026-H1.md
+    text: |
+      # Ops Journal — 2026 H1
+
+      ## Week 1
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 1 times now. also, no follow-up needed unless the numbers move next cycle.
+
+      fleet: device cleanup pass 2 reconciled 20 stale records against the MDM export; the count finally matches procurement's ledger. also, flagged the residual risk in the register; severity unchanged.
+
+      colo: colo migration prep continued; rack elevations rev 3 approved and the cross-connect order confirmed for the D cage. also, took most of a morning, worth every minute.
+
+      licensing: true-up round 4: two vendors reconciled clean, one ran 26 seats over from stale device records rather than real growth. also, the usual suspects, the usual fixes; documented regardless.
+
+      oncall: handover template rev 5 shipped to the team space; the F rotation adopted it without complaint, a first. also, one small surprise, noted inline in the runbook.
+
+      awareness: phishing simulation wave 6 clicked at 32 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, wrote it up in the team space so future me stops rediscovering it.
+
+      capacity: storage growth check: the analytics volume is at 35 percent; projection says expansion decision needed within 7 weeks. also, no follow-up needed unless the numbers move next cycle.
+
+      patching: the C ring took the monthly rollup; 8 machines needed the out-of-band fix for the audio driver regression before sign-off. also, flagged the residual risk in the register; severity unchanged.
+
+      identity: access review batch 9 closed with 41 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, took most of a morning, worth every minute.
+
+      ## Week 2
+
+      awareness: phishing simulation wave 2 clicked at 24 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, flagged the residual risk in the register; severity unchanged.
+
+      capacity: storage growth check: the analytics volume is at 27 percent; projection says expansion decision needed within 3 weeks. also, took most of a morning, worth every minute.
+
+      patching: the E ring took the monthly rollup; 4 machines needed the out-of-band fix for the audio driver regression before sign-off. also, the usual suspects, the usual fixes; documented regardless.
+
+      identity: access review batch 5 closed with 33 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, one small surprise, noted inline in the runbook.
+
+      network: replaced the top-of-rack switch in row A; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, wrote it up in the team space so future me stops rediscovering it.
+
+      backups: restore drill 7 pulled the finance share back in 39 minutes; the runbook's storage-role step held up after the spring amendment. also, no follow-up needed unless the numbers move next cycle.
+
+      detections: tuned rule batch 8; false positives on the service-account alert dropped 42 percent after scoping out the scanner subnets. also, flagged the residual risk in the register; severity unchanged.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 9 times now. also, took most of a morning, worth every minute.
+
+      fleet: device cleanup pass 10 reconciled 48 stale records against the MDM export; the count finally matches procurement's ledger. also, the usual suspects, the usual fixes; documented regardless.
+
+      ## Week 3
+
+      backups: restore drill 3 pulled the finance share back in 31 minutes; the runbook's storage-role step held up after the spring amendment. also, took most of a morning, worth every minute.
+
+      detections: tuned rule batch 4; false positives on the service-account alert dropped 34 percent after scoping out the scanner subnets. also, the usual suspects, the usual fixes; documented regardless.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 5 times now. also, one small surprise, noted inline in the runbook.
+
+      fleet: device cleanup pass 6 reconciled 40 stale records against the MDM export; the count finally matches procurement's ledger. also, wrote it up in the team space so future me stops rediscovering it.
+
+      colo: colo migration prep continued; rack elevations rev 7 approved and the cross-connect order confirmed for the B cage. also, no follow-up needed unless the numbers move next cycle.
+
+      licensing: true-up round 8: two vendors reconciled clean, one ran 46 seats over from stale device records rather than real growth. also, flagged the residual risk in the register; severity unchanged.
+
+      oncall: handover template rev 9 shipped to the team space; the D rotation adopted it without complaint, a first. also, took most of a morning, worth every minute.
+
+      awareness: phishing simulation wave 10 clicked at 52 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, the usual suspects, the usual fixes; documented regardless.
+
+      capacity: storage growth check: the analytics volume is at 55 percent; projection says expansion decision needed within 11 weeks. also, one small surprise, noted inline in the runbook.
+
+      ## Week 4
+
+      licensing: true-up round 4: two vendors reconciled clean, one ran 38 seats over from stale device records rather than real growth. also, the usual suspects, the usual fixes; documented regardless.
+
+      oncall: handover template rev 5 shipped to the team space; the F rotation adopted it without complaint, a first. also, one small surprise, noted inline in the runbook.
+
+      awareness: phishing simulation wave 6 clicked at 44 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, wrote it up in the team space so future me stops rediscovering it.
+
+      capacity: storage growth check: the analytics volume is at 47 percent; projection says expansion decision needed within 7 weeks. also, no follow-up needed unless the numbers move next cycle.
+
+      patching: the C ring took the monthly rollup; 8 machines needed the out-of-band fix for the audio driver regression before sign-off. also, flagged the residual risk in the register; severity unchanged.
+
+      identity: access review batch 9 closed with 53 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, took most of a morning, worth every minute.
+
+      network: replaced the top-of-rack switch in row E; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, the usual suspects, the usual fixes; documented regardless.
+
+      backups: restore drill 11 pulled the finance share back in 59 minutes; the runbook's storage-role step held up after the spring amendment. also, one small surprise, noted inline in the runbook.
+
+      detections: tuned rule batch 12; false positives on the service-account alert dropped 12 percent after scoping out the scanner subnets. also, wrote it up in the team space so future me stops rediscovering it.
+
+      ## Week 5
+
+      identity: access review batch 5 closed with 45 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, one small surprise, noted inline in the runbook.
+
+      network: replaced the top-of-rack switch in row A; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, wrote it up in the team space so future me stops rediscovering it.
+
+      backups: restore drill 7 pulled the finance share back in 51 minutes; the runbook's storage-role step held up after the spring amendment. also, no follow-up needed unless the numbers move next cycle.
+
+      detections: tuned rule batch 8; false positives on the service-account alert dropped 54 percent after scoping out the scanner subnets. also, flagged the residual risk in the register; severity unchanged.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 9 times now. also, took most of a morning, worth every minute.
+
+      fleet: device cleanup pass 10 reconciled 10 stale records against the MDM export; the count finally matches procurement's ledger. also, the usual suspects, the usual fixes; documented regardless.
+
+      colo: colo migration prep continued; rack elevations rev 11 approved and the cross-connect order confirmed for the F cage. also, one small surprise, noted inline in the runbook.
+
+      licensing: true-up round 12: two vendors reconciled clean, one ran 16 seats over from stale device records rather than real growth. also, wrote it up in the team space so future me stops rediscovering it.
+
+      oncall: handover template rev 13 shipped to the team space; the B rotation adopted it without complaint, a first. also, no follow-up needed unless the numbers move next cycle.
+
+      ## Week 6
+
+      fleet: device cleanup pass 6 reconciled 52 stale records against the MDM export; the count finally matches procurement's ledger. also, wrote it up in the team space so future me stops rediscovering it.
+
+      colo: colo migration prep continued; rack elevations rev 7 approved and the cross-connect order confirmed for the B cage. also, no follow-up needed unless the numbers move next cycle.
+
+      licensing: true-up round 8: two vendors reconciled clean, one ran 58 seats over from stale device records rather than real growth. also, flagged the residual risk in the register; severity unchanged.
+
+      oncall: handover template rev 9 shipped to the team space; the D rotation adopted it without complaint, a first. also, took most of a morning, worth every minute.
+
+      awareness: phishing simulation wave 10 clicked at 14 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, the usual suspects, the usual fixes; documented regardless.
+
+      capacity: storage growth check: the analytics volume is at 17 percent; projection says expansion decision needed within 11 weeks. also, one small surprise, noted inline in the runbook.
+
+      patching: the A ring took the monthly rollup; 12 machines needed the out-of-band fix for the audio driver regression before sign-off. also, wrote it up in the team space so future me stops rediscovering it.
+
+      identity: access review batch 13 closed with 23 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, no follow-up needed unless the numbers move next cycle.
+
+      network: replaced the top-of-rack switch in row C; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, flagged the residual risk in the register; severity unchanged.
+
+      ## Week 7
+
+      capacity: storage growth check: the analytics volume is at 59 percent; projection says expansion decision needed within 7 weeks. also, no follow-up needed unless the numbers move next cycle.
+
+      patching: the C ring took the monthly rollup; 8 machines needed the out-of-band fix for the audio driver regression before sign-off. also, flagged the residual risk in the register; severity unchanged.
+
+      identity: access review batch 9 closed with 15 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, took most of a morning, worth every minute.
+
+      network: replaced the top-of-rack switch in row E; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, the usual suspects, the usual fixes; documented regardless.
+
+      backups: restore drill 11 pulled the finance share back in 21 minutes; the runbook's storage-role step held up after the spring amendment. also, one small surprise, noted inline in the runbook.
+
+      detections: tuned rule batch 12; false positives on the service-account alert dropped 24 percent after scoping out the scanner subnets. also, wrote it up in the team space so future me stops rediscovering it.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 13 times now. also, no follow-up needed unless the numbers move next cycle.
+
+      fleet: device cleanup pass 14 reconciled 30 stale records against the MDM export; the count finally matches procurement's ledger. also, flagged the residual risk in the register; severity unchanged.
+
+      colo: colo migration prep continued; rack elevations rev 15 approved and the cross-connect order confirmed for the D cage. also, took most of a morning, worth every minute.
+
+      ## Week 8
+
+      detections: tuned rule batch 8; false positives on the service-account alert dropped 16 percent after scoping out the scanner subnets. also, flagged the residual risk in the register; severity unchanged.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 9 times now. also, took most of a morning, worth every minute.
+
+      fleet: device cleanup pass 10 reconciled 22 stale records against the MDM export; the count finally matches procurement's ledger. also, the usual suspects, the usual fixes; documented regardless.
+
+      colo: colo migration prep continued; rack elevations rev 11 approved and the cross-connect order confirmed for the F cage. also, one small surprise, noted inline in the runbook.
+
+      licensing: true-up round 12: two vendors reconciled clean, one ran 28 seats over from stale device records rather than real growth. also, wrote it up in the team space so future me stops rediscovering it.
+
+      oncall: handover template rev 13 shipped to the team space; the B rotation adopted it without complaint, a first. also, no follow-up needed unless the numbers move next cycle.
+
+      awareness: phishing simulation wave 14 clicked at 34 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, flagged the residual risk in the register; severity unchanged.
+
+      capacity: storage growth check: the analytics volume is at 37 percent; projection says expansion decision needed within 15 weeks. also, took most of a morning, worth every minute.
+
+      patching: the E ring took the monthly rollup; 16 machines needed the out-of-band fix for the audio driver regression before sign-off. also, the usual suspects, the usual fixes; documented regardless.
+
+      ## Week 9
+
+      oncall: handover template rev 9 shipped to the team space; the D rotation adopted it without complaint, a first. also, took most of a morning, worth every minute.
+
+      awareness: phishing simulation wave 10 clicked at 26 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, the usual suspects, the usual fixes; documented regardless.
+
+      capacity: storage growth check: the analytics volume is at 29 percent; projection says expansion decision needed within 11 weeks. also, one small surprise, noted inline in the runbook.
+
+      patching: the A ring took the monthly rollup; 12 machines needed the out-of-band fix for the audio driver regression before sign-off. also, wrote it up in the team space so future me stops rediscovering it.
+
+      identity: access review batch 13 closed with 35 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, no follow-up needed unless the numbers move next cycle.
+
+      network: replaced the top-of-rack switch in row C; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, flagged the residual risk in the register; severity unchanged.
+
+      backups: restore drill 15 pulled the finance share back in 41 minutes; the runbook's storage-role step held up after the spring amendment. also, took most of a morning, worth every minute.
+
+      detections: tuned rule batch 16; false positives on the service-account alert dropped 44 percent after scoping out the scanner subnets. also, the usual suspects, the usual fixes; documented regardless.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 17 times now. also, one small surprise, noted inline in the runbook.
+
+      ## Week 10
+
+      network: replaced the top-of-rack switch in row E; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, the usual suspects, the usual fixes; documented regardless.
+
+      backups: restore drill 11 pulled the finance share back in 33 minutes; the runbook's storage-role step held up after the spring amendment. also, one small surprise, noted inline in the runbook.
+
+      detections: tuned rule batch 12; false positives on the service-account alert dropped 36 percent after scoping out the scanner subnets. also, wrote it up in the team space so future me stops rediscovering it.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 13 times now. also, no follow-up needed unless the numbers move next cycle.
+
+      fleet: device cleanup pass 14 reconciled 42 stale records against the MDM export; the count finally matches procurement's ledger. also, flagged the residual risk in the register; severity unchanged.
+
+      colo: colo migration prep continued; rack elevations rev 15 approved and the cross-connect order confirmed for the D cage. also, took most of a morning, worth every minute.
+
+      licensing: true-up round 16: two vendors reconciled clean, one ran 48 seats over from stale device records rather than real growth. also, the usual suspects, the usual fixes; documented regardless.
+
+      oncall: handover template rev 17 shipped to the team space; the F rotation adopted it without complaint, a first. also, one small surprise, noted inline in the runbook.
+
+      awareness: phishing simulation wave 18 clicked at 54 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, wrote it up in the team space so future me stops rediscovering it.
+
+      ## Week 11
+
+      colo: colo migration prep continued; rack elevations rev 11 approved and the cross-connect order confirmed for the F cage. also, one small surprise, noted inline in the runbook.
+
+      licensing: true-up round 12: two vendors reconciled clean, one ran 40 seats over from stale device records rather than real growth. also, wrote it up in the team space so future me stops rediscovering it.
+
+      oncall: handover template rev 13 shipped to the team space; the B rotation adopted it without complaint, a first. also, no follow-up needed unless the numbers move next cycle.
+
+      awareness: phishing simulation wave 14 clicked at 46 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, flagged the residual risk in the register; severity unchanged.
+
+      capacity: storage growth check: the analytics volume is at 49 percent; projection says expansion decision needed within 15 weeks. also, took most of a morning, worth every minute.
+
+      patching: the E ring took the monthly rollup; 16 machines needed the out-of-band fix for the audio driver regression before sign-off. also, the usual suspects, the usual fixes; documented regardless.
+
+      identity: access review batch 17 closed with 55 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, one small surprise, noted inline in the runbook.
+
+      network: replaced the top-of-rack switch in row A; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, wrote it up in the team space so future me stops rediscovering it.
+
+      backups: restore drill 19 pulled the finance share back in 11 minutes; the runbook's storage-role step held up after the spring amendment. also, no follow-up needed unless the numbers move next cycle.
+
+      ## Week 12
+
+      patching: the A ring took the monthly rollup; 12 machines needed the out-of-band fix for the audio driver regression before sign-off. also, wrote it up in the team space so future me stops rediscovering it.
+
+      identity: access review batch 13 closed with 47 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, no follow-up needed unless the numbers move next cycle.
+
+      network: replaced the top-of-rack switch in row C; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, flagged the residual risk in the register; severity unchanged.
+
+      backups: restore drill 15 pulled the finance share back in 53 minutes; the runbook's storage-role step held up after the spring amendment. also, took most of a morning, worth every minute.
+
+      detections: tuned rule batch 16; false positives on the service-account alert dropped 56 percent after scoping out the scanner subnets. also, the usual suspects, the usual fixes; documented regardless.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 17 times now. also, one small surprise, noted inline in the runbook.
+
+      fleet: device cleanup pass 18 reconciled 12 stale records against the MDM export; the count finally matches procurement's ledger. also, wrote it up in the team space so future me stops rediscovering it.
+
+      colo: colo migration prep continued; rack elevations rev 19 approved and the cross-connect order confirmed for the B cage. also, no follow-up needed unless the numbers move next cycle.
+
+      licensing: true-up round 20: two vendors reconciled clean, one ran 18 seats over from stale device records rather than real growth. also, flagged the residual risk in the register; severity unchanged.
+
+      ## Week 13
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 13 times now. also, no follow-up needed unless the numbers move next cycle.
+
+      fleet: device cleanup pass 14 reconciled 54 stale records against the MDM export; the count finally matches procurement's ledger. also, flagged the residual risk in the register; severity unchanged.
+
+      colo: colo migration prep continued; rack elevations rev 15 approved and the cross-connect order confirmed for the D cage. also, took most of a morning, worth every minute.
+
+      licensing: true-up round 16: two vendors reconciled clean, one ran 10 seats over from stale device records rather than real growth. also, the usual suspects, the usual fixes; documented regardless.
+
+      oncall: handover template rev 17 shipped to the team space; the F rotation adopted it without complaint, a first. also, one small surprise, noted inline in the runbook.
+
+      awareness: phishing simulation wave 18 clicked at 16 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, wrote it up in the team space so future me stops rediscovering it.
+
+      capacity: storage growth check: the analytics volume is at 19 percent; projection says expansion decision needed within 19 weeks. also, no follow-up needed unless the numbers move next cycle.
+
+      patching: the C ring took the monthly rollup; 20 machines needed the out-of-band fix for the audio driver regression before sign-off. also, flagged the residual risk in the register; severity unchanged.
+
+      identity: access review batch 21 closed with 25 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, took most of a morning, worth every minute.
+
+      ## Week 14
+
+      awareness: phishing simulation wave 14 clicked at 58 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, flagged the residual risk in the register; severity unchanged.
+
+      capacity: storage growth check: the analytics volume is at 11 percent; projection says expansion decision needed within 15 weeks. also, took most of a morning, worth every minute.
+
+      patching: the E ring took the monthly rollup; 16 machines needed the out-of-band fix for the audio driver regression before sign-off. also, the usual suspects, the usual fixes; documented regardless.
+
+      identity: access review batch 17 closed with 17 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, one small surprise, noted inline in the runbook.
+
+      network: replaced the top-of-rack switch in row A; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, wrote it up in the team space so future me stops rediscovering it.
+
+      backups: restore drill 19 pulled the finance share back in 23 minutes; the runbook's storage-role step held up after the spring amendment. also, no follow-up needed unless the numbers move next cycle.
+
+      detections: tuned rule batch 20; false positives on the service-account alert dropped 26 percent after scoping out the scanner subnets. also, flagged the residual risk in the register; severity unchanged.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 21 times now. also, took most of a morning, worth every minute.
+
+      fleet: device cleanup pass 22 reconciled 32 stale records against the MDM export; the count finally matches procurement's ledger. also, the usual suspects, the usual fixes; documented regardless.
+
+      colo, the bad news: the colo migration is postponed. the crane permit for the generator lift was denied by the county, and without the lift there is no power redundancy story, so the whole window moves. resubmission takes six weeks minimum.
+
+      ## Week 15
+
+      backups: restore drill 15 pulled the finance share back in 15 minutes; the runbook's storage-role step held up after the spring amendment. also, took most of a morning, worth every minute.
+
+      detections: tuned rule batch 16; false positives on the service-account alert dropped 18 percent after scoping out the scanner subnets. also, the usual suspects, the usual fixes; documented regardless.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 17 times now. also, one small surprise, noted inline in the runbook.
+
+      fleet: device cleanup pass 18 reconciled 24 stale records against the MDM export; the count finally matches procurement's ledger. also, wrote it up in the team space so future me stops rediscovering it.
+
+      colo: colo migration prep continued; rack elevations rev 19 approved and the cross-connect order confirmed for the B cage. also, no follow-up needed unless the numbers move next cycle.
+
+      licensing: true-up round 20: two vendors reconciled clean, one ran 30 seats over from stale device records rather than real growth. also, flagged the residual risk in the register; severity unchanged.
+
+      oncall: handover template rev 21 shipped to the team space; the D rotation adopted it without complaint, a first. also, took most of a morning, worth every minute.
+
+      awareness: phishing simulation wave 22 clicked at 36 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, the usual suspects, the usual fixes; documented regardless.
+
+      capacity: storage growth check: the analytics volume is at 39 percent; projection says expansion decision needed within 23 weeks. also, one small surprise, noted inline in the runbook.
+
+      ## Week 16
+
+      licensing: true-up round 16: two vendors reconciled clean, one ran 22 seats over from stale device records rather than real growth. also, the usual suspects, the usual fixes; documented regardless.
+
+      oncall: handover template rev 17 shipped to the team space; the F rotation adopted it without complaint, a first. also, one small surprise, noted inline in the runbook.
+
+      awareness: phishing simulation wave 18 clicked at 28 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, wrote it up in the team space so future me stops rediscovering it.
+
+      capacity: storage growth check: the analytics volume is at 31 percent; projection says expansion decision needed within 19 weeks. also, no follow-up needed unless the numbers move next cycle.
+
+      patching: the C ring took the monthly rollup; 20 machines needed the out-of-band fix for the audio driver regression before sign-off. also, flagged the residual risk in the register; severity unchanged.
+
+      identity: access review batch 21 closed with 37 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, took most of a morning, worth every minute.
+
+      network: replaced the top-of-rack switch in row E; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, the usual suspects, the usual fixes; documented regardless.
+
+      backups: restore drill 23 pulled the finance share back in 43 minutes; the runbook's storage-role step held up after the spring amendment. also, one small surprise, noted inline in the runbook.
+
+      detections: tuned rule batch 24; false positives on the service-account alert dropped 46 percent after scoping out the scanner subnets. also, wrote it up in the team space so future me stops rediscovering it.
+
+      ## Week 17
+
+      identity: access review batch 17 closed with 29 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, one small surprise, noted inline in the runbook.
+
+      network: replaced the top-of-rack switch in row A; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, wrote it up in the team space so future me stops rediscovering it.
+
+      backups: restore drill 19 pulled the finance share back in 35 minutes; the runbook's storage-role step held up after the spring amendment. also, no follow-up needed unless the numbers move next cycle.
+
+      detections: tuned rule batch 20; false positives on the service-account alert dropped 38 percent after scoping out the scanner subnets. also, flagged the residual risk in the register; severity unchanged.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 21 times now. also, took most of a morning, worth every minute.
+
+      fleet: device cleanup pass 22 reconciled 44 stale records against the MDM export; the count finally matches procurement's ledger. also, the usual suspects, the usual fixes; documented regardless.
+
+      colo: colo migration prep continued; rack elevations rev 23 approved and the cross-connect order confirmed for the F cage. also, one small surprise, noted inline in the runbook.
+
+      licensing: true-up round 24: two vendors reconciled clean, one ran 50 seats over from stale device records rather than real growth. also, wrote it up in the team space so future me stops rediscovering it.
+
+      oncall: handover template rev 25 shipped to the team space; the B rotation adopted it without complaint, a first. also, no follow-up needed unless the numbers move next cycle.
+
+      ## Week 18
+
+      fleet: device cleanup pass 18 reconciled 36 stale records against the MDM export; the count finally matches procurement's ledger. also, wrote it up in the team space so future me stops rediscovering it.
+
+      colo: colo migration prep continued; rack elevations rev 19 approved and the cross-connect order confirmed for the B cage. also, no follow-up needed unless the numbers move next cycle.
+
+      licensing: true-up round 20: two vendors reconciled clean, one ran 42 seats over from stale device records rather than real growth. also, flagged the residual risk in the register; severity unchanged.
+
+      oncall: handover template rev 21 shipped to the team space; the D rotation adopted it without complaint, a first. also, took most of a morning, worth every minute.
+
+      awareness: phishing simulation wave 22 clicked at 48 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, the usual suspects, the usual fixes; documented regardless.
+
+      capacity: storage growth check: the analytics volume is at 51 percent; projection says expansion decision needed within 23 weeks. also, one small surprise, noted inline in the runbook.
+
+      patching: the A ring took the monthly rollup; 24 machines needed the out-of-band fix for the audio driver regression before sign-off. also, wrote it up in the team space so future me stops rediscovering it.
+
+      identity: access review batch 25 closed with 57 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, no follow-up needed unless the numbers move next cycle.
+
+      network: replaced the top-of-rack switch in row C; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, flagged the residual risk in the register; severity unchanged.
+
+      ## Week 19
+
+      capacity: storage growth check: the analytics volume is at 43 percent; projection says expansion decision needed within 19 weeks. also, no follow-up needed unless the numbers move next cycle.
+
+      patching: the C ring took the monthly rollup; 20 machines needed the out-of-band fix for the audio driver regression before sign-off. also, flagged the residual risk in the register; severity unchanged.
+
+      identity: access review batch 21 closed with 49 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, took most of a morning, worth every minute.
+
+      network: replaced the top-of-rack switch in row E; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, the usual suspects, the usual fixes; documented regardless.
+
+      backups: restore drill 23 pulled the finance share back in 55 minutes; the runbook's storage-role step held up after the spring amendment. also, one small surprise, noted inline in the runbook.
+
+      detections: tuned rule batch 24; false positives on the service-account alert dropped 58 percent after scoping out the scanner subnets. also, wrote it up in the team space so future me stops rediscovering it.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 25 times now. also, no follow-up needed unless the numbers move next cycle.
+
+      fleet: device cleanup pass 26 reconciled 14 stale records against the MDM export; the count finally matches procurement's ledger. also, flagged the residual risk in the register; severity unchanged.
+
+      colo: colo migration prep continued; rack elevations rev 27 approved and the cross-connect order confirmed for the D cage. also, took most of a morning, worth every minute.
+
+      ## Week 20
+
+      detections: tuned rule batch 20; false positives on the service-account alert dropped 50 percent after scoping out the scanner subnets. also, flagged the residual risk in the register; severity unchanged.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 21 times now. also, took most of a morning, worth every minute.
+
+      fleet: device cleanup pass 22 reconciled 56 stale records against the MDM export; the count finally matches procurement's ledger. also, the usual suspects, the usual fixes; documented regardless.
+
+      colo: colo migration prep continued; rack elevations rev 23 approved and the cross-connect order confirmed for the F cage. also, one small surprise, noted inline in the runbook.
+
+      licensing: true-up round 24: two vendors reconciled clean, one ran 12 seats over from stale device records rather than real growth. also, wrote it up in the team space so future me stops rediscovering it.
+
+      oncall: handover template rev 25 shipped to the team space; the B rotation adopted it without complaint, a first. also, no follow-up needed unless the numbers move next cycle.
+
+      awareness: phishing simulation wave 26 clicked at 18 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, flagged the residual risk in the register; severity unchanged.
+
+      capacity: storage growth check: the analytics volume is at 21 percent; projection says expansion decision needed within 27 weeks. also, took most of a morning, worth every minute.
+
+      patching: the E ring took the monthly rollup; 28 machines needed the out-of-band fix for the audio driver regression before sign-off. also, the usual suspects, the usual fixes; documented regardless.
+
+      ## Week 21
+
+      oncall: handover template rev 21 shipped to the team space; the D rotation adopted it without complaint, a first. also, took most of a morning, worth every minute.
+
+      awareness: phishing simulation wave 22 clicked at 10 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, the usual suspects, the usual fixes; documented regardless.
+
+      capacity: storage growth check: the analytics volume is at 13 percent; projection says expansion decision needed within 23 weeks. also, one small surprise, noted inline in the runbook.
+
+      patching: the A ring took the monthly rollup; 24 machines needed the out-of-band fix for the audio driver regression before sign-off. also, wrote it up in the team space so future me stops rediscovering it.
+
+      identity: access review batch 25 closed with 19 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, no follow-up needed unless the numbers move next cycle.
+
+      network: replaced the top-of-rack switch in row C; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, flagged the residual risk in the register; severity unchanged.
+
+      backups: restore drill 27 pulled the finance share back in 25 minutes; the runbook's storage-role step held up after the spring amendment. also, took most of a morning, worth every minute.
+
+      detections: tuned rule batch 28; false positives on the service-account alert dropped 28 percent after scoping out the scanner subnets. also, the usual suspects, the usual fixes; documented regardless.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 29 times now. also, one small surprise, noted inline in the runbook.
+
+      ## Week 22
+
+      network: replaced the top-of-rack switch in row E; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, the usual suspects, the usual fixes; documented regardless.
+
+      backups: restore drill 23 pulled the finance share back in 17 minutes; the runbook's storage-role step held up after the spring amendment. also, one small surprise, noted inline in the runbook.
+
+      detections: tuned rule batch 24; false positives on the service-account alert dropped 20 percent after scoping out the scanner subnets. also, wrote it up in the team space so future me stops rediscovering it.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 25 times now. also, no follow-up needed unless the numbers move next cycle.
+
+      fleet: device cleanup pass 26 reconciled 26 stale records against the MDM export; the count finally matches procurement's ledger. also, flagged the residual risk in the register; severity unchanged.
+
+      colo: colo migration prep continued; rack elevations rev 27 approved and the cross-connect order confirmed for the D cage. also, took most of a morning, worth every minute.
+
+      licensing: true-up round 28: two vendors reconciled clean, one ran 32 seats over from stale device records rather than real growth. also, the usual suspects, the usual fixes; documented regardless.
+
+      oncall: handover template rev 29 shipped to the team space; the F rotation adopted it without complaint, a first. also, one small surprise, noted inline in the runbook.
+
+      awareness: phishing simulation wave 30 clicked at 38 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, wrote it up in the team space so future me stops rediscovering it.
+
+      separately, the datacenter switch firmware window was postponed for staffing reasons — both network folks were out, unrelated to any other project delays.
+
+      ## Week 23
+
+      colo: colo migration prep continued; rack elevations rev 23 approved and the cross-connect order confirmed for the F cage. also, one small surprise, noted inline in the runbook.
+
+      licensing: true-up round 24: two vendors reconciled clean, one ran 24 seats over from stale device records rather than real growth. also, wrote it up in the team space so future me stops rediscovering it.
+
+      oncall: handover template rev 25 shipped to the team space; the B rotation adopted it without complaint, a first. also, no follow-up needed unless the numbers move next cycle.
+
+      awareness: phishing simulation wave 26 clicked at 30 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, flagged the residual risk in the register; severity unchanged.
+
+      capacity: storage growth check: the analytics volume is at 33 percent; projection says expansion decision needed within 27 weeks. also, took most of a morning, worth every minute.
+
+      patching: the E ring took the monthly rollup; 28 machines needed the out-of-band fix for the audio driver regression before sign-off. also, the usual suspects, the usual fixes; documented regardless.
+
+      identity: access review batch 29 closed with 39 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, one small surprise, noted inline in the runbook.
+
+      network: replaced the top-of-rack switch in row A; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, wrote it up in the team space so future me stops rediscovering it.
+
+      backups: restore drill 31 pulled the finance share back in 45 minutes; the runbook's storage-role step held up after the spring amendment. also, no follow-up needed unless the numbers move next cycle.
+
+      ## Week 24
+
+      patching: the A ring took the monthly rollup; 24 machines needed the out-of-band fix for the audio driver regression before sign-off. also, wrote it up in the team space so future me stops rediscovering it.
+
+      identity: access review batch 25 closed with 31 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, no follow-up needed unless the numbers move next cycle.
+
+      network: replaced the top-of-rack switch in row C; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, flagged the residual risk in the register; severity unchanged.
+
+      backups: restore drill 27 pulled the finance share back in 37 minutes; the runbook's storage-role step held up after the spring amendment. also, took most of a morning, worth every minute.
+
+      detections: tuned rule batch 28; false positives on the service-account alert dropped 40 percent after scoping out the scanner subnets. also, the usual suspects, the usual fixes; documented regardless.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 29 times now. also, one small surprise, noted inline in the runbook.
+
+      fleet: device cleanup pass 30 reconciled 46 stale records against the MDM export; the count finally matches procurement's ledger. also, wrote it up in the team space so future me stops rediscovering it.
+
+      colo: colo migration prep continued; rack elevations rev 31 approved and the cross-connect order confirmed for the B cage. also, no follow-up needed unless the numbers move next cycle.
+
+      licensing: true-up round 32: two vendors reconciled clean, one ran 52 seats over from stale device records rather than real growth. also, flagged the residual risk in the register; severity unchanged.
+
+      ## Week 25
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 25 times now. also, no follow-up needed unless the numbers move next cycle.
+
+      fleet: device cleanup pass 26 reconciled 38 stale records against the MDM export; the count finally matches procurement's ledger. also, flagged the residual risk in the register; severity unchanged.
+
+      colo: colo migration prep continued; rack elevations rev 27 approved and the cross-connect order confirmed for the D cage. also, took most of a morning, worth every minute.
+
+      licensing: true-up round 28: two vendors reconciled clean, one ran 44 seats over from stale device records rather than real growth. also, the usual suspects, the usual fixes; documented regardless.
+
+      oncall: handover template rev 29 shipped to the team space; the F rotation adopted it without complaint, a first. also, one small surprise, noted inline in the runbook.
+
+      awareness: phishing simulation wave 30 clicked at 50 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, wrote it up in the team space so future me stops rediscovering it.
+
+      capacity: storage growth check: the analytics volume is at 53 percent; projection says expansion decision needed within 31 weeks. also, no follow-up needed unless the numbers move next cycle.
+
+      patching: the C ring took the monthly rollup; 32 machines needed the out-of-band fix for the audio driver regression before sign-off. also, flagged the residual risk in the register; severity unchanged.
+
+      identity: access review batch 33 closed with 59 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, took most of a morning, worth every minute.
+
+      ## Week 26
+
+      awareness: phishing simulation wave 26 clicked at 42 percent, trending down; the report-button auto-ack cut duplicate reports to zero. also, flagged the residual risk in the register; severity unchanged.
+
+      capacity: storage growth check: the analytics volume is at 45 percent; projection says expansion decision needed within 27 weeks. also, took most of a morning, worth every minute.
+
+      patching: the E ring took the monthly rollup; 28 machines needed the out-of-band fix for the audio driver regression before sign-off. also, the usual suspects, the usual fixes; documented regardless.
+
+      identity: access review batch 29 closed with 51 stale accounts disabled, and the contractor group moved to the ninety-day attestation cycle. also, one small surprise, noted inline in the runbook.
+
+      network: replaced the top-of-rack switch in row A; spanning-tree reconverged in under a second and nobody noticed, which is the whole point. also, wrote it up in the team space so future me stops rediscovering it.
+
+      backups: restore drill 31 pulled the finance share back in 57 minutes; the runbook's storage-role step held up after the spring amendment. also, no follow-up needed unless the numbers move next cycle.
+
+      detections: tuned rule batch 32; false positives on the service-account alert dropped 10 percent after scoping out the scanner subnets. also, flagged the residual risk in the register; severity unchanged.
+
+      vendors: quarterly call with the endpoint vendor; roadmap says the linux agent parity lands next release, which we have heard 33 times now. also, took most of a morning, worth every minute.
+
+      fleet: device cleanup pass 34 reconciled 16 stale records against the MDM export; the count finally matches procurement's ledger. also, the usual suspects, the usual fixes; documented regardless.
+  - rel: Daily/2026-04-06.md
+    text: |
+      # 2026-04-06
+
+      rough week. the colo news is in the journal; spent the afternoon rescheduling everything downstream of it.

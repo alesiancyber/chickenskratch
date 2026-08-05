@@ -12,12 +12,12 @@ import re
 import pytest
 
 import chickenskratch_vault.vault as vault_mod
-from tests.conftest import record_worker_returning
 from chickenskratch import proposals
 from chickenskratch import watcher as watcher_mod
 from chickenskratch.processors import CAPTURE_SKELETON
 from chickenskratch_vault import tasks as tk
 from chickenskratch_vault.vault import Vault
+from tests.conftest import record_worker_returning
 
 EXTRACTED = [
     {"text": "Migrate the DNS records", "due": "2026-07-24", "priority": "high"},
@@ -444,3 +444,62 @@ def test_the_record_plan_is_one_atomic_step(vault, watcher):
     asyncio.run(watcher.run_once(decisions=[(p["id"], "reject")]))
     assert "migrate dns" in (vault / "Harness/Capture.md").read_text()
     assert not (vault / "Captures" / f"{TODAY}.md").exists()
+
+
+def test_a_config_declared_kind_files_itself_with_zero_code(
+        vault, make_watcher, tmp_path, monkeypatch):
+    """The kind-driven promise: a schema file with a record block is a
+    complete new capture behavior — folder, id prefix, frontmatter, and
+    the extract_record enum all follow from config, no Python."""
+    import shutil
+
+    from chickenskratch.bootstrap import ROOT
+    from chickenskratch_vault import workers as wk
+
+    cfg = tmp_path / "config"
+    shutil.copytree(ROOT / "config", cfg)
+    (cfg / "schemas" / "standup.yaml").write_text(
+        "id_prefix: s\n"
+        "record:\n"
+        "  kind: standup\n"
+        "  files_as: note\n"
+        "  dir_key: meetings_dir\n"
+        "  cues: |\n"
+        "    - kind \"standup\" when the dump is a per-person status round-up.\n"
+        "type: object\n"
+        "required: [id, type, date]\n"
+        "properties:\n"
+        "  id: {type: string}\n"
+        "  type: {const: standup}\n"
+        "  date: {type: string}\n"
+        "  attendees:\n"
+        "    type: array\n"
+        "    items: {type: string}\n",
+        encoding="utf-8")
+    monkeypatch.setenv("VAULT_CONFIG_PATH", str(cfg / "vault.yaml"))
+
+    # the composed worker already offers the new kind — config, not code
+    spec = wk.get_worker("extract_record")
+    assert "standup" in spec.schema["properties"]["record"]["properties"]["kind"]["enum"]
+    assert 'kind "standup" when the dump' in spec.prompt
+
+    w = make_watcher(vault, drafter=fake_schema_drafter, n_max=10,
+                     record_worker=record_worker_returning(
+                         [{"text": "unblock the deploy", "due": None,
+                           "priority": None, "owed_by": None}],
+                         kind="standup", title="daily standup",
+                         attendees=("Alex", "Rio"), summary="Alex is blocked."))
+    run(w)
+    type_into_capture(vault, "\nstandup: alex blocked on deploy, rio unblock the deploy\n")
+    run(w)
+    (p,) = capture_rows(w)
+    (step,) = p["apply"]
+    assert step["tool"] == "create_note"
+    assert step["args"]["path"] == f"Meetings/{TODAY} daily standup.md"
+
+    summary = asyncio.run(w.run_once(decisions=[(p["id"], "approve")]))
+    assert summary["approved"] == 1
+    note = (vault / "Meetings" / f"{TODAY} daily standup.md").read_text()
+    assert "type: standup" in note and "id: s-" in note   # its own type and prefix
+    assert "- Alex" in note and "- Rio" in note           # schema declares attendees
+    assert "> standup: alex blocked on deploy" in note    # verbatim rides along

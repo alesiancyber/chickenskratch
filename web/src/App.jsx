@@ -464,17 +464,42 @@ function scrollToCol(which) {
     document.querySelector(".canvas-input")?.focus();
 }
 
-function usePassTicker(lastPassAt) {
+/* The "pass Xs ago" clock, as its OWN leaf: its tick re-renders this
+   span and nothing else (its first life was a 1s setInterval at the top
+   of App — the entire dashboard re-rendered every second, forever,
+   hidden tab included: a real battery cost for a label). The tick also
+   matches what the label can show — second-precision only inside the
+   first minute, minute-precision after — and parks entirely while the
+   tab is hidden, resyncing the moment it's shown again. */
+function PassTicker({ lastPassAt, live }) {
   const [, force] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => force((n) => n + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
-  if (!lastPassAt) return "";
-  const s = Math.max(0, Math.floor((Date.now() - lastPassAt.getTime()) / 1000));
-  if (s < 60) return `pass ${s}s ago`;
-  if (s < 3600) return `pass ${Math.floor(s / 60)}m ago`;
-  return `pass ${Math.floor(s / 3600)}h ago`;
+    if (!lastPassAt) return undefined;
+    let t;
+    const arm = () => {
+      const s = (Date.now() - lastPassAt.getTime()) / 1000;
+      t = setTimeout(() => { force((n) => n + 1); arm(); },
+                     s < 60 ? 1000 : 60000);
+    };
+    const onVis = () => {
+      clearTimeout(t);
+      if (!document.hidden) { force((n) => n + 1); arm(); }
+    };
+    if (!document.hidden) arm();
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [lastPassAt]);
+  let label = "";
+  if (lastPassAt) {
+    const s = Math.max(0, Math.floor((Date.now() - lastPassAt.getTime()) / 1000));
+    label = s < 60 ? `pass ${s}s ago`
+      : s < 3600 ? `pass ${Math.floor(s / 60)}m ago`
+      : `pass ${Math.floor(s / 3600)}h ago`;
+  }
+  return <span className="ghost">{live ? label : "reconnecting"}</span>;
 }
 
 function Palette({ open, setOpen, today, changes, tree, refetch, runPass,
@@ -590,7 +615,7 @@ function Palette({ open, setOpen, today, changes, tree, refetch, runPass,
 
 export default function App() {
   const { today, review, changes, health, tree, error, live, lastPassAt, activity,
-          workerError, clearWorkerError, vaultEvent, refetch } = useDashboard();
+          workerError, clearWorkerError, vaultEvent, configVersion, refetch } = useDashboard();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [paneOpen, setPaneOpen] = useState(false);
@@ -648,7 +673,6 @@ export default function App() {
   }, []);
   const rowRefs = useRef({});
   const toastTimer = useRef(null);
-  const ticker = usePassTicker(lastPassAt);
 
   // The decision region owns every pending proposal now — the canvas
   // keeps no inline decide boxes, so nothing needs de-duplicating.
@@ -961,12 +985,13 @@ export default function App() {
     <ShrinkNote.Provider value={shrinkNote}>
     <SelectRow.Provider value={selCtx}>
     <div className={"shell" + (focusMode && selKey ? " focus" : "")}>
-      <Console open={consoleOpen} onClose={() => setConsoleOpen(false)} />
+      <Console open={consoleOpen} onClose={() => setConsoleOpen(false)}
+               configVersion={configVersion} />
       <nav className="topnav small">
         <span className="brand">chickenskratch</span>
         <span className="nav-spacer" />
         <Activity activity={activity} onStop={stopPass} />
-        <span className="ghost">{live ? ticker : "reconnecting"}</span>
+        <PassTicker lastPassAt={lastPassAt} live={live} />
         <button className={"navlink" + (focusMode ? " current" : "")}
                 onClick={toggleFocus}
                 title="Focus mode: click a task and the rest dims — esc releases">

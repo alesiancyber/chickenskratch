@@ -1,4 +1,21 @@
-# Note entity: a meeting note's frontmatter.
+description: A meeting note's frontmatter.
+id_prefix: m
+# The capture kind: how extract_record recognizes a meeting-shaped dump
+# and where the drafted record files. cues/guidance are spliced verbatim
+# into the generated {kinds} block of extract_record's prompt.
+record:
+  kind: meeting
+  files_as: note
+  dir_key: meetings_dir
+  cues: |
+    - kind "meeting" ONLY when the dump clearly recounts a meeting, call, or
+      conversation among named or implied people.
+  guidance: |
+    - EXCEPTION — a dump of speaker-labeled turns ("Name: what they said")
+      is a meeting TRANSCRIPT: kind "meeting", attendees from the speaker
+      labels as written, and the summary is MINUTES, not a rewrite —
+      decisions, agreements, numbers, and who committed to what, in a few
+      short paragraphs. Never retell the conversation turn by turn.
 type: object
 required: [id, type, date, attendees]
 properties:

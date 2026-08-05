@@ -23,6 +23,7 @@ import yaml
 
 from chickenskratch_vault import ids
 from chickenskratch_vault import markdown as md
+from chickenskratch_vault import schemas as sc
 from chickenskratch_vault import tasks as tk
 from chickenskratch_vault.vault import VaultError
 from chickenskratch_vault.vaultconfig import SPEC_REL, get_config
@@ -38,9 +39,6 @@ __all__ = ["CAPTURE_SKELETON", "capture_text", "registry", "REGISTRY"]
 
 if TYPE_CHECKING:
     from .watcher import Watcher
-
-# entity type -> id prefix for the note-level watermark the drafter stamps
-ID_PREFIX = {"meeting": "m", "research": "r", "kanban": "b"}
 
 @dataclass(frozen=True)
 class ProcessorSpec:
@@ -174,19 +172,25 @@ def _record_task_lines(tasks: list[dict]) -> list[str]:
     ]
 
 
-def _meeting_record(w: Watcher, record: dict, own: list[dict], owed: list[dict],
-                    dump: str, now: dt.datetime) -> tuple[dict, str]:
-    """(apply step, rel) creating a meeting record note. The path is
-    uniquified at draft time; a collision at apply time (created in the
-    gap) fails the proposal loudly — create_note never overwrites."""
+def _note_record(w: Watcher, rk: sc.RecordKind, record: dict, own: list[dict],
+                 owed: list[dict], dump: str, now: dt.datetime) -> tuple[dict, str]:
+    """(apply step, rel) creating a record note for a `files_as: note`
+    kind — its folder and id prefix come from the kind's schema file, so
+    a new kind files itself with zero code. The path is uniquified at
+    draft time; a collision at apply time (created in the gap) fails the
+    proposal loudly — create_note never overwrites."""
     cfg = get_config(w.vault_path)
     date = now.date().isoformat()
-    title = (record["title"] or "meeting").replace("/", "-")
-    rel = f"{cfg.meetings_dir}/{date} {title}.md"
+    title = (record["title"] or rk.name).replace("/", "-")
+    folder = str(getattr(cfg, rk.dir_key) or "").strip("/")
+    rel = f"{folder}/{date} {title}.md"
     if w.vault.resolve(rel).exists():
-        rel = f"{cfg.meetings_dir}/{date} {title} {now.strftime('%H%M')}.md"
-    fm = {"id": ids.stamp_id("m"), "type": "meeting", "date": date,
-          "attendees": record["attendees"]}
+        rel = f"{folder}/{date} {title} {now.strftime('%H%M')}.md"
+    fm = {"id": ids.stamp_id(sc.id_prefix(rk.name)), "type": rk.name, "date": date}
+    # attendees only when the kind's entity schema declares the property —
+    # a standup knows people, a clipping does not.
+    if "attendees" in (sc.load_schemas().get(rk.name, {}).get("properties") or {}):
+        fm["attendees"] = record["attendees"]
     body: list[str] = [""]
     if record["summary"]:
         body += ["## Summary", "", record["summary"], ""]
@@ -238,8 +242,10 @@ async def draft_capture(w: Watcher, item: dict) -> dict | None:
     tasks = _name_prefix_owed(record, tasks, item["text"])
     own, owed = _split_owed(tasks)
     now = dt.datetime.now()
-    if record["kind"] == "meeting":
-        step, rel = _meeting_record(w, record, own, owed, item["text"], now)
+    kinds = sc.record_kinds()
+    rk = kinds.get(record["kind"]) or kinds.get(sc.default_record_kind())
+    if rk is not None and rk.files_as == "note":
+        step, rel = _note_record(w, rk, record, own, owed, item["text"], now)
     else:
         step, rel = _capture_record(w, record, own, owed, item["text"], now)
     # The task lines are held to extraction fidelity against the dump —
@@ -454,10 +460,16 @@ _RECORD_HEADINGS = {"## Summary", "## Action items", "## Waiting on"}
 def _verify_record_frontmatter(fm: dict, item: dict) -> list[str]:
     """The frontmatter's model-filled parts, checked against the dump:
     attendees must be named in it (id/type/date are code-generated; the
-    title lives in the path, visible and cheap to be wrong about)."""
+    title lives in the path, visible and cheap to be wrong about).
+
+    Allowed keys derive from the record's own entity schema — config may
+    add kinds with their own properties, but a key no schema declares
+    still fails. The checks themselves stay code: config can never
+    weaken them."""
     if not fm:
         return []
-    allowed = {"id", "type", "date", "attendees"}
+    allowed = {"id", "type", "date"} | set(
+        sc.load_schemas().get(str(fm.get("type") or ""), {}).get("properties") or {})
     failures = [f"unexpected frontmatter key {k!r}" for k in sorted(set(fm) - allowed)]
     src = _words(item["text"])
     for a in fm.get("attendees") or []:
@@ -673,7 +685,7 @@ def scan_schema(w: Watcher) -> list[dict]:
             + [f"line {t['line']}: {i}" for t in row.get("tasks", []) for i in t["issues"]],
             "content": content,
             "vault_sha": w._pass_sha,
-            "new_id": ids.stamp_id(ID_PREFIX.get(row["entity"], "n")),
+            "new_id": ids.stamp_id(sc.id_prefix(row["entity"])),
             "extra_ids": [ids.stamp_id("t") for _ in range(len(row.get("tasks", [])))],
         })
     return items

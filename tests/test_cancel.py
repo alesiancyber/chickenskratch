@@ -96,9 +96,9 @@ def test_the_pass_is_the_only_job_here():
 
 def _agent(responses, should_cancel):
     """Same scripted fakes test_agent_guarantees uses, with a stop token."""
-    from tests.test_agent_guarantees import FakeMCP, FakeOpenAI
     from chickenskratch.agent import Agent
     from chickenskratch.profiles import Profile
+    from tests.test_agent_guarantees import FakeMCP, FakeOpenAI
 
     agent = Agent(Profile(name="fake", model="fake"), servers=[],
                   should_cancel=should_cancel)

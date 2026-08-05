@@ -29,14 +29,18 @@ Two rules the console does not bend:
 
 from __future__ import annotations
 
+import asyncio
 import os
+import re
 import tempfile
 from pathlib import Path
 
 import yaml
-
+from chickenskratch_vault import jsonval
 from chickenskratch_vault import markdown as md
+from chickenskratch_vault import schemas as entity_schemas
 from chickenskratch_vault import vaultconfig as vc
+from chickenskratch_vault import workers as wk
 from chickenskratch_vault.vault import Vault, VaultError
 from chickenskratch_vault.vaultconfig import SPEC_REL, get_config
 
@@ -47,9 +51,11 @@ from .config_store import ConfigError
 MODELS_YAML = Path(DEFAULT_MODELS)
 
 # The Spec.md keys the console owns. Everything here is a note edit the
-# engine picks up next pass — no restart, no process state. Keys NOT
-# listed (surfaces, schemas_dir) are machine concerns that live repo-side
-# by design; the console does not pretend otherwise.
+# engine picks up next pass — no restart, no process state. The AI layer
+# (config/workers/, config/schemas/, models.yaml) lives repo-side but is
+# console-managed too — the Behaviors/Schemas/Models tabs; only the DIR
+# locations themselves (schemas_dir, workers_dir, surfaces) stay
+# hand-edited machine concerns.
 #
 # What each setting actually changes, in the console's own words. Here
 # rather than in the UI because these describe engine behaviour, and the
@@ -126,8 +132,9 @@ LISTS = ("disabled_processors", "exclude")
 # console can set surgically (see yamledit): adding or removing a whole
 # profile is a structural change and belongs in the raw editor, where the
 # user owns the text and we only validate it.
-PROFILE_FIELDS = ("worker_adapt", "worker_max_tokens", "confirm_writes",
-                  "max_iterations", "max_tool_result_chars", "temperature")
+PROFILE_FIELDS = ("worker_adapt", "worker_max_tokens", "worker_timeout_s",
+                  "confirm_writes", "max_iterations", "max_tool_result_chars",
+                  "temperature")
 
 
 # The //commands phase. Not a processor — it executes typed orders in
@@ -219,9 +226,7 @@ def _profile_rows(config: profiles.Config) -> list[dict]:
 def _file_row(path: Path) -> dict:
     return {
         "name": path.name,
-        # repo-relative when it is in the repo, which it is in every real
-        # deployment; the absolute path is a fine fallback and never a crash
-        "path": str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path),
+        "path": _rel(path),
         "backups": [{"stamp": b.stamp, "when": b.when}
                     for b in config_store.history(path)],
     }
@@ -256,6 +261,17 @@ def model(vault_path: str) -> dict:
             "profile_fields": list(PROFILE_FIELDS),
             "file": _file_row(MODELS_YAML),
             "text": MODELS_YAML.read_text(encoding="utf-8"),
+        },
+        "workers": {
+            "dir": _rel(Path(wk.workers_dir())),
+            "reserved": sorted(wk.RESERVED_WORKERS),
+            "items": _worker_rows(),
+        },
+        "schemas": {
+            "dir": _rel(_schemas_dir()),
+            "engine": sorted(ENGINE_SCHEMAS),
+            "dir_keys": list(DIR_KEYS),
+            "items": _schema_rows(vault_path),
         },
     }
 
@@ -409,6 +425,30 @@ def save_spec(vault_path: str, fields: dict) -> dict:
     return {"changed": changed, "spec": SPEC_REL, "seeded": not existed}
 
 
+def _clean_profile_field(field: str, value):
+    """One editable profile field, checked and coerced — shared by the
+    per-field save and profile creation so the two can't disagree."""
+    if field not in PROFILE_FIELDS:
+        raise ConfigError(f"{field!r} is not a console-managed profile field")
+    if field == "worker_adapt" and value not in ("none", "small"):
+        raise ConfigError("worker_adapt must be 'none' or 'small'")
+    if field in ("worker_max_tokens", "max_iterations", "max_tool_result_chars"):
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            raise ConfigError(f"{field} must be a whole number") from None
+        if value < 0:
+            raise ConfigError(f"{field} cannot be negative")
+    if field in ("temperature", "worker_timeout_s"):
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            raise ConfigError(f"{field} must be a number") from None
+        if field == "worker_timeout_s" and value < 0:
+            raise ConfigError(f"{field} cannot be negative")
+    return value
+
+
 def save_model_fields(patch: dict) -> dict:
     """Set scalars in models.yaml surgically — comments, ordering and
     every untouched byte survive (see yamledit).
@@ -432,20 +472,8 @@ def save_model_fields(patch: dict) -> dict:
         if name not in declared:
             raise ConfigError(f"no model profile named {name!r}")
         for field, value in fields.items():
-            if field not in PROFILE_FIELDS:
-                raise ConfigError(f"{field!r} is not a console-managed profile field")
-            if field == "worker_adapt" and value not in ("none", "small"):
-                raise ConfigError("worker_adapt must be 'none' or 'small'")
-            if field in ("worker_max_tokens", "max_iterations", "max_tool_result_chars"):
-                try:
-                    value = int(value)
-                except (TypeError, ValueError):
-                    raise ConfigError(f"{field} must be a whole number") from None
-                if value < 0:
-                    raise ConfigError(f"{field} cannot be negative")
-            if field == "temperature":
-                value = float(value)
-            text = yamledit.set_scalar(text, ["models", name, field], value)
+            text = yamledit.set_scalar(text, ["models", name, field],
+                                       _clean_profile_field(field, value))
     config_store.write(MODELS_YAML, text, validate=validate_models_yaml)
     return {"restart": _restart_needed(patch)}
 
@@ -475,4 +503,616 @@ def _restart_needed(patch: dict) -> bool:
     touched = {f for fields in (patch.get("profiles") or {}).values() for f in fields}
     # worker_* fields ride the per-pass worker env; the rest configure
     # agents that were constructed at startup.
-    return bool(touched - {"worker_adapt", "worker_max_tokens"})
+    return bool(touched - {"worker_adapt", "worker_max_tokens", "worker_timeout_s"})
+
+
+# ---- the AI layer: worker specs and entity schemas ----
+#
+# Both live as repo-side YAML the engine reads fresh each pass (mtime-
+# keyed caches in chickenskratch_vault.workers/.schemas), so every write
+# here answers {"restart": False}: the next pass runs the new config.
+# Validation is the real loader in both cases — build_worker and the
+# schemas loader's own checks — so a file that saves is a file that
+# loads, and a refusal names the reason.
+
+# Schemas the machinery itself depends on: proposal.yaml validates the
+# proposal files, and the line types (task/card/deliverable) describe
+# parsed lines. Editable — carefully — but never deletable.
+ENGINE_SCHEMAS = frozenset({"proposal"}) | frozenset(entity_schemas.LINE_TYPES)
+
+# The dir_key choices offered in the UI — the loader's own list
+# (parse_record_block enforces it), re-exported for the model payload.
+DIR_KEYS = entity_schemas.DIR_KEYS
+
+# The date shape every task surface parses; the form's "date" field kind
+# compiles to it.
+_DATE_PATTERN = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+
+
+def _rel(path: Path) -> str:
+    return str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
+
+
+def _schemas_dir() -> Path:
+    return Path(vc.get_config().schemas_dir)
+
+
+class _Lit(str):
+    """A string yaml.dump renders as a | literal block."""
+
+
+class _ConsoleDumper(yaml.SafeDumper):
+    pass
+
+
+_ConsoleDumper.add_representer(
+    _Lit, lambda d, s: d.represent_scalar("tag:yaml.org,2002:str", str(s), style="|"))
+
+
+def _dump_yaml(doc) -> str:
+    return yaml.dump(doc, Dumper=_ConsoleDumper, sort_keys=False,
+                     allow_unicode=True, width=100000)
+
+
+def _lit(text: str) -> _Lit:
+    """Literal-block text. Trailing whitespace is stripped per line
+    because a literal block cannot represent it — PyYAML would silently
+    fall back to a quoted dump, and the byte-fidelity promise of | is
+    the whole point."""
+    return _Lit("\n".join(ln.rstrip() for ln in str(text).split("\n")))
+
+
+def _worker_path(name: str) -> Path:
+    if not entity_schemas.NAME_RE.fullmatch(name or ""):
+        raise ConfigError("worker names are lowercase letters, digits and underscores")
+    return Path(wk.workers_dir()) / f"{name}.yaml"
+
+
+def _schema_path(name: str) -> Path:
+    if not entity_schemas.NAME_RE.fullmatch(name or ""):
+        raise ConfigError("schema names are lowercase letters, digits and underscores")
+    return _schemas_dir() / f"{name}.yaml"
+
+
+def _worker_rows() -> list[dict]:
+    """One row per worker file. A broken file still renders — raw text
+    plus the loader's refusal — because the console is where you go to
+    FIX it."""
+    rows = []
+    d = Path(wk.workers_dir())
+    for name in wk.worker_names():
+        path = d / f"{name}.yaml"
+        text = path.read_text(encoding="utf-8")
+        row = {"name": name, "reserved": name in wk.RESERVED_WORKERS,
+               "invalid": "", "text": text, "file": _file_row(path)}
+        try:
+            spec = wk.build_worker(name, text)
+        except VaultError as e:
+            row["invalid"] = str(e)
+            rows.append(row)
+            continue
+        row.update({
+            "description": spec.description,
+            "inputs": list(spec.inputs),
+            "timeout_s": spec.timeout_s,
+            "temperature": spec.temperature,
+            "max_tokens": spec.max_tokens,
+            "prompt": spec.prompt,
+            "hedges": spec.hedges,
+            "schema_text": _dump_yaml(spec.schema),
+        })
+        try:
+            composed = wk.compose_kinds(spec)
+            if composed is not spec:
+                row["generated"] = {
+                    "prompt": composed.prompt,
+                    "kind_enum": composed.schema["properties"]["record"]
+                                                ["properties"]["kind"]["enum"],
+                }
+        except VaultError as e:
+            row["invalid"] = str(e)
+        rows.append(row)
+    rows.extend(_deleted_rows(d))
+    return rows
+
+
+def _deleted_rows(d: Path) -> list[dict]:
+    """Rows for files deleted since their last backup — name plus the
+    restore list, nothing else. The delete toast promises the backups
+    remain restorable; these rows are the surface that keeps it."""
+    return [{"name": Path(name).stem, "deleted": True, "invalid": "",
+             "file": _file_row(d / name)}
+            for name in config_store.removed(d)]
+
+
+def _schema_rows(vault_path: str) -> list[dict]:
+    folder_types = get_config(vault_path).folder_types
+    rows = []
+    for path in sorted(_schemas_dir().glob("*.yaml")):
+        name = path.stem
+        text = path.read_text(encoding="utf-8")
+        row = {"name": name, "engine": name in ENGINE_SCHEMAS,
+               "invalid": "", "text": text, "file": _file_row(path)}
+        try:
+            doc = yaml.safe_load(text)
+            if not isinstance(doc, dict):
+                raise ConfigError("a schema file is a mapping")
+        except (yaml.YAMLError, ConfigError) as e:
+            row["invalid"] = str(e)
+            rows.append(row)
+            continue
+        meta, doc = entity_schemas.split_metadata(doc)
+        form = _form_rows(doc) if doc else []
+        row.update({
+            "description": str(meta.get("description") or "").strip(),
+            "id_prefix": str(meta.get("id_prefix") or ""),
+            "record": meta.get("record"),
+            "schema_text": _dump_yaml(doc) if doc else "",
+            "formable": form is not None,
+            "form": form,
+            "used_by": sorted(f for f, t in folder_types.items() if t == name),
+        })
+        rows.append(row)
+    rows.extend(_deleted_rows(_schemas_dir()))
+    return rows
+
+
+# ---- the field-list form <-> jsonschema ----
+
+
+def _compile_form(fields: list[dict]) -> dict:
+    """The form's rows as the jsonschema they mean. The reverse of
+    _form_rows; a schema is offered as a form only when the round trip
+    is lossless, so the form can never silently rewrite a file."""
+    props: dict = {}
+    required: list[str] = []
+    for row in fields or []:
+        fname = str(row.get("name") or "").strip()
+        if not fname:
+            raise ConfigError("every field needs a name")
+        if fname in props:
+            raise ConfigError(f"field {fname!r} declared twice")
+        kind = str(row.get("kind") or "string")
+        nullable = bool(row.get("nullable"))
+        p: dict = {}
+        if kind in ("string", "date"):
+            p["type"] = ["string", "null"] if nullable else "string"
+            pattern = _DATE_PATTERN if kind == "date" else str(row.get("pattern") or "")
+            if pattern:
+                p["pattern"] = pattern
+            if row.get("min_length"):
+                p["minLength"] = int(row["min_length"])
+        elif kind == "number":
+            p["type"] = ["number", "null"] if nullable else "number"
+        elif kind == "boolean":
+            p["type"] = ["boolean", "null"] if nullable else "boolean"
+        elif kind == "array":
+            p = {"type": "array", "items": {"type": "string"}}
+        elif kind == "enum":
+            vals = [v for v in (row.get("enum") or []) if v not in ("", None)]
+            if not vals:
+                raise ConfigError(f"{fname}: an enum field needs values")
+            p["enum"] = [*vals, None] if nullable else vals
+        elif kind == "const":
+            p["const"] = row.get("const")
+        else:
+            raise ConfigError(f"{fname}: unknown field kind {kind!r}")
+        props[fname] = p
+        if row.get("required"):
+            required.append(fname)
+    doc: dict = {"type": "object"}
+    if required:
+        doc["required"] = required
+    doc["properties"] = props
+    return doc
+
+
+def _form_rows(doc: dict) -> list[dict] | None:
+    """The schema as form rows, or None when the shape is beyond the
+    form (nested objects, combinators, extra keywords). Verified by
+    round-trip: only a schema _compile_form reproduces exactly is
+    formable — anything else stays raw-editor-only."""
+    if not isinstance(doc, dict) or set(doc) - {"type", "required", "properties"}:
+        return None
+    if doc.get("type") != "object":
+        return None
+    required = doc.get("required") or []
+    rows: list[dict] = []
+    for fname, p in (doc.get("properties") or {}).items():
+        if not isinstance(p, dict):
+            return None
+        row = {"name": fname, "required": fname in required, "nullable": False,
+               "kind": "string", "pattern": "", "min_length": 0,
+               "enum": [], "const": None}
+        keys = set(p)
+        if keys == {"const"}:
+            row["kind"], row["const"] = "const", p["const"]
+        elif keys == {"enum"}:
+            vals = list(p["enum"])
+            row["nullable"] = None in vals
+            row["kind"], row["enum"] = "enum", [v for v in vals if v is not None]
+            # Non-string values would come back from the form's text
+            # input as strings — a silent type rewrite. Raw editor only.
+            if not all(isinstance(v, str) for v in row["enum"]):
+                return None
+        elif p.get("type") == "array":
+            if keys - {"type", "items"} or p.get("items") != {"type": "string"}:
+                return None
+            row["kind"] = "array"
+        else:
+            t = p.get("type")
+            if isinstance(t, list):
+                if "null" in t and len(t) == 2:
+                    row["nullable"] = True
+                    t = next(x for x in t if x != "null")
+                else:
+                    return None
+            if t == "boolean":
+                if keys - {"type"}:
+                    return None
+                row["kind"] = "boolean"
+            elif t == "number":
+                if keys - {"type"}:
+                    return None
+                row["kind"] = "number"
+            elif t == "string":
+                if keys - {"type", "pattern", "minLength"}:
+                    return None
+                pattern = str(p.get("pattern") or "")
+                if pattern == _DATE_PATTERN:
+                    row["kind"] = "date"
+                else:
+                    row["pattern"] = pattern
+                row["min_length"] = int(p.get("minLength") or 0)
+            else:
+                return None
+        rows.append(row)
+    return rows if _compile_form(rows) == doc else None
+
+
+# ---- worker writes ----
+
+
+def _worker_doc(fields: dict) -> dict:
+    """The form's fields as the canonical worker document. Rendering is
+    server-side on purpose: the frontend carries no YAML library, and
+    one renderer means one file shape."""
+    doc: dict = {}
+    desc = str(fields.get("description") or "").strip()
+    if desc:
+        doc["description"] = desc
+    doc["inputs"] = [str(i).strip() for i in (fields.get("inputs") or []) if str(i).strip()]
+    for key, cast in (("timeout_s", float), ("temperature", float), ("max_tokens", int)):
+        value = fields.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            doc[key] = cast(value)
+        except (TypeError, ValueError):
+            raise ConfigError(f"{key} must be a number") from None
+    doc["prompt"] = _lit(fields.get("prompt") or "")
+    hedges = str(fields.get("hedges") or "")
+    if hedges.strip():
+        doc["hedges"] = _lit(hedges)
+    schema = fields.get("schema")
+    if isinstance(schema, str):
+        try:
+            schema = yaml.safe_load(schema)
+        except yaml.YAMLError as e:
+            raise ConfigError(f"reply schema: not valid YAML: {e}") from None
+    doc["schema"] = schema
+    return doc
+
+
+def save_worker(name: str, text: str | None = None, fields: dict | None = None) -> dict:
+    """Create or update one worker file. `text` is the raw editor;
+    `fields` is the form, rendered to canonical YAML here. Either way
+    the real loader validates before a byte lands."""
+    name = str(name or "").strip()
+    if text is None:
+        if fields is None:
+            raise ConfigError("nothing to save")
+        text = _dump_yaml(_worker_doc(fields))
+    try:
+        spec = wk.build_worker(name, text)
+        wk.compose_kinds(spec)   # a {kinds} prompt must compose today, not at 2am
+    except VaultError as e:
+        raise ConfigError(str(e)) from None
+    path = _worker_path(name)
+    config_store.write(path, text)
+    return {"restart": False, "file": _rel(path)}
+
+
+def delete_worker(name: str) -> dict:
+    if name in wk.RESERVED_WORKERS:
+        raise ConfigError(
+            f"{name!r} is an engine worker — the pipeline invokes it by name. "
+            "Edit it instead; deleting it would fail every pass that needs it.")
+    path = _worker_path(name)
+    config_store.remove(path)
+    return {"restart": False, "file": _rel(path)}
+
+
+def restore_worker(name: str, stamp: str) -> dict:
+    path = _worker_path(name)
+    config_store.restore(path, stamp)
+    return {"restart": False, "file": _rel(path)}
+
+
+def seed_worker(name: str) -> dict:
+    """A starting file for a new behavior — enough structure that the
+    first save teaches the contract instead of failing it."""
+    _worker_path(name)  # name rule
+    doc = {
+        "description": "What this worker is for, in a sentence.",
+        "inputs": ["text"],
+        "prompt": _Lit(
+            "Say what the model must do with the input below.\n\n"
+            "Return ONLY a JSON object of this shape, nothing else:\n"
+            '{{"result": "..."}}\n\n'
+            "Text:\n{text}\n"),
+        "schema": {"type": "object", "required": ["result"],
+                   "properties": {"result": {"type": "string", "minLength": 1}}},
+    }
+    return {"name": name, "text": _dump_yaml(doc)}
+
+
+def test_worker(name: str, inputs: dict, text: str | None = None,
+                fields: dict | None = None) -> dict:
+    """Run one worker against pasted sample input — the draft (raw text
+    or form fields) when given, else the saved file — on the current
+    worker profile: try before commit. A worker-side failure comes back
+    as the result, not an HTTP error: a schema-invalid reply IS the
+    useful output when you're tuning a prompt."""
+    if text is None and fields is not None:
+        text = _dump_yaml(_worker_doc(fields))
+    try:
+        spec = wk.build_worker(str(name or ""), text) if text is not None \
+            else wk.get_worker(str(name or ""))
+        spec = wk.compose_kinds(spec)
+    except VaultError as e:
+        raise ConfigError(str(e)) from None
+    given = {str(k): str(v) for k, v in (inputs or {}).items()}
+    missing = sorted(set(spec.inputs) - set(given))
+    if missing:
+        raise ConfigError(f"missing input(s) {missing}")
+    fill = {k: given[k] for k in spec.inputs}
+    rendered = wk.render_prompt(spec, **fill)
+
+    async def _call():
+        # A fresh client per test: the module singleton is bound to the
+        # engine thread's event loop, and this runs in the threadpool.
+        client = wk.new_client()
+        try:
+            return await wk.run_worker(spec, client=client, **fill)
+        finally:
+            await client.close()
+
+    out = {"prompt": rendered, "model": wk.worker_model(), "adapt": wk.worker_adapt()}
+    try:
+        out["reply"] = asyncio.run(_call())
+    except VaultError as e:
+        out["error"] = str(e)
+    return out
+
+
+# ---- schema writes ----
+
+
+def _schema_doc(fields: dict) -> dict:
+    doc: dict = {}
+    desc = str(fields.get("description") or "").strip()
+    if desc:
+        doc["description"] = desc
+    prefix = str(fields.get("id_prefix") or "").strip()
+    if prefix:
+        doc["id_prefix"] = prefix
+    record = fields.get("record")
+    if isinstance(record, dict):
+        block: dict = {"kind": str(record.get("kind") or "").strip()}
+        if record.get("default"):
+            block["default"] = True
+        block["files_as"] = str(record.get("files_as") or "daily-append")
+        if record.get("dir_key"):
+            block["dir_key"] = str(record["dir_key"])
+        block["cues"] = _lit(record.get("cues") or "")
+        if str(record.get("guidance") or "").strip():
+            block["guidance"] = _lit(record["guidance"])
+        doc["record"] = block
+    schema_fields = fields.get("fields")
+    if schema_fields:
+        doc.update(_compile_form(list(schema_fields)))
+    elif isinstance(fields.get("schema"), str) and fields["schema"].strip():
+        try:
+            parsed = yaml.safe_load(fields["schema"])
+        except yaml.YAMLError as e:
+            raise ConfigError(f"schema: not valid YAML: {e}") from None
+        if not isinstance(parsed, dict):
+            raise ConfigError("schema must be a mapping")
+        doc.update(parsed)
+    return doc
+
+
+def validate_schema_text(name: str, text: str) -> None:
+    """The schemas loader's checks, run against a candidate before it
+    lands — plus the cross-file record rules (unique kinds, exactly one
+    default) that only make sense against the rest of the directory."""
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        raise ConfigError(f"not valid YAML: {e}") from None
+    if not isinstance(doc, dict) or not doc:
+        raise ConfigError("a schema file is a mapping")
+    meta, doc = entity_schemas.split_metadata(doc)
+    if doc:
+        issues = jsonval.check_schema(doc)
+        if issues:
+            raise ConfigError(f"not a valid jsonschema: {issues[0]}")
+    if name in ENGINE_SCHEMAS and not doc:
+        raise ConfigError(f"{name!r} is an engine schema — it cannot be emptied to metadata only")
+    candidate = None
+    if meta.get("record") is not None:
+        try:
+            candidate = entity_schemas.parse_record_block(name, meta["record"])
+        except VaultError as e:
+            raise ConfigError(str(e)) from None
+    # The cross-file invariants, with this file's candidate in place of
+    # its saved self. Broken sibling files are skipped — one bad file
+    # must not block fixing another.
+    others: dict[str, entity_schemas.RecordKind] = {}
+    for p in sorted(_schemas_dir().glob("*.yaml")):
+        if p.stem == name:
+            continue
+        try:
+            block = (yaml.safe_load(p.read_text(encoding="utf-8")) or {}).get("record")
+            if isinstance(block, dict):
+                other = entity_schemas.parse_record_block(p.stem, block)
+                others[other.name] = other
+        except (yaml.YAMLError, VaultError, OSError):
+            continue
+    if candidate is not None and candidate.name in others:
+        raise ConfigError(f"record kind {candidate.name!r} is already declared by another schema")
+    issue = entity_schemas.kinds_default_issue(
+        list(others.values()) + ([candidate] if candidate else []))
+    if issue:
+        raise ConfigError(f"{issue} — this save would break that")
+
+
+def save_schema(name: str, text: str | None = None, fields: dict | None = None) -> dict:
+    name = str(name or "").strip()
+    path = _schema_path(name)
+    if text is None:
+        if fields is None:
+            raise ConfigError("nothing to save")
+        text = _dump_yaml(_schema_doc(fields))
+    validate_schema_text(name, text)
+    config_store.write(path, text)
+    return {"restart": False, "file": _rel(path)}
+
+
+def delete_schema(name: str, vault_path: str) -> dict:
+    if name in ENGINE_SCHEMAS:
+        raise ConfigError(
+            f"{name!r} is an engine schema — proposals and task lines validate "
+            "against it; deleting it would break every pass.")
+    path = _schema_path(name)
+    used = sorted(f for f, t in get_config(vault_path).folder_types.items() if t == name)
+    if used:
+        raise ConfigError(
+            f"folder(s) {used} map to type {name!r} — remap them in the Vault tab first")
+    if path.is_file():
+        try:
+            block = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("record")
+            if isinstance(block, dict) and \
+                    entity_schemas.parse_record_block(name, block).default:
+                raise ConfigError(
+                    "this is the DEFAULT record kind — every unmatched dump files "
+                    "through it. Make another kind the default first.")
+        except (yaml.YAMLError, VaultError):
+            pass  # a broken file can always be deleted
+    config_store.remove(path)
+    return {"restart": False, "file": _rel(path)}
+
+
+def restore_schema(name: str, stamp: str) -> dict:
+    path = _schema_path(name)
+    config_store.restore(path, stamp)
+    return {"restart": False, "file": _rel(path)}
+
+
+# ---- profile / backend create + delete ----
+
+
+def create_profile(name: str, fields: dict) -> dict:
+    """A new models.yaml profile as a validated textual insert — every
+    byte outside the new block survives, and a render bug is a refusal
+    (validate_models_yaml runs on the result), never a broken file."""
+    name = str(name or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
+        raise ConfigError("profile names are letters, digits, dots, dashes")
+    text = MODELS_YAML.read_text(encoding="utf-8")
+    if name in set(yaml.safe_load(text).get("models") or {}):
+        raise ConfigError(f"profile {name!r} already exists")
+    fields = dict(fields or {})
+    mapping: dict = {}
+    model_id = str(fields.pop("model", "") or "").strip()
+    if not model_id:
+        raise ConfigError("a profile needs a model id")
+    mapping["model"] = model_id
+    base_url = str(fields.pop("base_url", "") or "").strip()
+    if not base_url:
+        raise ConfigError("a profile needs a base_url endpoint")
+    mapping["base_url"] = base_url
+    key_env = str(fields.pop("api_key_env", "") or "").strip()
+    if key_env:
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]*", key_env):
+            raise ConfigError(
+                "api_key_env is the NAME of an environment variable (e.g. "
+                "MY_API_KEY) — never paste the key itself")
+        mapping["api_key_env"] = key_env
+    for field, value in fields.items():
+        if value in (None, ""):
+            continue
+        mapping[field] = _clean_profile_field(field, value)
+    try:
+        text = yamledit.insert_block(text, ["models"], name, mapping)
+    except yamledit.PathError as e:
+        raise ConfigError(str(e)) from None
+    config_store.write(MODELS_YAML, text, validate=validate_models_yaml)
+    return {"restart": True}
+
+
+def delete_profile(name: str, vault_path: str) -> dict:
+    text = MODELS_YAML.read_text(encoding="utf-8")
+    raw = yaml.safe_load(text)
+    if name not in set(raw.get("models") or {}):
+        raise ConfigError(f"no model profile named {name!r}")
+    if name == raw.get("default"):
+        raise ConfigError(f"{name!r} is the chat default — pick another default first")
+    if name == (raw.get("worker") or ""):
+        raise ConfigError(f"{name!r} is the worker profile — pick another worker first")
+    if name == get_config(vault_path).worker:
+        raise ConfigError(
+            f"the vault's Spec.md names {name!r} as its worker — change that first")
+    try:
+        text = yamledit.delete_block(text, ["models"], name)
+    except yamledit.PathError as e:
+        raise ConfigError(str(e)) from None
+    config_store.write(MODELS_YAML, text, validate=validate_models_yaml)
+    return {"restart": True}
+
+
+def create_backend(name: str, fields: dict) -> dict:
+    name = str(name or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
+        raise ConfigError("backend names are letters, digits, dots, dashes")
+    text = MODELS_YAML.read_text(encoding="utf-8")
+    if name in set(yaml.safe_load(text).get("backends") or {}):
+        raise ConfigError(f"backend {name!r} already exists")
+    url = str((fields or {}).get("url") or "").strip()
+    command = str((fields or {}).get("command") or "").strip()
+    if not url or not command:
+        raise ConfigError("a backend needs a url and a launch command")
+    if "backends" not in (yaml.safe_load(text) or {}):
+        # A file with no backends yet grows the section — the first
+        # backend must not require a raw-editor detour.
+        text = text.rstrip("\n") + "\n\nbackends:\n"
+    try:
+        text = yamledit.insert_block(text, ["backends"], name,
+                                     {"url": url, "command": command})
+    except yamledit.PathError as e:
+        raise ConfigError(str(e)) from None
+    config_store.write(MODELS_YAML, text, validate=validate_models_yaml)
+    return {"restart": True}
+
+
+def delete_backend(name: str) -> dict:
+    text = MODELS_YAML.read_text(encoding="utf-8")
+    if name not in set(yaml.safe_load(text).get("backends") or {}):
+        raise ConfigError(f"no backend named {name!r}")
+    try:
+        text = yamledit.delete_block(text, ["backends"], name)
+    except yamledit.PathError as e:
+        raise ConfigError(str(e)) from None
+    config_store.write(MODELS_YAML, text, validate=validate_models_yaml)
+    return {"restart": True}

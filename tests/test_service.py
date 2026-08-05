@@ -79,8 +79,8 @@ def test_ingest_files_a_bare_task_dump_without_asking(vault, wkw):
     undo, so the point of action is also the point of revert."""
     import datetime as _dt
 
-    from tests.conftest import record_worker_returning
     from chickenskratch_vault.vault import Vault
+    from tests.conftest import record_worker_returning
 
     worker = record_worker_returning(
         [{"text": "renew the domain", "due": "2026-08-01"}])

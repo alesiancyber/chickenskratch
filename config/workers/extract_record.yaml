@@ -1,0 +1,122 @@
+description: Decomposes a dump into a record and its tasks — the capture lane's one LLM call. Bounds are sized for whole-transcript inputs; the summary is a reviewed rewrite, never verified.
+inputs:
+- text
+- today
+- this_sunday
+- next_sunday
+timeout_s: 180.0
+temperature: 0.1
+max_tokens: 4000
+prompt: |
+  Decompose the dump below into a RECORD and its TASKS. The dump is rough,
+  unedited notes ("chicken scratch"); the record is its readable form.
+
+  Return ONLY a JSON object of this shape, nothing else:
+  {{"record": {{"kind": "{kind_choices}", "title": "...", "attendees": ["..."], "summary": "..."}},
+   "tasks": [{{"text": "...", "due": "YYYY-MM-DD or null", "scheduled": "YYYY-MM-DD or null", "priority": "highest|high|medium|low|lowest or null", "owed_by": "name or null"}}]}}
+
+  The record:
+  {kinds}
+  - title: a short noun phrase naming what this is ("team weekly",
+    "azure baseline sync"). For the fallback kind with no obvious subject,
+    use "".
+  - attendees: people present or speaking in a meeting, first names as
+    written. [] when not a meeting or none are named.
+  - summary: the dump rewritten as clear, well-formed prose — full
+    sentences, decisions and context preserved, nothing invented. This is
+    a REWRITE of what was said, not commentary on it. Keep every fact,
+    name, number, and reason from the dump; drop only filler. "" when the
+    dump is a bare task list with no prose worth keeping.
+
+  The tasks (same rules as task extraction):
+  - due is a HARD deadline: only when the text states or clearly implies
+    a real commitment ("by Friday", "urgent — do it today" -> due
+    {today}). Today is {today}.
+  - scheduled is a PLAN — "this week" -> {this_sunday}, "next week" ->
+    {next_sunday}, stated intent like "I'll look at it today" -> {today}.
+    Never invent one; never set both from the same phrase.
+  - priority: only if stated or strongly implied. Otherwise null.
+  - owed_by: set when another person or team owes the reader something
+    ("Nadia will send X" -> owed_by "Nadia"). The reader's own actions
+    have owed_by null.
+  - text: the task itself, imperative mood, close to the dump's own words,
+    without repeating the date or priority word.
+  - No tasks -> "tasks": [].
+  {hedges}
+  Dump:
+  {text}
+hedges: |
+  - When unsure whether it is a meeting, use kind "capture".
+  - kind "meeting" needs people talking to each other IN the dump; a
+    solo recap of outcomes or decisions already made is "capture".
+  - The summary may ONLY contain facts stated in the dump. When unsure,
+    quote the dump's own wording. Never add conclusions or advice.
+  - Set owed_by ONLY when the text names who owes it; when unsure, null.
+  - Task text reuses the dump's own words; never compose a new phrasing.
+  - A STATED deadline is a due date: convert relative phrasing ("by
+    friday", "in two weeks", "give me until the 9th") to its date,
+    counting from {today}. Null means the dump stated NO deadline — a
+    deadline you noticed but did not convert is a dropped deadline.
+  - Use the given dates exactly: "this week" is {this_sunday} and "next
+    week" is {next_sunday} even when {this_sunday} is today; never
+    substitute a date you computed yourself.
+  - When the dump truly states no due, scheduled, or priority, use null.
+schema:
+  type: object
+  required:
+  - record
+  - tasks
+  properties:
+    record:
+      type: object
+      required:
+      - kind
+      properties:
+        kind:
+          enum:
+          - meeting
+          - capture
+        title:
+          type:
+          - string
+          - 'null'
+        attendees:
+          type: array
+          items:
+            type: string
+        summary:
+          type:
+          - string
+          - 'null'
+    tasks:
+      type: array
+      items:
+        type: object
+        required:
+        - text
+        properties:
+          text:
+            type: string
+            minLength: 1
+          due:
+            type:
+            - string
+            - 'null'
+            pattern: ^[0-9]{4}-[0-9]{2}-[0-9]{2}$
+          scheduled:
+            type:
+            - string
+            - 'null'
+            pattern: ^[0-9]{4}-[0-9]{2}-[0-9]{2}$
+          priority:
+            enum:
+            - highest
+            - high
+            - medium
+            - low
+            - lowest
+            - null
+          owed_by:
+            type:
+            - string
+            - 'null'

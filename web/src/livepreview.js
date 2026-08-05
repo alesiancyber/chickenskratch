@@ -200,8 +200,10 @@ class PlanChips extends WidgetType {
 /* Callout folding. The default comes from the marker (`-` starts
    collapsed); clicking the header toggles, and the toggle is remembered
    per block — positions map through edits, so typing above a folded
-   verbatim doesn't spring it open. Like every rule here it is a view
-   decision: the bytes on disk never change.
+   verbatim doesn't spring it open. Open callouts are additionally
+   LOCKED by default (see toggleCalloutLock): reading surfaces first,
+   markdown on request. Like every rule here it is a view decision: the
+   bytes on disk never change.
 
    This layer lives in a StateField, not the view plugin, because a
    folded block is a `block: true` replace decoration — those change
@@ -213,21 +215,35 @@ export const toggleCallout = StateEffect.define({
   map: (pos, changes) => changes.mapPos(pos),
 });
 
+/* The lock: callouts are READERS by default. A click inside a locked
+   callout never places the caret — so a misclick can't flip the block
+   into raw markdown under you. The head's edit button unlocks; keyboard
+   caret movement into the block also reveals the raw source, on purpose:
+   arrowing in is deliberate in a way a stray click is not, and hiding
+   text the caret can reach would let edits land on bytes you can't see.
+   Unlocking is per block and per session (default relocks on reopen),
+   same position-keyed mechanism as the fold toggles. */
+export const toggleCalloutLock = StateEffect.define({
+  map: (pos, changes) => changes.mapPos(pos),
+});
+
 /* The callout's header: caret + type when open (the title text stays
    real, editable text on the line); caret + type + title + a line count
    when the whole block is folded behind it. */
 class CalloutHead extends WidgetType {
-  constructor(type, title, count, at, folded) {
+  constructor(type, title, count, at, folded, locked) {
     super();
     this.type = type;
     this.title = title;
     this.count = count;
     this.at = at;           // the title line's start — the fold's key
     this.folded = folded;
+    this.locked = locked;
   }
   eq(o) {
     return o.type === this.type && o.title === this.title
-      && o.count === this.count && o.at === this.at && o.folded === this.folded;
+      && o.count === this.count && o.at === this.at && o.folded === this.folded
+      && o.locked === this.locked;
   }
   toDOM(view) {
     const el = document.createElement(this.folded ? "div" : "span");
@@ -251,6 +267,22 @@ class CalloutHead extends WidgetType {
       e.preventDefault();
       view.dispatch({ effects: toggleCallout.of(this.at) });
     };
+    if (!this.folded) {
+      // The one way into a locked callout's markdown. Its own mousedown,
+      // stopped, so the head's fold toggle doesn't fire on the same click.
+      const lock = document.createElement("button");
+      lock.className = "cm-callout-lock" + (this.locked ? "" : " on");
+      lock.textContent = this.locked ? "edit" : "lock";
+      lock.title = this.locked
+        ? "Unlock — clicks place the caret and reveal the raw markdown"
+        : "Lock — clicks read; the markdown stays put";
+      lock.onmousedown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        view.dispatch({ effects: toggleCalloutLock.of(this.at) });
+      };
+      el.appendChild(lock);
+    }
     return el;
   }
   ignoreEvent() {
@@ -258,14 +290,18 @@ class CalloutHead extends WidgetType {
   }
 }
 
-/* Every callout's decorations, from (doc, selection, toggles) alone —
-   the field recomputes only when one of those moved. `blocks` rides
-   along so the view plugin can skip the claimed lines. A caret anywhere
-   inside a block forces the raw source — nothing is hidden that the
-   caret can't reach. */
-function calloutCompute(doc, selection, toggles) {
+/* Every callout's decorations, from (doc, selection, toggles, unlocks)
+   alone — the field recomputes only when one of those moved. `blocks`
+   rides along so the view plugin can skip the claimed lines; `guarded`
+   is the locked blocks' ranges for the mousedown guard below. A caret
+   inside ANY block — locked or not — forces the raw source: nothing is
+   ever hidden that the caret can reach, or keyboard edits would land on
+   invisible bytes. The lock's whole job is done earlier, by the guard
+   that keeps a CLICK from placing the caret there. */
+function calloutCompute(doc, selection, toggles, unlocks) {
   const marks = [];
   const blocks = [];
+  const guarded = [];
   const active = new Set();
   for (const r of selection.ranges) {
     const from = doc.lineAt(r.from).number;
@@ -282,6 +318,7 @@ function calloutCompute(doc, selection, toggles) {
       if (!QUOTE_PREFIX_RE.test(nxt.text)) break;
       end = nxt;
     }
+    const locked = !unlocks.has(line.from);
     let blockLive = false;
     for (let k = line.number; k <= end.number && !blockLive; k++)
       if (active.has(k)) blockLive = true;
@@ -290,7 +327,7 @@ function calloutCompute(doc, selection, toggles) {
     if (folded && !blockLive && bodyLines > 0) {
       blocks.push({ from: line.from, to: end.to });   // plugin skips it all
       marks.push(Decoration.replace({
-        widget: new CalloutHead(m[1], m[3], bodyLines, line.from, true),
+        widget: new CalloutHead(m[1], m[3], bodyLines, line.from, true, locked),
         block: true,
       }).range(line.from, end.to));
     } else {
@@ -298,10 +335,13 @@ function calloutCompute(doc, selection, toggles) {
       // through the plugin's normal inline rules, so a [[source]] cited
       // inside a callout renders (and clicks) like one anywhere else.
       blocks.push({ from: line.from, to: line.to });
+      // No guard while the caret is inside: the block is already showing
+      // raw source, and a click then is repositioning, not a misclick.
+      if (locked && !blockLive) guarded.push({ from: line.from, to: end.to });
       marks.push(Decoration.line({ class: "cm-callout-title" }).range(line.from));
       if (!active.has(line.number))
         marks.push(Decoration.replace({
-          widget: new CalloutHead(m[1], "", bodyLines, line.from, false),
+          widget: new CalloutHead(m[1], "", bodyLines, line.from, false, locked),
         }).range(line.from, line.from + line.text.length - m[3].length));
       for (let k = line.number + 1; k <= end.number; k++) {
         const b = doc.line(k);
@@ -313,30 +353,64 @@ function calloutCompute(doc, selection, toggles) {
     }
     n = end.number;   // the body is claimed; resume past it
   }
-  return { deco: RangeSet.of(marks, true), blocks };
+  return { deco: RangeSet.of(marks, true), blocks, guarded };
 }
 
+const mapSet = (set, changes) => {
+  const out = new Set();
+  for (const p of set) out.add(changes.mapPos(p));
+  return out;
+};
+
 export const calloutField = StateField.define({
-  create: (state) => ({ toggles: new Set(),
-                        ...calloutCompute(state.doc, state.selection, new Set()) }),
+  create: (state) => ({ toggles: new Set(), unlocks: new Set(),
+                        ...calloutCompute(state.doc, state.selection,
+                                          new Set(), new Set()) }),
   update(value, tr) {
-    let toggles = value.toggles;
+    let { toggles, unlocks } = value;
     if (tr.docChanged) {
-      toggles = new Set();
-      for (const p of value.toggles) toggles.add(tr.changes.mapPos(p));
+      toggles = mapSet(toggles, tr.changes);
+      unlocks = mapSet(unlocks, tr.changes);
     }
+    const flip = (set, orig, pos) => {
+      if (set === orig) set = new Set(set);
+      set.has(pos) ? set.delete(pos) : set.add(pos);
+      return set;
+    };
     for (const e of tr.effects) {
-      if (e.is(toggleCallout)) {
-        if (toggles === value.toggles) toggles = new Set(toggles);
-        toggles.has(e.value) ? toggles.delete(e.value) : toggles.add(e.value);
-      }
+      if (e.is(toggleCallout)) toggles = flip(toggles, value.toggles, e.value);
+      if (e.is(toggleCalloutLock)) unlocks = flip(unlocks, value.unlocks, e.value);
     }
     // tr.newDoc/newSelection, never tr.state: a field reading the new
     // state mid-computation is a re-entrancy error waiting to happen
-    if (!tr.docChanged && !tr.selection && toggles === value.toggles) return value;
-    return { toggles, ...calloutCompute(tr.newDoc, tr.newSelection, toggles) };
+    if (!tr.docChanged && !tr.selection
+        && toggles === value.toggles && unlocks === value.unlocks) return value;
+    return { toggles, unlocks,
+             ...calloutCompute(tr.newDoc, tr.newSelection, toggles, unlocks) };
   },
-  provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
+  provide: (f) => [
+    EditorView.decorations.from(f, (v) => v.deco),
+    /* The lock's teeth: mousedown inside a locked block is consumed
+       before it can place the caret, so the block never flips to raw
+       markdown on a misclick. Real affordances inside the block —
+       wikilinks, the head, the lock button itself — handle their own
+       events and are let through (a wikilink navigates on click, which
+       still fires; only the caret placement dies). Mouse text-selection
+       inside a locked callout dies with it: unlock to select. */
+    EditorView.domEventHandlers({
+      mousedown: (e, view) => {
+        if (e.target.closest?.(".cm-callout-head, .cm-callout-lock, .cm-wikilink"))
+          return false;
+        const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
+        if (pos == null) return false;
+        if (view.state.field(f).guarded.some((b) => pos >= b.from && pos <= b.to)) {
+          e.preventDefault();
+          return true;
+        }
+        return false;
+      },
+    }),
+  ],
 });
 
 /* A list marker reads as a bullet, not as the hyphen you typed. Same
@@ -654,6 +728,17 @@ export const vaultTheme = EditorView.theme({
     borderRadius: "4px",
   },
   ".cm-callout-caret": { display: "inline-block", width: "1em", color: "var(--ink-3)" },
+  /* Same bargain as the plan chips: present when pointed at, invisible
+     otherwise — except while UNLOCKED, when it stays lit so an editable
+     callout is never a surprise. */
+  ".cm-callout-lock": {
+    font: "inherit", fontSize: "var(--text-small)", color: "var(--ink-3)",
+    background: "none", border: "0", padding: "0 4px", marginLeft: "6px",
+    cursor: "pointer", opacity: "0", transition: "opacity 120ms ease",
+  },
+  ".cm-callout-title:hover .cm-callout-lock, .cm-callout-lock:focus": { opacity: "1" },
+  ".cm-callout-lock:hover": { color: "var(--accent)", textDecoration: "underline" },
+  ".cm-callout-lock.on": { color: "var(--accent)", opacity: "1" },
   ".cm-callout-type": {
     fontWeight: "600", fontSize: "var(--text-small)",
     letterSpacing: "0.04em", marginRight: "6px",

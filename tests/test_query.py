@@ -47,6 +47,52 @@ def test_gather_falls_back_to_recency_when_nothing_matches(qvault):
     assert picked  # never an empty pack on a non-empty vault
 
 
+def test_ask_context_is_pre_ai_text_only(qvault):
+    """//ask must never answer from model prose — errors would compound.
+    A pipeline record packs ONLY its verbatim callout bodies (the
+    user's own dump); the model's summary and extracted tasks around
+    them never ride, and never score."""
+    (qvault / "Projects/Sprint Record.md").write_text(
+        "# Sprint Record\n\n"
+        "Zephyrine consolidation vortexplan pushed the sprint.\n\n"
+        "- [ ] chase the vendor 📅 2099-01-01 ^t-aaaaaaaaaaaa\n\n"
+        "> [!NOTE]- Verbatim — 14:32\n"
+        "> vendor said the widget part ships thursday\n"
+        "> maybe friday\n")
+    picked, _ = query.gather(str(qvault), "when does the vendor widget part ship?")
+    packed = dict(picked)["Projects/Sprint Record.md"]
+    assert "vendor said the widget part ships thursday" in packed
+    assert "maybe friday" in packed
+    assert "Zephyrine consolidation" not in packed  # model prose never packs
+    assert "chase the vendor" not in packed     # extracted tasks are model output
+    # scoring runs over the filtered text too (gather scores user_text,
+    # never the raw note): words that exist only in the model summary
+    # are simply not in the text a question is matched against
+    raw = (qvault / "Projects/Sprint Record.md").read_text()
+    filtered = query.user_text(raw)
+    assert "zephyrine" not in filtered.lower()
+    # the header rides too, as the raw line minus its quote prefix — so
+    # every packed line (a quote's only source) is a substring of a real
+    # line in the note and a verified quote can always anchor its jump
+    assert "[!NOTE]- Verbatim — 14:32" in filtered
+    for line in filtered.splitlines():
+        assert not line or line in raw
+
+
+def test_ask_context_strips_command_answer_callouts(qvault):
+    """A //command's answer written back into a hand-typed note is model
+    output wherever it sits — the rest of the note rides whole."""
+    (qvault / "Projects/Handwritten.md").write_text(
+        "# Handwritten\n\nmy own thinking about quotas\n\n"
+        "> [!NOTE] //ask what did we decide about quotas?\n"
+        "> An earlier model answer that must not feed the next one.\n\n"
+        "more of my own text about quotas\n")
+    picked, _ = query.gather(str(qvault), "thinking about quotas")
+    packed = dict(picked)["Projects/Handwritten.md"]
+    assert "my own thinking" in packed and "more of my own text" in packed
+    assert "earlier model answer" not in packed
+
+
 def test_ask_renders_answer_with_validated_sources(qvault, monkeypatch):
     calls = scripted_worker(monkeypatch, {
         "answer": "Three: the wedged lock, the stale memo, the dead worker.",

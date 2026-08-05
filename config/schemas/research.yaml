@@ -1,6 +1,8 @@
-# Note entity: a research note's frontmatter. The required "## Sources"
-# section (ranked links, never paraphrase) is checked separately by
-# schemas.validate_research_body — jsonschema can't see the body.
+description: >
+  A research note's frontmatter. The required "## Sources" section
+  (ranked links, never paraphrase) is checked separately by
+  schemas.validate_research_body — jsonschema can't see the body.
+id_prefix: r
 type: object
 required: [id, type, status]
 properties:

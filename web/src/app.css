@@ -898,3 +898,35 @@ section { margin-bottom: var(--s5); }
   margin: var(--s3) 0;
 }
 .cfg-backups { margin-top: var(--s4); border-top: 1px solid var(--line); padding-top: var(--s3); }
+
+/* Behaviors + Schemas tabs: cards share .cfg-profile; these are the
+   pieces they add — the collapsed card header, the field-list rows, the
+   test panel's prompt/reply readouts. */
+.cfg-cardtoggle {
+  text-align: left; border: none; background: none; padding: 0;
+  color: var(--ink); font: inherit; cursor: pointer;
+}
+.cfg-fieldrow {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: 2px 0;
+}
+.cfg-fieldrow input, .cfg-fieldrow select {
+  font: inherit; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 4px 6px; min-width: 0;
+}
+.cfg-fieldrow label { display: flex; align-items: center; gap: 4px; flex: none; }
+.cfg-test { margin-top: var(--s4); border-top: 1px solid var(--line); padding-top: var(--s3); }
+.cfg-test .cfg-inline { margin-bottom: var(--s2); }
+.cfg-test textarea {
+  font-family: var(--font-mono); font-size: 12px; width: 100%;
+  color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px;
+}
+.cfg-pre {
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.5;
+  background: var(--hover); border-radius: var(--radius);
+  padding: var(--s2) var(--s3);
+  max-height: 40vh; overflow: auto; white-space: pre-wrap;
+}
+.chip.attention { color: var(--accent); border-color: var(--accent); }

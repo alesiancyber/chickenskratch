@@ -59,3 +59,96 @@
   expect:
     - {a: t-ccccccccccc1, b: t-ccccccccccc2, verdict: duplicate}
     - {a: t-ddddddddddd1, b: t-ddddddddddd2, verdict: distinct}
+
+# The keep rule: on a duplicate, keep the line with dates or priority.
+- name: overlap-keep-prefers-the-dated-line
+  worker: overlap
+  pairs:
+    - a: t-keep00000001
+      b: t-keep00000002
+      a_text: "Renew the wildcard certificate 📅 2026-08-20 ⏫"
+      b_text: "renew wildcard cert"
+      a_note: Ops/Certs.md
+      b_note: Daily/2026-07-30.md
+  expect:
+    - {a: t-keep00000001, b: t-keep00000002, verdict: duplicate, keep: t-keep00000001}
+
+# Rephrased duplicate: no shared surface wording, same work — the case
+# embedding-distance candidates get wrong in both directions.
+- name: overlap-rephrased-duplicate
+  worker: overlap
+  pairs:
+    - a: t-reph00000001
+      b: t-reph00000002
+      a_text: "Set up nightly backups for the NAS"
+      b_text: "Configure the NAS backup job to run each night"
+  expect:
+    - {a: t-reph00000001, b: t-reph00000002, verdict: duplicate}
+
+# Dependent work is related, never duplicate: finishing the test suite
+# does not fix the bug, and closing one line must not close the other.
+- name: overlap-dependency-is-related
+  worker: overlap
+  pairs:
+    - a: t-depd00000001
+      b: t-depd00000002
+      a_text: "Fix the session timeout bug in the auth module"
+      b_text: "Write regression tests for the auth module timeout"
+  expect:
+    - {a: t-depd00000001, b: t-depd00000002, verdict: related}
+
+# Same system, different verbs: monitoring a thing and documenting the
+# same thing are different work with heavy word overlap.
+- name: overlap-same-noun-different-work
+  worker: overlap
+  pairs:
+    - a: t-verb00000001
+      b: t-verb00000002
+      a_text: "Add alerting for the ingest pipeline lag"
+      b_text: "Document the ingest pipeline architecture"
+  expect:
+    - {a: t-verb00000001, b: t-verb00000002, verdict: distinct}
+
+# Project boundary inside one org: same wording, different systems —
+# the systems rule, not just the client rule.
+- name: overlap-system-boundary
+  worker: overlap
+  pairs:
+    - a: t-syst00000001
+      b: t-syst00000002
+      a_text: "Upgrade PostgreSQL on the billing cluster"
+      b_text: "Upgrade PostgreSQL on the analytics cluster"
+  expect:
+    - {a: t-syst00000001, b: t-syst00000002, verdict: distinct}
+
+# A five-pair batch with every verdict type present: answer all five,
+# invent none, and keep the verdicts from bleeding across neighbors.
+- name: overlap-five-pair-batch
+  worker: overlap
+  pairs:
+    - a: t-btch00000001
+      b: t-btch00000002
+      a_text: "Draft the Q3 roadmap deck"
+      b_text: "Prepare the Q3 roadmap presentation"
+    - a: t-btch00000003
+      b: t-btch00000004
+      a_text: "Order standing desks for the new hires"
+      b_text: "Onboard the new hires to the ticketing system"
+    - a: t-btch00000005
+      b: t-btch00000006
+      a_text: "Rotate the API keys for staging"
+      b_text: "Rotate the API keys for production"
+    - a: t-btch00000007
+      b: t-btch00000008
+      a_text: "Investigate the memory leak in the exporter"
+      b_text: "Deploy the exporter fix once the leak is found"
+    - a: t-btch00000009
+      b: t-btch00000010
+      a_text: "book flights for the offsite"
+      b_text: "Book offsite travel flights"
+  expect:
+    - {a: t-btch00000001, b: t-btch00000002, verdict: duplicate}
+    - {a: t-btch00000003, b: t-btch00000004, verdict: distinct}
+    - {a: t-btch00000005, b: t-btch00000006, verdict: distinct}
+    - {a: t-btch00000007, b: t-btch00000008, verdict: related}
+    - {a: t-btch00000009, b: t-btch00000010, verdict: duplicate}

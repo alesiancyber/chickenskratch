@@ -63,10 +63,18 @@ export default function Pane({ open, onClose, onOpenNote }) {
   // replace): the old SSE stream belongs to a dead session, so tear it
   // down and subscribe to the fresh one.
   const [gen, setGen] = useState(0);
+  // The stream connects on FIRST open, not on mount: the pane is closed
+  // by default, and a session that never opens it should not hold a
+  // server connection ticking for nobody. Once opened it stays
+  // connected across closes, so a turn finishing while the pane is
+  // tucked away still lands in the transcript.
+  const [started, setStarted] = useState(false);
+  useEffect(() => { if (open) setStarted(true); }, [open]);
   const scroller = useRef(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
+    if (!started) return undefined;
     const es = new EventSource("/api/chat/events");
     const add = (item) => setItems((xs) => [...xs, item]);
     es.addEventListener("ready", (e) => setMeta(JSON.parse(e.data)));
@@ -120,7 +128,7 @@ export default function Pane({ open, onClose, onOpenNote }) {
         x.kind === "gate" && x.id === d.id ? { ...x, resolved: d.approved } : x));
     });
     return () => es.close();
-  }, [gen]);
+  }, [gen, started]);
 
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = 1e6;

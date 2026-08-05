@@ -7,7 +7,7 @@
 # bake it into a Modelfile.
 
 default: gemini-3.1-pro   # cloud is the deliberate default; local profiles below still work via -m
-worker: gemini-3.1-pro    # profile the background workers run on (WORKER_* env still overrides)
+worker: qwen35-moe        # profile the background workers run on (WORKER_* env still overrides)
 # Worker prompts are written for a capable model; `worker_adapt: small`
 # on a profile splices in the conservative hedge rules when THAT profile
 # runs the workers. With no worker profile at all, the built-in 4B
@@ -119,6 +119,25 @@ models:
     max_iterations: 15
     confirm_writes: true
     servers: [vault, ms-learn]   # cloud never sees the filesystem server
+  gemma4-moe:
+    model: gemma-4-26b-a4b-nothink
+    base_url: http://10.0.0.85:8081/v1
+    api_key_env: B70_API_KEY
+    worker_adapt: small
+    worker_timeout_s: 300.0
+    worker_max_tokens: 8000
+  qwen3-4b:
+    model: qwen3-4b
+    base_url: http://10.0.0.85:8081/v1
+    api_key_env: B70_API_KEY
+    worker_adapt: small
+    worker_timeout_s: 300.0
+  qwen35-moe:
+    model: qwen3.6-35b-a3b
+    base_url: http://10.0.0.85:8081/v1
+    api_key_env: B70_API_KEY
+    worker_adapt: small
+    worker_timeout_s: 300.0
 
   # Example future entry for the 32GB network server:
   # homelab-70b:

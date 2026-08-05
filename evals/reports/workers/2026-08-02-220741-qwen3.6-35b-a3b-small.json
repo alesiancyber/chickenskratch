@@ -1,0 +1,3003 @@
+[
+  {
+    "name": "answer-how-many-names-the-items",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 6.1,
+    "mean_seconds": 2.0,
+    "budget_s": 60.0,
+    "last_reply": {
+      "answer": "There are 3 unwritten detection rules: kerberoasting detection for tier zero accounts, DCSync attempt alert scoped to non-DC sources, and pass-the-hash correlation across jump boxes.",
+      "sources": [
+        "Projects/Detection Backlog.md"
+      ],
+      "quotes": {
+        "Projects/Detection Backlog.md": "Rules still unwritten after the purple team exercise:"
+      }
+    }
+  },
+  {
+    "name": "answer-exact-figure-right-note",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.4,
+    "mean_seconds": 1.1,
+    "budget_s": 60.0,
+    "last_reply": {
+      "answer": "The ingest overage cost $4,200 last month.",
+      "sources": [
+        "Finance/Ingest Costs.md"
+      ],
+      "quotes": {
+        "Finance/Ingest Costs.md": "Last month's ingest overage came to $4,200"
+      }
+    }
+  },
+  {
+    "name": "answer-refuses-when-notes-are-silent",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 2.0,
+    "mean_seconds": 0.7,
+    "budget_s": 60.0,
+    "last_reply": {
+      "answer": "The notes do not contain the wifi password for the guest network.",
+      "sources": [],
+      "quotes": {}
+    }
+  },
+  {
+    "name": "answer-synthesis-cites-both-notes",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 4.9,
+    "mean_seconds": 1.6,
+    "budget_s": 60.0,
+    "last_reply": {
+      "answer": "Yes, the ERP vendor is ready for the FIDO key rollout. Rio owns removing the MFA exemption.",
+      "sources": [
+        "Vendors/ERP Notes.md",
+        "Meetings/2026-07-25 Incident Retro.md"
+      ],
+      "quotes": {
+        "Vendors/ERP Notes.md": "Their march release added fido key support",
+        "Meetings/2026-07-25 Incident Retro.md": "Rio owns removing it"
+      }
+    }
+  },
+  {
+    "name": "answer-ignores-the-near-miss-note",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.1,
+    "mean_seconds": 1.0,
+    "budget_s": 60.0,
+    "last_reply": {
+      "answer": "The registrar transfer window closes on August 15.",
+      "sources": [
+        "Projects/DNS Migration.md"
+      ],
+      "quotes": {
+        "Projects/DNS Migration.md": "The transfer window closes august 15"
+      }
+    }
+  },
+  {
+    "name": "answer-list-question-lists-all",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.6,
+    "mean_seconds": 1.9,
+    "budget_s": 60.0,
+    "last_reply": {
+      "answer": "The retro identified three findings: 1) no documented escalation path, causing a single-person bottleneck; 2) the finance group MFA exemption is still active; and 3) no canary tokens in the login page template, allowing the cloned page to run for six hours before detection.",
+      "sources": [
+        "Meetings/2026-07-25 Incident Retro.md"
+      ],
+      "quotes": {
+        "Meetings/2026-07-25 Incident Retro.md": "Finding one: no documented escalation path"
+      }
+    }
+  },
+  {
+    "name": "answer-quote-hostile-characters",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.2,
+    "mean_seconds": 1.1,
+    "budget_s": 60.0,
+    "last_reply": {
+      "answer": "The beacon traffic was coming from WS-FIN-07.",
+      "sources": [
+        "Ops/Hunt Log.md"
+      ],
+      "quotes": {
+        "Ops/Hunt Log.md": "beacon-like traffic traced to WS-FIN-07"
+      }
+    }
+  },
+  {
+    "name": "answer-long-pack-needle",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "only 0 quote(s) survive verification (need 1); offered: {'Ops/Journal 2026-06.md': \"the actual root cause was the expired certificate on the backup target's management interface\"}"
+    ],
+    "seconds": 5.4,
+    "mean_seconds": 1.8,
+    "budget_s": 90,
+    "last_reply": {
+      "answer": "The root cause was an expired certificate on the backup target's management interface. The backup job authenticated over HTTPS, and the client rejected the expired certificate following the April agent update.",
+      "sources": [
+        "Ops/Journal 2026-06.md"
+      ],
+      "quotes": {
+        "Ops/Journal 2026-06.md": "the actual root cause was the expired certificate on the backup target's management interface"
+      }
+    }
+  },
+  {
+    "name": "answer-monster-pack",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 14.2,
+    "mean_seconds": 4.7,
+    "budget_s": 120,
+    "last_reply": {
+      "answer": "The colo migration was postponed because the county denied the crane permit for the generator lift, which is required for power redundancy.",
+      "sources": [
+        "Ops/Journal 2026-H1.md"
+      ],
+      "quotes": {
+        "Ops/Journal 2026-H1.md": "the crane permit for the generator lift was denied by the county, and without the lift there is no power redundancy story"
+      }
+    }
+  },
+  {
+    "name": "record-bare-task-list-autofiles",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 8.7,
+    "mean_seconds": 2.9,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "capture",
+        "title": "",
+        "attendees": [],
+        "summary": ""
+      },
+      "tasks": [
+        {
+          "text": "renew the mail cert",
+          "due": "2026-08-07",
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        },
+        {
+          "text": "ping dana about the vpn profile",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": "dana"
+        },
+        {
+          "text": "read the sentinel pricing page",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-meeting-detected-and-filed",
+    "passed": false,
+    "clean_runs": 1,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "gate: only 65% of 'draft the remediation plan' traces to any source line"
+    ],
+    "seconds": 9.4,
+    "mean_seconds": 3.1,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "meeting",
+        "title": "azure baseline review",
+        "attendees": [
+          "Priya",
+          "Marcus"
+        ],
+        "summary": "Priya and Marcus met to review the Azure baseline. Priya identified conditional access gaps, noting that legacy authentication remains enabled on two tenants. Marcus agreed to own the remediation plan, with a target draft date of 2026-08-09. The group decided to move the review cadence to biweekly."
+      },
+      "tasks": [
+        {
+          "text": "draft remediation plan",
+          "due": "2026-08-09",
+          "scheduled": null,
+          "priority": null,
+          "owed_by": "Marcus"
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-status-note-stays-capture",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 7.1,
+    "mean_seconds": 2.4,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "capture",
+        "title": "Meridian rollout status",
+        "attendees": [],
+        "summary": "The Sentinel connector is ingesting again after the schema change and the backlog is drained. The runbook still needs to be updated to cover the new connector settings."
+      },
+      "tasks": [
+        {
+          "text": "update the runbook to cover the new connector settings",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-transcript-becomes-minutes",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "gate: only 49% of 'have the list of rules to archive ready' traces to any source line",
+      "gate: invented word(s) ['deliver'] in 'deliver the phishing simulation report'"
+    ],
+    "seconds": 19.4,
+    "mean_seconds": 6.5,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "meeting",
+        "title": "quarterly detection review",
+        "attendees": [
+          "Dana",
+          "Rio",
+          "Priya"
+        ],
+        "summary": "Dana and Rio reviewed the 61 live analytic rules, noting that nine have not fired in six months. They agreed to archive these rules rather than delete them to allow for potential restoration if the threat model changes. Priya reported a $4,200 ingest overage from the previous month and warned that keeping verbose diagnostics on domain controllers would exceed the quarterly budget. Dana directed the team to drop verbose diagnostics on the domain controllers while keeping them on tier zero jump boxes. Rio committed to providing the list of rules to archive by 2026-08-05. Priya agreed to change the DCRs the following day. Rio also noted that HR requires the phishing simulation report before the all-hands meeting on 2026-08-07, and Dana confirmed that Rio owns this task."
+      },
+      "tasks": [
+        {
+          "text": "have the list of rules to archive ready",
+          "due": "2026-08-05",
+          "scheduled": null,
+          "priority": null,
+          "owed_by": "Rio"
+        },
+        {
+          "text": "change the DCRs",
+          "due": null,
+          "scheduled": "2026-08-03",
+          "priority": null,
+          "owed_by": "Priya"
+        },
+        {
+          "text": "phishing simulation report",
+          "due": "2026-08-07",
+          "scheduled": null,
+          "priority": null,
+          "owed_by": "Rio"
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-owner-prefix-lands-in-owed-by",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 9.9,
+    "mean_seconds": 3.3,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "meeting",
+        "title": "",
+        "attendees": [
+          "Rio",
+          "me"
+        ],
+        "summary": "Rio will finish the DNS migration this week, noting that the registrar has already confirmed the transfer codes. Once that is complete, the speaker needs to update the SPF records."
+      },
+      "tasks": [
+        {
+          "text": "finish the DNS migration",
+          "due": null,
+          "scheduled": "2026-08-02",
+          "priority": null,
+          "owed_by": "Rio"
+        },
+        {
+          "text": "update the SPF records",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-waiting-on-split",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 8.6,
+    "mean_seconds": 2.9,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "capture",
+        "title": "",
+        "attendees": [],
+        "summary": "Talked to the vendor. Nadia will send the revised contract by 2026-08-05. I need to review the indemnification section once it arrives."
+      },
+      "tasks": [
+        {
+          "text": "Review the indemnification section once it arrives",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        },
+        {
+          "text": "Send the revised contract",
+          "due": "2026-08-05",
+          "scheduled": null,
+          "priority": null,
+          "owed_by": "Nadia"
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-week-anchors-survive",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 8.3,
+    "mean_seconds": 2.8,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "capture",
+        "title": "Planning notes to self",
+        "attendees": [],
+        "summary": "This week: migrate the wiki to the new space. Next week: decommission the old server. No hard deadlines on either, it's just sequencing."
+      },
+      "tasks": [
+        {
+          "text": "migrate the wiki to the new space",
+          "due": null,
+          "scheduled": "2026-08-02",
+          "priority": null,
+          "owed_by": null
+        },
+        {
+          "text": "decommission the old server",
+          "due": null,
+          "scheduled": "2026-08-09",
+          "priority": null,
+          "owed_by": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-decisions-are-not-tasks",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "gate: only 57% of 'archive the rejected rewrite branch' traces to any source line"
+    ],
+    "seconds": 6.1,
+    "mean_seconds": 2.0,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "capture",
+        "title": "",
+        "attendees": [],
+        "summary": "The framework debate is wrapped; the team is standardizing on the existing stack with no rewrite. Everyone reviewed and approved the proposal last sprint. The remaining task is to archive the rejected rewrite branch."
+      },
+      "tasks": [
+        {
+          "text": "archive the rejected rewrite branch",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-no-tasks-invented",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 4.6,
+    "mean_seconds": 1.5,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "capture",
+        "title": "",
+        "attendees": [],
+        "summary": "Quiet day. Cleared the inbox to zero, took a long walk at lunch, and read two chapters of the distributed systems book. The chapter on consensus was better than expected."
+      },
+      "tasks": []
+    }
+  },
+  {
+    "name": "record-hostile-markdown-verbatim-survives",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.3,
+    "mean_seconds": 1.8,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "capture",
+        "title": "",
+        "attendees": [],
+        "summary": ""
+      },
+      "tasks": [
+        {
+          "text": "rotate the api keys for the staging environment",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-long-braindump-nothing-dropped",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "no returned task matches '(?i)dpa'",
+      "gate: only 49% of 'place the order with the reseller for the laptop refresh for the analysts' traces to any source line",
+      "gate: only 67% of 'write the two lateral movement rules from the purple team exercise' traces to any source line",
+      "gate: only 57% of 'send the log volume numbers to Ravi' traces to any source line",
+      "gate: only 64% of 'decide whether to submit the conference talk' traces to any source line"
+    ],
+    "seconds": 22.4,
+    "mean_seconds": 7.5,
+    "budget_s": 120.0,
+    "last_reply": {
+      "record": {
+        "kind": "capture",
+        "title": "brain dump",
+        "attendees": [],
+        "summary": "The laptop refresh for analysts is approved with finance sign-off; the order must be placed with the reseller by Friday, 2026-08-07, to meet the hardware cutoff. The MSP contract renewal is upcoming but not yet actionable. The detection backlog is concerning, specifically the two lateral movement rules from the purple team exercise which are three weeks overdue, and a coverage map against the attack matrix is a future, non-urgent task. Ravi needs a response from legal regarding data retention, but the author owes Ravi log volume numbers today. Ravi will send the updated DPA draft once legal responds. The conference talk submission closes on 2026-08-16, and the author intends to plan the quarterly access review for next week."
+      },
+      "tasks": [
+        {
+          "text": "place the order with the reseller for the laptop refresh for the analysts",
+          "due": "2026-08-07",
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        },
+        {
+          "text": "write the two lateral movement rules from the purple team exercise",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        },
+        {
+          "text": "build the coverage map against the attack matrix",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        },
+        {
+          "text": "send the log volume numbers to Ravi",
+          "due": "2026-08-02",
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        },
+        {
+          "text": "decide whether to submit the conference talk",
+          "due": "2026-08-16",
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        },
+        {
+          "text": "do the quarterly access review",
+          "due": null,
+          "scheduled": "2026-08-09",
+          "priority": null,
+          "owed_by": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "record-long-transcript-full-pipeline",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "forbidden pattern '(?i)blocklist' in task text 'get the phishing domains into the blocklist feed'",
+      "gate: only 43% of 'stage removal of the MFA exemption for the finance group, starting with a pilot with five finance users next week' traces to any source line",
+      "gate: invented word(s) ['submit'] in 'submit the takedown request to the registrar'"
+    ],
+    "seconds": 30.8,
+    "mean_seconds": 10.3,
+    "budget_s": 180,
+    "last_reply": {
+      "record": {
+        "kind": "meeting",
+        "title": "incident retro for the phishing wave from last week",
+        "attendees": [
+          "Dana",
+          "Marcus",
+          "Priya",
+          "Rio"
+        ],
+        "summary": "The team reviewed the phishing wave from last week. The timeline showed a 38-minute gap between the first reported click (09:14) and the first containment action (09:52), with 11 minutes of that delay attributed to Marcus being in a meeting. Marcus committed to drafting a documented escalation runbook to avoid routing through a single person, with a deadline of 2026-08-09. Scope analysis revealed 214 users received the email, 9 clicked, and 3 entered credentials; all three reset within the hour, and no successful logins occurred from attacker infrastructure. Rio noted that the credential entries were on a fake ADFS page and highlighted that the finance group still lacks phishing-resistant MFA due to an exemption from the ERP migration that has persisted for two years. Dana confirmed that removing the exemption is not disruptive since the ERP vendor now supports FIDO keys. Rio owns removing the exemption, planning to pilot with five finance users next week before rolling out to the rest of the group. Priya confirmed that phishing domains were added to the blocklist feed and a takedown request was sent to the registrar an hour ago. Regarding detection, the fake page was live for six hours before the first report; Dana assigned adding a canary token to the login footer template as finding three but placed it in the backlog without an owner. Marcus noted that users who reported received no acknowledgment, causing two to re-report; Dana also placed the auto-acknowledgment feature in the backlog."
+      },
+      "tasks": [
+        {
+          "text": "draft the escalation runbook",
+          "due": "2026-08-09",
+          "scheduled": null,
+          "priority": null,
+          "owed_by": "Marcus"
+        },
+        {
+          "text": "remove the mfa exemption for the finance group",
+          "due": null,
+          "scheduled": "2026-08-09",
+          "priority": null,
+          "owed_by": "Rio"
+        },
+        {
+          "text": "get the phishing domains into the blocklist feed",
+          "due": null,
+          "scheduled": "2026-08-02",
+          "priority": null,
+          "owed_by": "Priya"
+        },
+        {
+          "text": "send the takedown request to the registrar",
+          "due": null,
+          "scheduled": "2026-08-02",
+          "priority": null,
+          "owed_by": "Priya"
+        },
+        {
+          "text": "add a canary token in the login footer template",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        },
+        {
+          "text": "implement auto-ack on the report button",
+          "due": null,
+          "scheduled": null,
+          "priority": null,
+          "owed_by": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "urgent-priority-mapping",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 4.6,
+    "mean_seconds": 1.5,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "renew the cert on the mail server",
+        "due": "2026-08-02",
+        "scheduled": null,
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "someday-item-kept",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.3,
+    "mean_seconds": 1.1,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "redesign the pricing page",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "relative-date-two-weeks",
+    "passed": false,
+    "clean_runs": 1,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "'(?i)review': due=None, expected '{plus14}'"
+    ],
+    "seconds": 5.5,
+    "mean_seconds": 1.8,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Nadia will send the vendor contract",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Nadia"
+      },
+      {
+        "text": "someone on our side needs to review it",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "owed-commitment-followup",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.5,
+    "mean_seconds": 1.8,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "get me the firewall logs",
+        "due": "2026-08-03",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Marcus"
+      },
+      {
+        "text": "draft the Sigma detection rule",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "completed-item-excluded",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "'(?i)postmortem': due=None, expected '{tomorrow}'"
+    ],
+    "seconds": 3.7,
+    "mean_seconds": 1.2,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "schedule the postmortem",
+        "due": null,
+        "scheduled": "2026-08-03",
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "no-tasks-pure-status",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 1.1,
+    "mean_seconds": 0.4,
+    "budget_s": 30.0,
+    "last_reply": []
+  },
+  {
+    "name": "decision-is-not-a-task",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 1.0,
+    "mean_seconds": 0.3,
+    "budget_s": 30.0,
+    "last_reply": []
+  },
+  {
+    "name": "multiple-tasks-mixed",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 8.2,
+    "mean_seconds": 2.7,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Sam needs to file the quarterly taxes",
+        "due": "2026-08-07",
+        "scheduled": null,
+        "priority": "high",
+        "owed_by": "Sam"
+      },
+      {
+        "text": "Someone should also update the onboarding doc",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "rotate the leaked API key",
+        "due": "2026-08-02",
+        "scheduled": null,
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "date-not-repeated-in-text",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "'(?i)expense report': due=None, expected '{tomorrow}'"
+    ],
+    "seconds": 4.2,
+    "mean_seconds": 1.4,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Remind me that I have to submit the expense report",
+        "due": null,
+        "scheduled": "2026-08-03",
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "cancelled-plan-is-not-a-task",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 1.3,
+    "mean_seconds": 0.4,
+    "budget_s": 30.0,
+    "last_reply": []
+  },
+  {
+    "name": "negated-instruction-not-inverted",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "'(?i)legal review|schedule.*review': due=None, expected '{plus3}'",
+      "'(?i)legal review|schedule.*review': owed_by=None, expected 'Sam'"
+    ],
+    "seconds": 8.1,
+    "mean_seconds": 2.7,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Do NOT deploy the new detection pack yet",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "legal review first",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Sam owns scheduling that review for 2026-08-05",
+        "due": null,
+        "scheduled": "2026-08-05",
+        "priority": null,
+        "owed_by": "Sam"
+      }
+    ]
+  },
+  {
+    "name": "two-people-owe-things",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 7.9,
+    "mean_seconds": 2.6,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Dana will send over the IR runbook draft",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Dana"
+      },
+      {
+        "text": "Marcus committed to getting us VPN access",
+        "due": "2026-08-07",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Marcus"
+      },
+      {
+        "text": "I just need to review both once they land",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "delegated-by-me-is-owed",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 6.2,
+    "mean_seconds": 2.1,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "update the on-call rotation doc",
+        "due": "2026-08-07",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Priya"
+      },
+      {
+        "text": "take the pager myself this weekend",
+        "due": null,
+        "scheduled": "2026-08-02",
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "waiting-on-phrasing",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "no returned task matches '(?i)coverage report'",
+      "expected exactly 2 task(s), got 1; extra: []"
+    ],
+    "seconds": 5.2,
+    "mean_seconds": 1.7,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "map our log sources against MITRE",
+        "due": null,
+        "scheduled": "2026-08-02",
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "deliver the Q2 detection coverage report",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Northwind"
+      }
+    ]
+  },
+  {
+    "name": "critical-severity-mapping",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.7,
+    "mean_seconds": 1.2,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Patching it",
+        "due": "2026-08-02",
+        "scheduled": null,
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "low-priority-phrasing",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.5,
+    "mean_seconds": 1.2,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "tidy up the tags in the research notes",
+        "due": null,
+        "scheduled": null,
+        "priority": "lowest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "numbers-are-not-dates",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.5,
+    "mean_seconds": 1.8,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Order 3 replacement YubiKeys for the new hires",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "put them in lockbox 7",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "in-a-week-relative-date",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "no returned task matches '(?i)obsidian sync|decide|buying'",
+      "expected exactly 1 task(s), got 0; extra: []"
+    ],
+    "seconds": 1.3,
+    "mean_seconds": 0.4,
+    "budget_s": 30.0,
+    "last_reply": []
+  },
+  {
+    "name": "eod-tomorrow",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.9,
+    "mean_seconds": 1.3,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Finance needs the reconciled invoice list",
+        "due": "2026-08-03",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Finance"
+      }
+    ]
+  },
+  {
+    "name": "duplicate-mention-extracted-once",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.7,
+    "mean_seconds": 1.2,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "renew the wildcard cert",
+        "due": "2026-08-09",
+        "scheduled": null,
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "reference-material-is-not-a-task",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 1.4,
+    "mean_seconds": 0.5,
+    "budget_s": 30.0,
+    "last_reply": []
+  },
+  {
+    "name": "task-buried-mid-paragraph",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.4,
+    "mean_seconds": 1.1,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "regenerate the firewall rule export",
+        "due": "2026-08-09",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "braindump-fragments",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.3,
+    "mean_seconds": 1.8,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "replace laptop battery",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "ask alex re: sso timeline",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "alex"
+      }
+    ]
+  },
+  {
+    "name": "forwarded-email-style",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.8,
+    "mean_seconds": 1.3,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "re-enroll MFA devices",
+        "due": "2026-08-16",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "past-recap-plus-single-action",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.3,
+    "mean_seconds": 1.1,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "write the retro doc",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "suggestion-we-should-is-a-task",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.4,
+    "mean_seconds": 1.1,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "add canary tokens to the file shares",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "date-and-priority-both-stated",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.7,
+    "mean_seconds": 1.2,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "submit the SOC 2 evidence bundle",
+        "due": "2026-08-07",
+        "scheduled": null,
+        "priority": "high",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "negation-hold-off-variant",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "forbidden pattern '(?i)^email the customer list' in task text 'Email the customer list'"
+    ],
+    "seconds": 6.2,
+    "mean_seconds": 2.1,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Email the customer list",
+        "due": "2026-08-03",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Sign off on the customer list",
+        "due": "2026-08-03",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Dana"
+      }
+    ]
+  },
+  {
+    "name": "cancellation-scrapped-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.3,
+    "mean_seconds": 1.1,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "cancel the venue deposit",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "already-handled-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.3,
+    "mean_seconds": 1.1,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "publishing the findings internally",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "promised-phrasing-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.8,
+    "mean_seconds": 1.9,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Alex promised the pentest report will be in my inbox",
+        "due": "2026-08-05",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Alex"
+      },
+      {
+        "text": "I'll summarize it for leadership",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "going-to-send-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.4,
+    "mean_seconds": 1.8,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "send over the corrected budget numbers",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Camille"
+      },
+      {
+        "text": "load them into the tracker",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "drop-everything-priority-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.7,
+    "mean_seconds": 1.2,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "rerun last night's customer database backup",
+        "due": "2026-08-02",
+        "scheduled": null,
+        "priority": "highest",
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "weekly-wrap-no-tasks-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 1.1,
+    "mean_seconds": 0.4,
+    "budget_s": 30.0,
+    "last_reply": []
+  },
+  {
+    "name": "signoff-not-a-task-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 1.1,
+    "mean_seconds": 0.4,
+    "budget_s": 30.0,
+    "last_reply": []
+  },
+  {
+    "name": "ought-to-someday-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.7,
+    "mean_seconds": 1.2,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "consolidate the three logging pipelines into one",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "in-five-days-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.6,
+    "mean_seconds": 1.2,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "The draft SOW needs a review pass",
+        "due": "2026-08-07",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "buried-task-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.7,
+    "mean_seconds": 1.2,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "swap the failing disk",
+        "due": "2026-08-07",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "dedupe-reworded-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.6,
+    "mean_seconds": 1.2,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Rotate the admin API keys",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "extract-week-plans-vs-deadlines",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 8.2,
+    "mean_seconds": 2.7,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "Sort out the vendor contract",
+        "due": null,
+        "scheduled": "2026-08-02",
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Start the budget review",
+        "due": null,
+        "scheduled": "2026-08-09",
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Send the SOW to legal",
+        "due": "2026-08-03",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "blocker-splits-into-task-and-owed",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.5,
+    "mean_seconds": 1.8,
+    "budget_s": 30.0,
+    "last_reply": [
+      {
+        "text": "let them know about the change freeze",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "give me a heads up once it's clear",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "SOC"
+      }
+    ]
+  },
+  {
+    "name": "long-meeting-notes-nothing-vanishes",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "no returned task matches '(?i)compatibility matrix'",
+      "'(?i)debug.level|staging cluster': due=None, expected '{today}'",
+      "no returned task matches '(?i)RADIUS'",
+      "no returned task matches '(?i)offboarding checklist'"
+    ],
+    "seconds": 23.7,
+    "mean_seconds": 7.9,
+    "budget_s": 60,
+    "last_reply": [
+      {
+        "text": "book the fiber cross-connect install with the facility",
+        "due": "2026-08-09",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "add pricing out a second cross-connect to the list",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "Schedule the firmware update for next week during the low-usage window",
+        "due": null,
+        "scheduled": "2026-08-09",
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "turn off the debug-level shipping from the staging cluster",
+        "due": null,
+        "scheduled": "2026-08-02",
+        "priority": "high",
+        "owed_by": null
+      },
+      {
+        "text": "Rebuilding it on the supported image",
+        "due": null,
+        "scheduled": "2026-08-02",
+        "priority": "medium",
+        "owed_by": null
+      },
+      {
+        "text": "updated to include the new HRIS deprovisioning step",
+        "due": "2026-08-16",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      },
+      {
+        "text": "get us the list of stale mailboxes",
+        "due": "2026-08-07",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "Dana"
+      },
+      {
+        "text": "draft the postmortem for the DNS outage",
+        "due": null,
+        "scheduled": "2026-08-02",
+        "priority": "high",
+        "owed_by": null
+      },
+      {
+        "text": "update the on-call phone's voicemail greeting",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "long-email-thread-quoted-history-ignored",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 7.0,
+    "mean_seconds": 2.3,
+    "budget_s": 60,
+    "last_reply": [
+      {
+        "text": "get the completed vendor questionnaire back from their CISO",
+        "due": "2026-08-07",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": "CISO"
+      },
+      {
+        "text": "owe the risk committee a one-page summary before the next session",
+        "due": "2026-08-09",
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "long-noise-paste-single-task",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 4.1,
+    "mean_seconds": 1.4,
+    "budget_s": 60,
+    "last_reply": [
+      {
+        "text": "bump the warmup memory limit for the api pods",
+        "due": null,
+        "scheduled": null,
+        "priority": null,
+        "owed_by": null
+      }
+    ]
+  },
+  {
+    "name": "grouping-thematic-split",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 6.2,
+    "mean_seconds": 2.1,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Pricing Page",
+          "member_ids": [
+            "t-aaaaaaaaaaa1",
+            "t-aaaaaaaaaaa2"
+          ]
+        },
+        {
+          "name": "Mail Server Security",
+          "member_ids": [
+            "t-aaaaaaaaaaa3",
+            "t-aaaaaaaaaaa4"
+          ]
+        },
+        {
+          "name": "Travel",
+          "member_ids": [
+            "t-aaaaaaaaaaa5"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-customer-boundary",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.6,
+    "mean_seconds": 1.9,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Acme Corp Phishing",
+          "member_ids": [
+            "t-acme00000001",
+            "t-acme00000002"
+          ]
+        },
+        {
+          "name": "Globex Phishing",
+          "member_ids": [
+            "t-glbx00000001",
+            "t-glbx00000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-three-way-split",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 7.4,
+    "mean_seconds": 2.5,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Detection Engineering",
+          "member_ids": [
+            "t-det000000001",
+            "t-det000000002"
+          ]
+        },
+        {
+          "name": "Infrastructure Maintenance",
+          "member_ids": [
+            "t-inf000000001",
+            "t-inf000000002"
+          ]
+        },
+        {
+          "name": "Administrative Tasks",
+          "member_ids": [
+            "t-adm000000001",
+            "t-adm000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-misfit-stays-out",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 6.0,
+    "mean_seconds": 2.0,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Website Maintenance",
+          "member_ids": [
+            "t-web000000001",
+            "t-web000000002",
+            "t-web000000003",
+            "t-web000000004"
+          ]
+        },
+        {
+          "name": "Personal Administration",
+          "member_ids": [
+            "t-mis000000001"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-same-verb-different-systems",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.3,
+    "mean_seconds": 1.8,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Documentation",
+          "member_ids": [
+            "t-doc000000001",
+            "t-doc000000002"
+          ]
+        },
+        {
+          "name": "Security Infrastructure",
+          "member_ids": [
+            "t-fwl000000001",
+            "t-fwl000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-three-client-boundary",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 7.5,
+    "mean_seconds": 2.5,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Acme",
+          "member_ids": [
+            "t-acm000000001",
+            "t-acm000000002"
+          ]
+        },
+        {
+          "name": "Globex",
+          "member_ids": [
+            "t-glx000000001",
+            "t-glx000000002"
+          ]
+        },
+        {
+          "name": "Initech",
+          "member_ids": [
+            "t-ini000000001",
+            "t-ini000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-personal-vs-work",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.2,
+    "mean_seconds": 1.7,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Personal Admin",
+          "member_ids": [
+            "t-per000000001",
+            "t-per000000002"
+          ]
+        },
+        {
+          "name": "Work Tasks",
+          "member_ids": [
+            "t-wrk000000001",
+            "t-wrk000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-research-and-build-same-topic",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "['t-llm000000001', 't-llm000000002', 't-llm000000003'] should share a group; got ['LLM Dashboard Integration', 'LLM Model Evaluation']"
+    ],
+    "seconds": 7.2,
+    "mean_seconds": 2.4,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "LLM Model Evaluation",
+          "member_ids": [
+            "t-llm000000001",
+            "t-llm000000002"
+          ]
+        },
+        {
+          "name": "LLM Dashboard Integration",
+          "member_ids": [
+            "t-llm000000003"
+          ]
+        },
+        {
+          "name": "Home Maintenance",
+          "member_ids": [
+            "t-hme000000001",
+            "t-hme000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-prod-incident-vs-feature-work",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.5,
+    "mean_seconds": 1.8,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Incident Response",
+          "member_ids": [
+            "t-inc000000001",
+            "t-inc000000002"
+          ]
+        },
+        {
+          "name": "Feature Development",
+          "member_ids": [
+            "t-fea000000001",
+            "t-fea000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-two-misfits-dont-force-merge",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 7.2,
+    "mean_seconds": 2.4,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Security",
+          "member_ids": [
+            "t-sec000000001",
+            "t-sec000000002",
+            "t-sec000000003"
+          ]
+        },
+        {
+          "name": "Tax",
+          "member_ids": [
+            "t-tax000000001"
+          ]
+        },
+        {
+          "name": "Pet Care",
+          "member_ids": [
+            "t-dog000000001"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-ten-tasks-three-themes",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 10.0,
+    "mean_seconds": 3.3,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "KQL Development",
+          "member_ids": [
+            "t-kql000000001",
+            "t-kql000000002",
+            "t-kql000000003"
+          ]
+        },
+        {
+          "name": "Network Infrastructure",
+          "member_ids": [
+            "t-net000000001",
+            "t-net000000002",
+            "t-net000000003"
+          ]
+        },
+        {
+          "name": "Hiring Process",
+          "member_ids": [
+            "t-hir000000001",
+            "t-hir000000002",
+            "t-hir000000003",
+            "t-hir000000004"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-vendor-vs-internal-same-product",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.9,
+    "mean_seconds": 2.0,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Microsoft Sentinel Support and Renewal",
+          "member_ids": [
+            "t-ven000000001",
+            "t-ven000000002"
+          ]
+        },
+        {
+          "name": "Sentinel Automation and Migration",
+          "member_ids": [
+            "t-int000000001",
+            "t-int000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-client-possessive-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.5,
+    "mean_seconds": 1.8,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Acme Tasks",
+          "member_ids": [
+            "t-acp000000001",
+            "t-acp000000002"
+          ]
+        },
+        {
+          "name": "Globex Tasks",
+          "member_ids": [
+            "t-glp000000001",
+            "t-glp000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-client-ticket-prefix-variant",
+    "passed": false,
+    "clean_runs": 1,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "['t-tka000000001', 't-tka000000002'] should share a group; got ['ACME Log Parser', 'ACME Tuning Request']",
+      "['t-tkg000000001', 't-tkg000000002'] should share a group; got ['GLBX Log Parser', 'GLBX Tuning Request']"
+    ],
+    "seconds": 6.9,
+    "mean_seconds": 2.3,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "ACME Log Parser",
+          "member_ids": [
+            "t-tka000000001"
+          ]
+        },
+        {
+          "name": "ACME Tuning Request",
+          "member_ids": [
+            "t-tka000000002"
+          ]
+        },
+        {
+          "name": "GLBX Log Parser",
+          "member_ids": [
+            "t-tkg000000001"
+          ]
+        },
+        {
+          "name": "GLBX Tuning Request",
+          "member_ids": [
+            "t-tkg000000002"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "grouping-misfit-different-domain-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.4,
+    "mean_seconds": 1.8,
+    "budget_s": 30.0,
+    "last_reply": {
+      "groups": [
+        {
+          "name": "Data Center Infrastructure",
+          "member_ids": [
+            "t-ifr000000001",
+            "t-ifr000000002",
+            "t-ifr000000003"
+          ]
+        },
+        {
+          "name": "Personal Tasks",
+          "member_ids": [
+            "t-rcp000000001"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-plain-duplicate",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.4,
+    "mean_seconds": 1.1,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-aaaaaaaaaaa1",
+          "b": "t-aaaaaaaaaaa2",
+          "verdict": "duplicate",
+          "keep": "t-aaaaaaaaaaa1"
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-related-not-duplicate",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 2.8,
+    "mean_seconds": 0.9,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-bbbbbbbbbbb1",
+          "b": "t-bbbbbbbbbbb2",
+          "verdict": "related",
+          "keep": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-client-boundary",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.3,
+    "mean_seconds": 1.1,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-acme0000001x",
+          "b": "t-glbx0000001x",
+          "verdict": "distinct",
+          "keep": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-mixed-batch",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 4.9,
+    "mean_seconds": 1.6,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-ccccccccccc1",
+          "b": "t-ccccccccccc2",
+          "verdict": "duplicate",
+          "keep": "t-ccccccccccc1"
+        },
+        {
+          "a": "t-ddddddddddd1",
+          "b": "t-ddddddddddd2",
+          "verdict": "distinct",
+          "keep": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-keep-prefers-the-dated-line",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 4.0,
+    "mean_seconds": 1.3,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-keep00000001",
+          "b": "t-keep00000002",
+          "verdict": "duplicate",
+          "keep": "t-keep00000001"
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-rephrased-duplicate",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.7,
+    "mean_seconds": 1.2,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-reph00000001",
+          "b": "t-reph00000002",
+          "verdict": "duplicate",
+          "keep": "t-reph00000001"
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-dependency-is-related",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.4,
+    "mean_seconds": 1.1,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-depd00000001",
+          "b": "t-depd00000002",
+          "verdict": "related",
+          "keep": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-same-noun-different-work",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.3,
+    "mean_seconds": 1.1,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-verb00000001",
+          "b": "t-verb00000002",
+          "verdict": "distinct",
+          "keep": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-system-boundary",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.2,
+    "mean_seconds": 1.1,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-syst00000001",
+          "b": "t-syst00000002",
+          "verdict": "distinct",
+          "keep": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap-five-pair-batch",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "['t-btch00000003', 't-btch00000004']: verdict='related', expected 'distinct'"
+    ],
+    "seconds": 13.8,
+    "mean_seconds": 4.6,
+    "budget_s": 30.0,
+    "last_reply": {
+      "pairs": [
+        {
+          "a": "t-btch00000001",
+          "b": "t-btch00000002",
+          "verdict": "duplicate",
+          "keep": "t-btch00000002"
+        },
+        {
+          "a": "t-btch00000003",
+          "b": "t-btch00000004",
+          "verdict": "related",
+          "keep": null
+        },
+        {
+          "a": "t-btch00000005",
+          "b": "t-btch00000006",
+          "verdict": "distinct",
+          "keep": null
+        },
+        {
+          "a": "t-btch00000007",
+          "b": "t-btch00000008",
+          "verdict": "related",
+          "keep": null
+        },
+        {
+          "a": "t-btch00000009",
+          "b": "t-btch00000010",
+          "verdict": "duplicate",
+          "keep": "t-btch00000010"
+        }
+      ]
+    }
+  },
+  {
+    "name": "plan-picks-nothing-from-a-quiet-pool",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 1.3,
+    "mean_seconds": 0.4,
+    "budget_s": 30.0,
+    "last_reply": {
+      "picks": []
+    }
+  },
+  {
+    "name": "plan-restraint-when-day-is-full",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.1,
+    "mean_seconds": 1.0,
+    "budget_s": 30.0,
+    "last_reply": {
+      "picks": [
+        {
+          "id": "t-full00000002",
+          "reason": "Ravi is waiting on this; quick win to unblock external party"
+        }
+      ]
+    }
+  },
+  {
+    "name": "plan-prefers-unblocking-people",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 3.1,
+    "mean_seconds": 1.0,
+    "budget_s": 30.0,
+    "last_reply": {
+      "picks": [
+        {
+          "id": "t-unblk0000001",
+          "reason": "Unblocks Priya who is waiting on this"
+        }
+      ]
+    }
+  },
+  {
+    "name": "plan-hears-time-pressure-in-the-wording",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 2.7,
+    "mean_seconds": 0.9,
+    "budget_s": 30.0,
+    "last_reply": {
+      "picks": [
+        {
+          "id": "t-press0000001",
+          "reason": "Audit deadline approaching; unblocks compliance"
+        }
+      ]
+    }
+  },
+  {
+    "name": "plan-skips-blocked-work",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 2.6,
+    "mean_seconds": 0.9,
+    "budget_s": 30.0,
+    "last_reply": {
+      "picks": [
+        {
+          "id": "t-blokd0000002",
+          "reason": "High priority and oldest actionable task"
+        }
+      ]
+    }
+  },
+  {
+    "name": "plan-oldest-external-item-surfaces",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 2.9,
+    "mean_seconds": 1.0,
+    "budget_s": 30.0,
+    "last_reply": {
+      "picks": [
+        {
+          "id": "t-aged00000001",
+          "reason": "Oldest task; external party is waiting for deliverable"
+        }
+      ]
+    }
+  },
+  {
+    "name": "plan-id-discipline-large-pool",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 6.2,
+    "mean_seconds": 2.1,
+    "budget_s": 30.0,
+    "last_reply": {
+      "picks": [
+        {
+          "id": "t-pool00000001",
+          "reason": "Oldest task; certificate renewal is critical infrastructure maintenance"
+        },
+        {
+          "id": "t-pool00000004",
+          "reason": "Quick cleanup win; removes stale branch clutter"
+        },
+        {
+          "id": "t-pool00000008",
+          "reason": "Routine maintenance; stale records degrade data quality"
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-meeting-missing-id",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.2,
+    "mean_seconds": 1.7,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add missing id to meeting frontmatter",
+      "summary": "Adds the required 'id' property to the frontmatter of the Sprint Sync meeting note.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-15 Sprint Sync.md",
+            "key": "id",
+            "value": "m-0123456789ab"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-meeting-date-from-filename",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 8.1,
+    "mean_seconds": 2.7,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Fix missing id and date for Incident Retro",
+      "summary": "Adds required id and date fields to the frontmatter of the meeting note.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-15 Incident Retro.md",
+            "key": "id",
+            "value": "m-00aa11bb22cc"
+          }
+        },
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-15 Incident Retro.md",
+            "key": "date",
+            "value": "2026-07-15"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-meeting-prose-untouched",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 4.9,
+    "mean_seconds": 1.6,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add missing id to meeting note",
+      "summary": "Adds the required 'id' field to the frontmatter of the meeting note.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-10 Vendor Call.md",
+            "key": "id",
+            "value": "m-feedbeefcafe"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-research-missing-sources",
+    "passed": false,
+    "clean_runs": 2,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "plan not simulable — cannot vouch for its effect"
+    ],
+    "seconds": 4.7,
+    "mean_seconds": 1.6,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add missing Sources section to EDR Vendor Comparison",
+      "summary": "Adds the required '## Sources' section to the research note body.",
+      "apply": [
+        {
+          "tool": "append_to_note",
+          "args": {
+            "path": "Tasks/EDR Vendor Comparison.md",
+            "content": "\n## Sources\n\n",
+            "section": "Notes"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-research-id-and-sources",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "plan not simulable — cannot vouch for its effect"
+    ],
+    "seconds": 7.6,
+    "mean_seconds": 2.5,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Fix missing id and Sources section",
+      "summary": "Add required id to frontmatter and append missing Sources section.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Tasks/Sigma Rule Packs.md",
+            "key": "id",
+            "value": "r-123abc456def"
+          }
+        },
+        {
+          "tool": "append_to_note",
+          "args": {
+            "path": "Tasks/Sigma Rule Packs.md",
+            "content": "\n## Sources\n\n- [Sigma Registry](https://sigmaregistry.com)\n",
+            "section": "body"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-research-missing-status",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "fix leaves the note nonconforming — would re-draft every pass"
+    ],
+    "seconds": 4.3,
+    "mean_seconds": 1.4,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add missing status to Vault Encryption Options",
+      "summary": "Adds the required 'status' property to the frontmatter of the research note.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Tasks/Vault Encryption Options.md",
+            "key": "status",
+            "value": "active"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-tasks-stamp-two-in-order",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 7.8,
+    "mean_seconds": 2.6,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Fix missing IDs in Backlog",
+      "summary": "Adds the required id field to frontmatter and appends block references to task lines.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Tasks/Backlog.md",
+            "key": "id",
+            "value": "n-000000000000"
+          }
+        },
+        {
+          "tool": "replace_section",
+          "args": {
+            "path": "Tasks/Backlog.md",
+            "heading": "# Backlog",
+            "content": "- [ ] buy replacement UPS batteries ^t-aaaaaaaaaaa1\n- [ ] call the vendor about renewal ^t-aaaaaaaaaaa2"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-tasks-stamp-preserves-metadata",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "fix leaves the note nonconforming — would re-draft every pass",
+      "simulated note lacks required pattern 'rotate the DKIM keys ⏫ 📅 2026-08-01 \\\\^t-bbbbbbbbbbb1'"
+    ],
+    "seconds": 4.6,
+    "mean_seconds": 1.5,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Fix missing id in frontmatter",
+      "summary": "Add the required id field to the frontmatter of Tasks/Ops.md.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Tasks/Ops.md",
+            "key": "id",
+            "value": "n-000000000000"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-typo-is-not-ours-to-fix",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 7.0,
+    "mean_seconds": 2.3,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Fix missing id in Chores task",
+      "summary": "Add required id to frontmatter and append block ref to task line.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Tasks/Chores.md",
+            "key": "id",
+            "value": "n-000000000000"
+          }
+        },
+        {
+          "tool": "replace_section",
+          "args": {
+            "path": "Tasks/Chores.md",
+            "heading": "# Chores",
+            "content": "- [ ] verfy teh backup restore path ^t-ddddddddddd1"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-done-task-stamped-without-reopening",
+    "passed": false,
+    "clean_runs": 0,
+    "runs": 3,
+    "retries": 0,
+    "failures": [
+      "fix leaves the note nonconforming — would re-draft every pass",
+      "simulated note lacks required pattern '- \\\\[x\\\\] migrate DNS records ✅ 2026-07-20 \\\\^t-eeeeeeeeeee1'"
+    ],
+    "seconds": 5.1,
+    "mean_seconds": 1.7,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Fix missing id in frontmatter",
+      "summary": "Add the required id field to the frontmatter of Tasks/Done.md.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Tasks/Done.md",
+            "key": "id",
+            "value": "n-000000000000"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-meeting-with-action-items",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 9.3,
+    "mean_seconds": 3.1,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Fix missing meeting ID and task IDs",
+      "summary": "Add the required root-level id and append block references to the two action items missing IDs.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-17 Team Weekly.md",
+            "key": "id",
+            "value": "m-4455667788aa"
+          }
+        },
+        {
+          "tool": "replace_section",
+          "args": {
+            "path": "Meetings/2026-07-17 Team Weekly.md",
+            "heading": "Action items",
+            "content": "- [ ] send the onboarding checklist to Priya ^t-ffffffffff01\n- [ ] book the Q3 planning room 📅 2026-07-25 ^t-ffffffffff02"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-unlisted-issues-left-alone",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 4.8,
+    "mean_seconds": 1.6,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add missing id to meeting frontmatter",
+      "summary": "Adds the required 'id' field to the frontmatter of the meeting note.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-18 One on One.md",
+            "key": "id",
+            "value": "m-abcdefabcdef"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-typo-in-prose-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.2,
+    "mean_seconds": 1.7,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add missing id to meeting frontmatter",
+      "summary": "Adds the required 'id' property to the frontmatter of the standup meeting note.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Meetings/2026-07-19 Standup.md",
+            "key": "id",
+            "value": "m-5566778899aa"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-typo-in-task-with-metadata-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 7.8,
+    "mean_seconds": 2.6,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Fix missing id in Infra task",
+      "summary": "Add required id to frontmatter and append block refs to task lines.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Tasks/Infra.md",
+            "key": "id",
+            "value": "n-000000000000"
+          }
+        },
+        {
+          "tool": "replace_section",
+          "args": {
+            "path": "Tasks/Infra.md",
+            "heading": "# Infra",
+            "content": "- [ ] restrat the ingest service ⏫ 📅 2026-08-02 ^t-1234567890ab"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "schema-empty-tags-not-populated-variant",
+    "passed": true,
+    "clean_runs": 3,
+    "runs": 3,
+    "retries": 0,
+    "failures": [],
+    "seconds": 5.5,
+    "mean_seconds": 1.8,
+    "budget_s": 60.0,
+    "last_reply": {
+      "title": "Add missing id to SOAR Playbooks Survey",
+      "summary": "Adds the required 'id' field to the frontmatter of the SOAR Playbooks Survey note.",
+      "apply": [
+        {
+          "tool": "update_frontmatter",
+          "args": {
+            "path": "Tasks/SOAR Playbooks Survey.md",
+            "key": "id",
+            "value": "r-fedcba987654"
+          }
+        }
+      ]
+    }
+  }
+]

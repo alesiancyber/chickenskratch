@@ -278,9 +278,9 @@ def test_week_buckets_are_calendar_weeks(vault):
 def test_capture_with_week_language_lands_scheduled_not_due(vault, make_watcher):
     """Typing "this week" plans the task (⏳ Sunday anchor); it must
     never fabricate a 📅 deadline."""
-    from tests.conftest import record_worker_returning
     from chickenskratch import processors as procs
     from chickenskratch import today as today_mod
+    from tests.conftest import record_worker_returning
 
     sunday = today_mod.week_end(TODAY).isoformat()
     worker = record_worker_returning(

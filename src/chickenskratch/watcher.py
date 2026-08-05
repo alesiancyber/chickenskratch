@@ -147,7 +147,7 @@ def spec_seed(vault_path: str) -> str:
 async def draft_schema_fix(item: dict) -> dict:
     """Default schema drafter: one bounded worker call -> {title, summary, apply}."""
     data = await wk.run_worker(
-        wk.WORKERS["schema_fix"],
+        wk.get_worker("schema_fix"),
         note=item["note"],
         entity=item["entity"],
         issues="\n".join(f"- {i}" for i in item["issues"]),
@@ -161,7 +161,7 @@ async def draft_schema_fix(item: dict) -> dict:
 async def draft_grouping(item: dict) -> dict:
     """Default grouping drafter: the model only ever chooses a partition."""
     return await wk.run_worker(
-        wk.WORKERS["grouping"],
+        wk.get_worker("grouping"),
         tasks="\n".join(f"{t.block_id}: {t.text}" for t in item["tasks"]),
     )
 
@@ -191,21 +191,23 @@ async def draft_overlap_worker(item: dict, pairs: list[tuple]) -> dict:
             return f"{t.block_id} — \"{t.text}\" (in {rel}{', ' + extras if extras else ''})"
 
         lines.append(f"{n}. a: {describe(ta, ra)}\n   b: {describe(tb, rb)}")
-    return await wk.run_worker(wk.WORKERS["overlap"], pairs="\n".join(lines))
+    return await wk.run_worker(wk.get_worker("overlap"), pairs="\n".join(lines))
 
 
-async def draft_plan_today(item: dict) -> dict:
+async def draft_plan_today(item: dict, stats: dict | None = None) -> dict:
     """Default plan drafter: one bounded worker call over the undated
     pool; the reply only ever picks ids (draft_plan validates them).
     The pool spans notes, so each line names the record it lives in —
     "three action items from the Azure meeting, 12 days untouched" is a
-    better prompt than three bare texts."""
+    better prompt than three bare texts. The worker eval calls this
+    same drafter (stats rides through), so the benchmark can never
+    drift from the prompt lines production sends."""
     lines = "\n".join(
         f"{t.block_id}: {t.text} — created {t.created or 'unknown'}, "
         f"priority {t.priority or 'none'}, in {rel}"
         for t, rel in item["tasks"])
     return await wk.run_worker(
-        wk.WORKERS["plan_today"], today=item["today"],
+        wk.get_worker("plan_today"), stats=stats, today=item["today"],
         max_picks=processors.MAX_PLAN_PICKS,
         committed=item["committed"], tasks=lines)
 

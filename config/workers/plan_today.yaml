@@ -1,0 +1,53 @@
+description: Picks which undated backlog tasks deserve today. Pure judgment over the pool; the reply only ever chooses ids.
+inputs:
+- today
+- max_picks
+- committed
+- tasks
+temperature: 0.1
+prompt: |
+  You plan one day of work. Today is {today}.
+
+  From the undated backlog below, choose which tasks the user should work
+  on TODAY. These have no deadlines — this is pure judgment.
+
+  Return ONLY a JSON object of this shape, nothing else:
+  {{"picks": [{{"id": "t-...", "reason": "short clause, under 12 words"}}]}}
+
+  Rules:
+  - Pick 0 to {max_picks}. Picking NONE is a correct answer — return
+    {{"picks": []}} when nothing stands out. Never pad the list.
+  - The user already has {committed} task(s) committed today. If that is
+    3 or more, pick at most 1.
+  - Prefer: tasks that unblock other people, quick wins that clear
+    mental load, items that have sat longest, and anything whose wording
+    implies time pressure or an external party waiting.
+  - Use ids exactly as given; never invent one.
+  {hedges}
+  Backlog (id: text — age, priority):
+  {tasks}
+schema:
+  type: object
+  required:
+  - picks
+  properties:
+    picks:
+      type: array
+      # The hard ceiling (processors.MAX_PLAN_PICKS). In the schema so
+      # grammar-enforcing endpoints make a padded list unproducible;
+      # draft_plan validates it either way.
+      maxItems: 3
+      items:
+        type: object
+        required:
+        - id
+        properties:
+          id:
+            type: string
+            minLength: 1
+          reason:
+            type: string
+hedges: |
+  - Count first: {committed} task(s) are already committed. If that is
+    3 or more, return at most ONE pick — check this before choosing.
+  - Never pad the list: an empty "picks" is a correct, common answer.
