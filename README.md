@@ -43,14 +43,35 @@ testvault/          scratch vault the default config points at
 
 Prereqs: `brew install uv`, a rust toolchain, git.
 
-**The short way** — `deploy.sh` scripts the manual steps below; it's a
-convenience, not a replacement (everything it does, you can do by hand):
+**The short way** — `setup.sh` builds, asks what it needs, and connects a
+vault. Run it with no arguments and it walks you through:
 
 ```sh
-./deploy.sh --vault ~/Vaults/personal --foam
-# --foam: VSCode/Foam settings   --remote <git-url>: vault backup remote
-# --no-launchd: skip the agents  --uninstall: remove them   (idempotent)
+./setup.sh
+# or scripted:
+./setup.sh --vault ~/Vaults/personal --worker qwen35-moe --yes
+# --posture fresh|import  override the auto-detect   --foam: VSCode/Foam settings
+# --remote <git-url>: vault backup   --no-launchd: skip the agents
+# --clean: wipe data/    --uninstall: remove the agents      (idempotent)
 ```
+
+**It puts nothing in your vault.** Two files appear —
+`Harness/Spec.md` (your settings) and `Harness/Capture.md` (the canvas's
+write-ahead log) — and that is all. No starter notes, no folder
+scaffold, no examples.
+
+**Pointing it at a vault you already have** is the case it takes most
+care over. Any vault with notes in it is detected as an *import*, and
+the two per-note lanes — `schema_fix` and `grouping` — are seeded `off`.
+Left on, those cost one model call per note until the whole vault has
+been through, and `ask` would not help: it changes where the result
+lands, not whether the call happens. Everything else is seeded `ask`, so
+nothing is rewritten without your verdict. Turn the sweeps on from the
+console once you've looked around.
+
+The folder→type map is read off the folders that actually hold notes,
+not asserted from a template; anything it can't type is mapped `other`
+and `spec_drift` proposes the rest as they appear.
 
 **The manual steps** (what the script automates):
 
@@ -64,7 +85,10 @@ convenience, not a replacement (everything it does, you can do by hand):
    (start/stop with `chickenskratch-backends`).
 4. **First engine pass.** `uv run chickenskratch-watch` — the engine is
    self-bootstrapping: seeds `Harness/Spec.md` from `config/vault.yaml`
-   defaults and inits the vault's own git repo.
+   defaults and inits the vault's own git repo. By hand you get the
+   template folder map and the shipped policy levels; `setup.sh` seeds
+   the same note from the vault's own folders and picks the posture
+   first, which matters on an import (see above).
 5. **The daemon.** Manual run:
 
    ```sh

@@ -69,9 +69,9 @@ if launchctl print "gui/$(id -u)/$WATCH_LABEL" >/dev/null 2>&1; then
   ok "kickstarted $WATCH_LABEL (launchd-supervised)"
 else
   # not installed as an agent: kill any hand-started one; nothing to start
-  # (a daemon nobody supervises is deploy.sh's business, not a restart's)
+  # (a daemon nobody supervises is setup.sh's business, not a restart's)
   if pkill -f 'chickenskratchd --vault' 2>/dev/null; then
-    ok "killed unsupervised chickenskratchd — run deploy.sh (or start it by hand) to bring it back"
+    ok "killed unsupervised chickenskratchd — run setup.sh (or start it by hand) to bring it back"
   else
     ok "no chickenskratchd running and no launch agent installed"
   fi

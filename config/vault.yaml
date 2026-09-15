@@ -10,14 +10,17 @@
 # frontmatter => kanban, then frontmatter `type:`, then this map, then
 # the bare folder name lowercased.
 #
-# Folders are broad categories, not one per type:
-# research and deliverable notes live in Tasks/ typed by their own
-# frontmatter (`type: research` / `type: deliverable`); kanban boards live
-# in Projects/ typed by their kanban-plugin frontmatter; web captures land
-# in Meetings/. The folder map is only the fallback for untyped notes.
-# The working shape: tasks, meetings, notes, research — plus the
-# harness's own record and daily folders. Projects holds kanban boards
-# (typed by their own frontmatter; the map is only the fallback).
+# Folders are broad categories, not one per type: research notes live in
+# Tasks/ typed by their own frontmatter (`type: research`); kanban boards
+# live in Projects/ typed by their kanban-plugin frontmatter. The folder
+# map is only the fallback for untyped notes.
+#
+# This map is a TEMPLATE for a vault nobody has seen yet, and it is the
+# weakest thing in this file — it asserts a layout your vault has no
+# reason to share. setup.sh does not use it: it reads the folders that
+# actually hold notes and maps those, sending anything it can't type to
+# `other`. What is left here covers the hand-rolled path (README step 4)
+# and the case where no vault resolves at all.
 folders:
   Tasks: task
   Meetings: meeting
