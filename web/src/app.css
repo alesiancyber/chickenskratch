@@ -1117,3 +1117,54 @@ section { margin-bottom: var(--s5); }
    field must not push the next ROW down. */
 .cfg-grid > .cfg-inline { align-content: start; }
 .cfg-inline > .ghost { min-height: 1lh; }
+
+/* ---- mermaid diagrams ---- */
+/*
+   A ```mermaid fence is plain markdown — Obsidian and GitHub render the
+   same bytes — so this is a renderer, never a syntax. The block sits on
+   the page like a figure: no border, centred, with the source one caret
+   (or one click) away, the same reveal rule every other block here
+   follows.
+*/
+.cm-mermaid-block {
+  position: relative;
+  margin: var(--s3) 0;
+  padding: var(--s2) 0;
+  text-align: center;
+}
+/* Mermaid stamps `max-width: <intrinsic>px` inline on the svg, which
+   makes a wide diagram shrink to fit the column. Shrinking is the wrong
+   answer: an eight-node left-to-right flowchart squeezed into a 613px
+   measure keeps its aspect ratio by making every label unreadable.
+   Diagrams are wide content, and wide content scrolls here — the same
+   rule .diff-wrap follows. Natural size, legible text, a scrollbar when
+   it does not fit. */
+.cm-mermaid, .diagram { overflow-x: auto; }
+/* sizing is set per diagram in mermaid.js fit(), which knows the natural
+   width; this only stops mermaid's own inline max-width from competing */
+.cm-mermaid svg, .diagram svg { height: auto; }
+/* A diagram that won't parse says why, in place. Mermaid's own failure
+   is a generic "Syntax error" graphic or, worse, an empty box — and an
+   empty box on a surface that renders your notes reads as "your note is
+   empty" rather than "line 3 is wrong". */
+.cm-mermaid-error {
+  text-align: left;
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius);
+  padding: var(--s2) var(--s3);
+  white-space: pre-wrap;
+}
+/* the way back to the markdown, on hover — the callout's `edit` rule */
+.cm-mermaid-src {
+  position: absolute; top: var(--s1); right: var(--s1);
+  opacity: 0; transition: opacity var(--fade);
+  border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: var(--text-small); color: var(--ink-3);
+}
+.cm-mermaid-block:hover .cm-mermaid-src { opacity: 1; }
+.cm-mermaid-src:hover { color: var(--accent); }
+
+/* read-only surfaces: the canvas receipt and the chat pane */
+.diagram { margin: var(--s2) 0; text-align: center; }

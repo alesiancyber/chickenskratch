@@ -5,7 +5,7 @@ import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getJSON, postJSON } from "./api.js";
 import {
-  calloutField, livePreview, planDatesField, setPlanDates, setTarget,
+  calloutField, livePreview, mermaidField, planDatesField, setPlanDates, setTarget,
   targetField, vaultTheme, wikilinkClick,
 } from "./livepreview.js";
 
@@ -209,6 +209,7 @@ export default function NoteEditor({ path, target, seq, planDates, visible = tru
           targetField,
           planDatesField,
           calloutField,
+          mermaidField,
           vaultTheme,
           EditorView.lineWrapping,
           placeholder("Empty note."),

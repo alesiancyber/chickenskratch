@@ -1,6 +1,7 @@
-/* Markdown-lite: links become links, nothing else — command results and
-   chat replies are plain text with links, and a real markdown engine
-   would be scope the surfaces don't need.
+/* Markdown-lite: links become links and ```mermaid fences become
+   diagrams, nothing else — command results and chat replies are plain
+   text with links, and a real markdown engine would be scope the
+   surfaces don't need.
 
    Two link forms, because two producers exist and neither is going to
    change shape for us:
@@ -19,6 +20,9 @@
    navigate like vault: links; without one they render as their label,
    never as dead brackets. */
 
+import { useEffect, useRef } from "react";
+
+import { findFences, mountDiagram } from "./mermaid.js";
 import { WIKILINK_RE, parseWikilink } from "./wiki.js";
 
 // markdown link first, so a URL already inside one isn't matched twice;
@@ -86,6 +90,38 @@ export function linkify(text, onOpenNote) {
   return out;
 }
 
+/* One mounted diagram on a read-only surface (a //command result on the
+   canvas, a chat reply). The editor renders fences through CodeMirror
+   decorations; here there is no editor, so the node mounts directly —
+   but both go through mountDiagram, so a diagram looks the same and
+   fails the same wherever it is read. */
+function Diagram({ code }) {
+  const ref = useRef(null);
+  useEffect(() => (ref.current ? mountDiagram(ref.current, code) : undefined), [code]);
+  return <div className="diagram" ref={ref} />;
+}
+
+/* Lines, with ```mermaid fences lifted out and drawn. Everything else
+   falls through to linkify unchanged — this is a renderer for the one
+   block that has a picture in it, not a markdown engine. */
 export function linkifyBlock(text, onOpenNote) {
-  return text.split("\n").map((ln, i) => <div key={i}>{linkify(ln, onOpenNote)}</div>);
+  const lines = text.split("\n");
+  const fences = findFences(lines);
+  if (fences.length === 0)
+    return lines.map((ln, i) => <div key={i}>{linkify(ln, onOpenNote)}</div>);
+  const out = [];
+  let at = 0;
+  for (const { start, end } of fences) {
+    for (let i = at; i < start; i++)
+      out.push(<div key={i}>{linkify(lines[i], onOpenNote)}</div>);
+    const code = lines.slice(start + 1, end).join("\n");
+    // an empty fence is not a diagram — show it as the text it is
+    if (code.trim()) out.push(<Diagram key={`d${start}`} code={code} />);
+    else for (let i = start; i <= end; i++)
+      out.push(<div key={i}>{linkify(lines[i], onOpenNote)}</div>);
+    at = end + 1;
+  }
+  for (let i = at; i < lines.length; i++)
+    out.push(<div key={i}>{linkify(lines[i], onOpenNote)}</div>);
+  return out;
 }

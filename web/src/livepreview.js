@@ -3,6 +3,7 @@ import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view
 import { postJSON } from "./api.js";
 import { planTargets } from "./plan.js";
 import { WIKILINK_RE, parseWikilink } from "./wiki.js";
+import { findFences, mountDiagram } from "./mermaid.js";
 
 /* Arriving from the dashboard: the row you clicked gets marked so you
    land on it instead of re-finding it. This IS the selection, editor
@@ -413,6 +414,102 @@ export const calloutField = StateField.define({
   ],
 });
 
+/* ---- mermaid fences: the diagram, with the source one caret away ----
+
+   Same shape as the callouts above, and for the same reason: replacing a
+   whole fence with a rendered diagram is a `block: true` decoration, and
+   CodeMirror refuses those from view plugins. So a field owns the
+   toggles and the decorations, and the plugin skips the lines it claims.
+
+   The reveal rule is the one every other block here follows — a caret
+   inside the fence shows the raw source. Nothing the caret can reach is
+   ever hidden, or edits land on bytes you cannot see. Clicking the
+   diagram toggles it too, because a diagram is a thing you point at. */
+export const toggleMermaid = StateEffect.define({
+  map: (pos, changes) => changes.mapPos(pos),
+});
+
+class MermaidBlock extends WidgetType {
+  constructor(code, at) {
+    super();
+    this.code = code;
+    this.at = at;     // the opening fence's start — the toggle's key
+  }
+  eq(o) {
+    return o.code === this.code && o.at === this.at;
+  }
+  toDOM(view) {
+    const el = document.createElement("div");
+    el.className = "cm-mermaid-block";
+    const fig = document.createElement("div");
+    el.appendChild(fig);
+    // The unmount hook the widget contract gives us; without it a theme
+    // flip redraws into a node CodeMirror has already thrown away.
+    this.destroy = mountDiagram(fig, this.code);
+    const src = document.createElement("button");
+    src.className = "cm-mermaid-src";
+    src.textContent = "source";
+    src.title = "Show the markdown (or put the caret in the block)";
+    src.onmousedown = (e) => {
+      e.preventDefault();
+      view.dispatch({ effects: toggleMermaid.of(this.at) });
+    };
+    el.appendChild(src);
+    return el;
+  }
+  destroy() {}      // replaced per-instance in toDOM
+  ignoreEvent() {
+    return false;
+  }
+}
+
+function mermaidCompute(doc, selection, toggles) {
+  const marks = [];
+  const blocks = [];
+  const active = new Set();
+  for (const r of selection.ranges) {
+    const from = doc.lineAt(r.from).number;
+    const to = doc.lineAt(r.to).number;
+    for (let n = from; n <= to; n++) active.add(n);
+  }
+  const lines = [];
+  for (let n = 1; n <= doc.lines; n++) lines.push(doc.line(n).text);
+  for (const { start, end } of findFences(lines)) {
+    const open = doc.line(start + 1);
+    const close = doc.line(end + 1);
+    let live = toggles.has(open.from);
+    for (let n = open.number; n <= close.number && !live; n++)
+      if (active.has(n)) live = true;
+    if (live) continue;                     // showing source: plugin's business
+    const code = lines.slice(start + 1, end).join("\n");
+    if (!code.trim()) continue;             // an empty fence is not a diagram
+    blocks.push({ from: open.from, to: close.to });
+    marks.push(Decoration.replace({
+      widget: new MermaidBlock(code, open.from),
+      block: true,
+    }).range(open.from, close.to));
+  }
+  return { deco: RangeSet.of(marks, true), blocks };
+}
+
+export const mermaidField = StateField.define({
+  create: (state) => ({ toggles: new Set(),
+                        ...mermaidCompute(state.doc, state.selection, new Set()) }),
+  update(value, tr) {
+    let { toggles } = value;
+    if (tr.docChanged) toggles = mapSet(toggles, tr.changes);
+    for (const e of tr.effects) {
+      if (e.is(toggleMermaid)) {
+        if (toggles === value.toggles) toggles = new Set(toggles);
+        toggles.has(e.value) ? toggles.delete(e.value) : toggles.add(e.value);
+      }
+    }
+    if (!tr.docChanged && !tr.selection && toggles === value.toggles) return value;
+    return { toggles, ...mermaidCompute(tr.newDoc, tr.newSelection, toggles) };
+  },
+  provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
+});
+
 /* A list marker reads as a bullet, not as the hyphen you typed. Same
    deal as the checkbox: the file still says "- ". */
 class Bullet extends WidgetType {
@@ -477,6 +574,7 @@ function build(view) {
   const dates = state.field(planDatesField, false)
     || { today: "", week: "", next: "" };
   const callouts = state.field(calloutField, false)?.blocks ?? [];
+  const diagrams = state.field(mermaidField, false)?.blocks ?? [];
   const marks = [];
   const add = (from, to, deco) => marks.push(deco.range(from, to));
   const hide = (from, to) => add(from, to, Decoration.replace({}));
@@ -499,6 +597,14 @@ function build(view) {
       /* callout blocks belong to calloutField (block decorations must
          come from a state field) — skip every line it has claimed */
       if (callouts.some((b) => line.from >= b.from && line.from <= b.to)) {
+        pos = line.to + 1;
+        continue;
+      }
+
+      /* likewise a rendered mermaid fence — mermaidField owns every line
+         of it, and the inline rules below would mangle the source it is
+         standing in for */
+      if (diagrams.some((b) => line.from >= b.from && line.from <= b.to)) {
         pos = line.to + 1;
         continue;
       }
