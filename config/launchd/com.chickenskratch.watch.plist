@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- chickenskratchd login-start template (DEVPLAN Phase 8.3).
-     Install: replace __REPO__ and __VAULT__ with absolute paths, then
+     Install: setup.sh fills __REPO__/__VAULT__/__PATH__ and loads it.
+     By hand, substitute all three, then
        cp config/launchd/com.chickenskratch.watch.plist ~/Library/LaunchAgents/
        launchctl load ~/Library/LaunchAgents/com.chickenskratch.watch.plist
-     The PATH below must contain `uv` (adjust if yours lives elsewhere). -->
+     __UV__/__PATH__ are resolved from the running shell rather than
+     hardcoded: Homebrew is /opt/homebrew on Apple Silicon and
+     /usr/local on Intel, and a plist naming the wrong one fails at
+     login with nothing but a launchd exit code to say why. -->
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.chickenskratch.watch</string>
@@ -21,7 +25,7 @@
   <key>StandardErrorPath</key><string>__REPO__/data/logs/chickenskratchd.log</string>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>PATH</key><string>__PATH__</string>
     <!-- Pin the pass's vault to the daemon's: exported env beats .env,
          so a repointed .env can never make them disagree. -->
     <key>CHICKENSKRATCH_VAULT_PATH</key><string>__VAULT__</string>

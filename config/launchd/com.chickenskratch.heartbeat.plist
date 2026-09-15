@@ -4,7 +4,8 @@
      was quiet overnight still gets scanned and the day's date-based
      views (`chickenskratch today`) are computed against the new date. The
      engine's memo makes it nearly free when nothing changed.
-     Install: replace __REPO__ with the absolute repo path, then
+     Install: setup.sh fills __REPO__/__VAULT__/__UV__/__PATH__ and
+     loads it. By hand, substitute all four, then
        cp config/launchd/com.chickenskratch.heartbeat.plist ~/Library/LaunchAgents/
        launchctl load ~/Library/LaunchAgents/com.chickenskratch.heartbeat.plist -->
 <plist version="1.0">
@@ -12,7 +13,7 @@
   <key>Label</key><string>com.chickenskratch.heartbeat</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/opt/homebrew/bin/uv</string>
+    <string>__UV__</string>
     <string>run</string>
     <string>chickenskratch-watch</string>
   </array>
@@ -26,7 +27,7 @@
   <key>StandardErrorPath</key><string>__REPO__/data/logs/heartbeat.log</string>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>PATH</key><string>__PATH__</string>
     <key>CHICKENSKRATCH_VAULT_PATH</key><string>__VAULT__</string>
   </dict>
 </dict>

@@ -5,6 +5,7 @@
 #   ./setup.sh --vault ~/Vaults/personal --yes   # scripted, no prompts
 #   ./setup.sh --vault ... --worker qwen35-moe --posture import
 #   ./setup.sh --clean                           # + wipe data/ (queues, events, caches)
+#   ./setup.sh --vault ~/Documents/x --allow-icloud   # past the iCloud refusal
 #   ./setup.sh --uninstall                       # unload + remove the launch agents
 #
 # What it does NOT do: put anything in your vault. No starter notes, no
@@ -29,6 +30,7 @@ WATCH_LABEL="com.chickenskratch.watch"
 HEART_LABEL="com.chickenskratch.heartbeat"
 
 VAULT="" WORKER="" POSTURE="" FOAM=0 REMOTE="" LAUNCHD=1 UNINSTALL=0 CLEAN=0 ASSUME_YES=0
+ALLOW_ICLOUD=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --vault) VAULT="$2"; shift 2 ;;
@@ -38,6 +40,7 @@ while [ $# -gt 0 ]; do
     --remote) REMOTE="$2"; shift 2 ;;
     --no-launchd) LAUNCHD=0; shift ;;
     --clean) CLEAN=1; shift ;;
+    --allow-icloud) ALLOW_ICLOUD=1; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
     -y|--yes) ASSUME_YES=1; shift ;;
     # The header block and nothing else: bounded by `set -e` rather than
@@ -73,22 +76,68 @@ if [ "$UNINSTALL" = 1 ]; then
 fi
 
 # ---- 1. prerequisites ----
-say "Checking prerequisites"
-command -v git   >/dev/null || die "git not found"
-command -v uv    >/dev/null || die "uv not found (brew install uv)"
-command -v cargo >/dev/null || die "cargo not found (brew install rustup && rustup-init)"
-ok "git, uv, cargo"
+#
+# A fresh Mac has Homebrew and nothing else, so "check and die" is the
+# wrong shape: it tells an admin with a package manager to go and run the
+# command we could have run. Offer instead, and be honest about which
+# ones are load-bearing.
+say "Prerequisites"
+BREW="$(command -v brew || true)"
+
+need() {   # need <cmd> <formula> <why> <required|optional>
+  local cmd="$1" formula="$2" why="$3" level="$4"
+  if command -v "$cmd" >/dev/null 2>&1; then ok "$cmd"; return 0; fi
+  note "$cmd is missing — $why"
+  if [ -n "$BREW" ]; then
+    local a
+    a="$(ask "Install it with: brew install $formula ? (y/n)" "y")"
+    if [ "$a" = "y" ]; then
+      brew install "$formula" && command -v "$cmd" >/dev/null 2>&1 && { ok "$cmd installed"; return 0; }
+      warn "brew install $formula did not put $cmd on PATH"
+    fi
+  else
+    warn "Homebrew not found — install $cmd yourself, then re-run"
+  fi
+  [ "$level" = "required" ] && die "$cmd is required"
+  return 1
+}
+
+# git first, and RUN it rather than just finding it: a fresh Mac ships a
+# /usr/bin/git shim that exists on PATH and then pops the Xcode Command
+# Line Tools installer the moment anything invokes it. `command -v`
+# passes; the first real snapshot hangs on a GUI dialog.
+if ! git --version >/dev/null 2>&1; then
+  warn "git is a stub until the Xcode Command Line Tools are installed"
+  note "a window may open — finish it, then re-run this script"
+  xcode-select --install 2>/dev/null || true
+  die "waiting on the Command Line Tools"
+fi
+ok "git ($(git --version | awk '{print $3}'))"
+
+need uv uv "it runs the engine and every CLI" required
+# Node only builds the dashboard's bundle — but without it the dashboard
+# is an API with a apology page where the UI should be, which on day one
+# is indistinguishable from broken.
+HAVE_NPM=1; need npm node "it builds the dashboard you actually look at" optional || HAVE_NPM=0
+# Rust builds the file-watching daemon. Genuinely optional: without it
+# the 6am heartbeat still runs passes, and you can trigger one from the
+# dashboard whenever you like — you just don't get the on-change trigger.
+HAVE_CARGO=1; need cargo rustup "it builds the on-change daemon (optional)" optional || HAVE_CARGO=0
+[ "$HAVE_CARGO" = 1 ] || note "no daemon: passes run on the 6am heartbeat and the dashboard's button"
 
 # ---- 2. build ----
 say "Building"
 (cd "$REPO" && uv sync -q) && ok "python environment"
-(cd "$REPO/daemon" && cargo build --release -q) && ok "chickenskratchd (release)"
-if [ -d "$REPO/web" ] && command -v npm >/dev/null; then
+if [ "$HAVE_CARGO" = 1 ]; then
+  (cd "$REPO/daemon" && cargo build --release -q) && ok "chickenskratchd (release)" \
+    || { warn "daemon build failed — continuing without it"; HAVE_CARGO=0; }
+fi
+if [ "$HAVE_NPM" = 1 ]; then
   (cd "$REPO/web" && npm install --silent >/dev/null 2>&1 && npm run build --silent >/dev/null 2>&1) \
     && ok "dashboard bundle (web/dist)" \
-    || warn "web build failed — the API still works; the page will say so"
+    || warn "web build failed — the dashboard will serve its API but no page"
 else
-  warn "npm not found — skipping the dashboard bundle (the API still works)"
+  warn "no dashboard page will be built — the API works, the UI won't be there"
 fi
 
 # ---- 3. which vault ----
@@ -105,8 +154,60 @@ VAULT="$(cd "$VAULT" && pwd)"
 case "$VAULT" in
   "$REPO"|"$REPO"/*) die "the vault cannot live inside the repo ($VAULT) — its git history is its own" ;;
 esac
-NOTE_COUNT="$(find "$VAULT" -name '*.md' -not -path '*/.*' 2>/dev/null | wc -l | tr -d ' ')"
+# YOUR notes: Harness/ is excluded because it is ours. Counting it made a
+# second run of this script reclassify the vault it had just set up as an
+# import — the two files setup created reading back as two notes it found.
+NOTE_COUNT="$(find "$VAULT" -name '*.md' -not -path '*/.*' -not -path "$VAULT/Harness/*" \
+  2>/dev/null | wc -l | tr -d ' ')"
 ok "$VAULT  ($NOTE_COUNT existing note(s))"
+
+# ~/Documents and ~/Desktop are the two folders macOS hands to iCloud
+# when "Desktop & Documents Folders" is on, and that setting is a default
+# for anyone who signs into iCloud during setup. It is the one vault
+# location that can quietly break things:
+#
+#   - the vault is a git repo, and iCloud syncing .git between machines
+#     corrupts it — two machines writing the object store is not a merge
+#     iCloud knows how to do;
+#   - synced files get EVICTED to dataless placeholders when space runs
+#     low. A placeholder reads as a stall or an error, and the engine
+#     walks every note on every pass.
+#
+# Detected by IDENTITY, not by the existence of the CloudDocs folder.
+# With the sync on, ~/Documents and the CloudDocs copy are one directory
+# reached two ways, so they share a device and inode. The folder alone
+# proves nothing — it survives the sync being turned back off, and
+# testing for it called a perfectly ordinary ~/Documents "synced" on a
+# machine where it plainly was not.
+CLOUD_DOCS="$HOME/Library/Mobile Documents/com~apple~CloudDocs"
+same_dir() {
+  local a b
+  a="$(stat -f '%d:%i' "$1" 2>/dev/null)" || return 1
+  b="$(stat -f '%d:%i' "$2" 2>/dev/null)" || return 1
+  [ -n "$a" ] && [ "$a" = "$b" ]
+}
+icloud_docs=0
+case "$VAULT" in
+  "$HOME/Documents"|"$HOME/Documents"/*)
+    same_dir "$HOME/Documents" "$CLOUD_DOCS/Documents" && icloud_docs=1 ;;
+  "$HOME/Desktop"|"$HOME/Desktop"/*)
+    same_dir "$HOME/Desktop" "$CLOUD_DOCS/Desktop" && icloud_docs=1 ;;
+esac
+# Anything literally inside the container is synced by definition.
+case "$(cd "$VAULT" && pwd -P)" in *"/Library/Mobile Documents/"*) icloud_docs=1 ;; esac
+if [ "$icloud_docs" = 1 ]; then
+  warn "this path is inside iCloud's Desktop & Documents sync"
+  note "the vault is a git repo; iCloud syncing .git across machines corrupts it,"
+  note "and evicted files read as stalls to a pass that walks every note."
+  note "Safer: ~/Vaults/personal, or turn that sync off for Documents."
+  if [ "$ALLOW_ICLOUD" = 1 ]; then
+    warn "continuing (--allow-icloud) — watch data/logs/ if passes start stalling"
+  else
+    C="$(ask "Use it anyway? (y/n)" "n")"
+    [ "$C" = "y" ] || die "pick another path, or pass --allow-icloud (nothing was changed)"
+    warn "continuing — keep an eye on data/logs/ if passes start stalling"
+  fi
+fi
 
 # ---- 4. posture: a vault with notes is an IMPORT, and imports must ask ----
 #
@@ -311,22 +412,48 @@ fi
 # ---- 12. launch agents: the event daemon + the 6am heartbeat ----
 if [ "$LAUNCHD" = 1 ]; then
   say "Launch agents"
-  I="$(ask "Install the background daemon + 6am heartbeat? (y/n)" "y")"
+  I="$(ask "Install the background agents? (y/n)" "y")"
   if [ "$I" = "y" ]; then
     mkdir -p "$AGENTS_DIR" "$REPO/data/logs"
-    for label in "$WATCH_LABEL" "$HEART_LABEL"; do
+    # Resolved here, never hardcoded: Homebrew lives at /opt/homebrew on
+    # Apple Silicon and /usr/local on Intel, and launchd gives a plist
+    # naming the wrong one no diagnosis beyond an exit code at login.
+    UV_BIN="$(command -v uv)"
+    AGENT_PATH="$(printf '%s:%s%s' "$(dirname "$UV_BIN")" \
+      "${BREW:+$(brew --prefix)/bin:}" "/usr/local/bin:/usr/bin:/bin" \
+      | awk -v RS=: '!seen[$0]++ {printf "%s%s", sep, $0; sep=":"}')"
+    # The watch agent is the daemon; without a daemon binary there is
+    # nothing for it to launch, and installing it anyway would give you a
+    # KeepAlive agent that respawns a missing file forever.
+    labels="$HEART_LABEL"
+    [ "$HAVE_CARGO" = 1 ] && labels="$WATCH_LABEL $labels"
+    for label in $labels; do
       sed -e "s|__REPO__|$REPO|g" -e "s|__VAULT__|$VAULT|g" \
+          -e "s|__UV__|$UV_BIN|g" -e "s|__PATH__|$AGENT_PATH|g" \
         "$REPO/config/launchd/$label.plist" > "$AGENTS_DIR/$label.plist"
       launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
       launchctl bootstrap "gui/$(id -u)" "$AGENTS_DIR/$label.plist" 2>/dev/null \
         || launchctl load "$AGENTS_DIR/$label.plist"
       ok "$label"
     done
-    sleep 2
-    pgrep -f "chickenskratchd.*$VAULT" >/dev/null && ok "chickenskratchd running" \
-      || warn "chickenskratchd not visible yet — see data/logs/chickenskratchd.log"
+    [ "$HAVE_CARGO" = 1 ] || note "$WATCH_LABEL skipped — no daemon binary was built"
+    if [ "$HAVE_CARGO" = 1 ]; then
+      sleep 2
+      pgrep -f "chickenskratchd.*$VAULT" >/dev/null && ok "chickenskratchd running" \
+        || warn "chickenskratchd not visible yet — see data/logs/chickenskratchd.log"
+    fi
+    # macOS gates ~/Documents, ~/Desktop and ~/Downloads behind TCC. A
+    # Terminal run prompts and you click Allow; a launchd agent often
+    # gets refused with no prompt at all, and the only symptom is passes
+    # that never touch anything.
+    case "$VAULT" in
+      "$HOME/Documents"/*|"$HOME/Desktop"/*|"$HOME/Downloads"/*)
+        note "macOS protects this folder: if background passes never run, grant"
+        note "Full Disk Access to $UV_BIN in System Settings › Privacy & Security" ;;
+    esac
   else
-    note "skipped — run by hand: daemon/target/release/chickenskratchd --vault $VAULT --repo $REPO"
+    note "skipped — trigger passes from the dashboard, or run:"
+    note "  uv run chickenskratch-watch --vault $VAULT"
   fi
 fi
 
