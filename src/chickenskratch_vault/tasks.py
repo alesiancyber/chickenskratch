@@ -15,6 +15,13 @@ It replaces owed-ness-by-location (a task was owed because it sat in
 Tasks/Waiting.md): once owed items live inside the records they came
 from, the line itself has to say so. Not an Obsidian Tasks field — it
 degrades to plain text anywhere else, which is fine.
+
+Subtasks are indentation, nothing more: a task line indented deeper
+than the task line above it is that task's child (the Obsidian Tasks
+and kanban convention — kanban.py already moves a card's indented
+lines with the card). No field is written for it. A single line cannot
+know its parent, so `parse_task_line` records only the indent width;
+`iter_tasks` resolves depth and parent from the indent stack.
 """
 
 from __future__ import annotations
@@ -37,6 +44,16 @@ OWNER_RE = re.compile(r"👤\s*([^📅⏳⌛✅➕🔺⏫🔼🔽⏬]+)")
 
 PRIORITY_MARKS = {"🔺": "highest", "⏫": "high", "🔼": "medium", "🔽": "low", "⏬": "lowest"}
 PRIORITY_EMOJI = {v: k for k, v in PRIORITY_MARKS.items()}
+
+# A tab counts this many columns when comparing indents, so a vault
+# that mixes Obsidian's tabs with the canvas's two spaces still nests.
+TAB_WIDTH = 4
+# What the harness writes for one nesting level (the canvas and the
+# editor indent by the same two spaces).
+INDENT = "  "
+# Any list item — a task or a plain bullet. A bullet between a parent
+# and its subtask is list content, not the end of the list.
+LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")
 
 
 def week_end(d: dt.date) -> dt.date:
@@ -62,9 +79,21 @@ class Task:
     created: str | None = None    # ➕ birth date — stamped at format_task
     scheduled: str | None = None  # ⏳ plan date — the judgment field
     owner: str | None = None      # 👤 who owes this — owed work, not the user's
+    indent: int = 0               # leading-whitespace width, tabs expanded
+    # Nesting — resolved by iter_tasks from the indent stack, so a line
+    # parsed on its own is depth 0 with no parent.
+    depth: int = 0                # 0 top-level; 1 a subtask; 2 a sub-subtask …
+    parent_line: int | None = None
+    parent_id: str | None = None      # the parent's ^ref, when it has one
+    parent_text: str | None = None
 
     def to_dict(self, path: str) -> dict:
         d = {"note": path, "line": self.line_no + 1, "text": self.text, "done": self.done}
+        if self.depth:
+            d["depth"] = self.depth
+            d["parent_text"] = self.parent_text
+            if self.parent_id:
+                d["parent"] = self.parent_id
         if self.due:
             d["due"] = self.due
         if self.scheduled:
@@ -116,6 +145,7 @@ def parse_task_line(line: str, line_no: int = 0) -> Task | None:
         created=created,
         scheduled=scheduled,
         owner=owner,
+        indent=len(m.group("indent").expandtabs(TAB_WIDTH)),
     )
 
 
@@ -240,7 +270,45 @@ def set_line_status(line: str, done: bool, today: str | None = None) -> str:
 
 
 def iter_tasks(content: str):
+    """Every task line, with depth and parent resolved. A task indented
+    deeper than the open task above it is that task's child; a
+    paragraph or heading at column 0 ends the list. An indented task
+    with no task above it (under a plain bullet, or first in a note)
+    is a top-level task: nothing to attach to, so it surfaces on its
+    own rather than vanishing."""
+    stack: list[Task] = []  # open ancestors, shallowest first
     for i, line in enumerate(content.splitlines()):
         task = parse_task_line(line, i)
-        if task:
-            yield task
+        if task is None:
+            if line.strip() and not line[0].isspace() and not LIST_ITEM_RE.match(line):
+                stack.clear()
+            continue
+        while stack and stack[-1].indent >= task.indent:
+            stack.pop()
+        if stack:
+            parent = stack[-1]
+            task.depth = parent.depth + 1
+            task.parent_line = parent.line_no
+            task.parent_id = parent.block_id
+            task.parent_text = parent.text
+        stack.append(task)
+        yield task
+
+
+def normalize_depths(depths: list[int]) -> list[int]:
+    """Well-formed nesting from a list of intended depths: the first is
+    0 and no level jumps by more than one — the shape a list of indented
+    lines can actually express. A worker that says depth 2 under a
+    depth-0 task meant 1; a list whose parent was filed elsewhere (an
+    owed child split from its own parent) starts over at 0."""
+    out: list[int] = []
+    for d in depths:
+        d = max(0, int(d or 0))
+        out.append(min(d, (out[-1] + 1) if out else 0))
+    return out
+
+
+def indent_line(line: str, depth: int) -> str:
+    """A task line at a nesting level — INDENT per level, nothing else
+    about the line touched."""
+    return INDENT * depth + line if depth > 0 else line

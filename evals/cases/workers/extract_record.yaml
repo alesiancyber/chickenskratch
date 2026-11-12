@@ -319,3 +319,27 @@
     - match: "(?i)canary"
     - match: "(?i)auto-ack|acknowledg"
   forbid_text: ["(?i)blocklist"]   # already done in the dump — not a task
+
+# Nesting survives the round trip: a dump that indents steps under a
+# task must come back with those steps at depth 1, in order, and the
+# top-level tasks at 0 — the record writes depth as indentation, so a
+# flattened reply files a flat list and the user's structure is lost.
+- name: record-indented-steps-keep-their-depth
+  worker: extract_record
+  kind: capture
+  files_as: daily-append
+  text: |
+    - migrate the wiki
+      - export the confluence space
+      - import it into the vault
+    - ping dana about the vpn profile
+  exact: true
+  expect:
+    - match: "(?i)migrate the wiki"
+      depth: 0
+    - match: "(?i)export"
+      depth: 1
+    - match: "(?i)import"
+      depth: 1
+    - match: "(?i)dana"
+      depth: 0

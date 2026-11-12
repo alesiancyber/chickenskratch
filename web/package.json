@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "lint": "eslint src vite.config.js eslint.config.js && htmlhint index.html"
+    "lint": "eslint src vite.config.js eslint.config.js && htmlhint index.html",
+    "test": "node --test src/"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",

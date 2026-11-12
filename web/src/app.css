@@ -391,6 +391,15 @@ section { margin-bottom: var(--s5); }
 .row:hover .affordance { opacity: 1; }
 .row .affordance:hover { color: var(--ink); }
 
+/* a subtask beneath its parent's row: tucked in under the parent's
+   text (past its checkbox), quieter, and the same row otherwise */
+.row.subtask {
+  padding-left: calc(var(--s2) + 14px + var(--s2));
+  font-size: var(--text-small);
+  color: var(--ink-2);
+}
+.row.subtask .box { width: 12px; height: 12px; }
+
 .due-today { color: var(--accent); font-weight: 500; }
 .overdue { color: var(--accent); }
 

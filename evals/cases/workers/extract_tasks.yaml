@@ -611,3 +611,32 @@
       due: null
   exact: true
   forbid_text: ["(?i)canary", "(?i)image pull"]
+
+# Nesting: indented sub-items come back at depth 1 under the task
+# before them; flat prose never grows sub-steps.
+- name: indented-steps-keep-their-depth
+  worker: extract_tasks
+  text: |
+    - migrate the wiki
+      - export the confluence space
+      - import it into the vault
+    - ping dana about the vpn profile
+  exact: true
+  expect:
+    - match: "(?i)migrate the wiki"
+      depth: 0
+    - match: "(?i)export"
+      depth: 1
+    - match: "(?i)import"
+      depth: 1
+    - match: "(?i)dana"
+      depth: 0
+
+- name: prose-never-grows-sub-steps
+  worker: extract_tasks
+  text: "renew the mail cert by friday and ping dana about the vpn profile"
+  expect:
+    - match: "(?i)cert"
+      depth: 0
+    - match: "(?i)dana"
+      depth: 0

@@ -191,6 +191,19 @@ default — a stray click won't drop your caret into raw markdown; the
 `edit` button on the callout head (or deliberately arrowing in with
 the keyboard) is the way in.
 
+**Subtasks** are indentation, nothing more: a task line indented under
+another task is its subtask, the same convention Obsidian Tasks and the
+kanban boards use, and no field is written for it. On both the canvas
+and the editor `Tab` indents the current line (or every selected line),
+`Shift-Tab` outdents, and `Enter` continues a list — the next line gets
+the same indent and a fresh `- [ ] `; `Enter` on an empty item ends the
+list. A dump with indented steps files them indented under their task
+in the record. On the dashboard a subtask rides with its parent: the
+parent's row lists its open subtasks (each with its own checkbox) and
+how many are done; a subtask with a date of its own gets its own row,
+labeled with the task it belongs to. Checking off a parent never
+touches its subtasks.
+
 **Typed commands** — type `//command args` on its own line in any
 note, press Enter, and the line is replaced in place by its result a
 few seconds later, rendered as a callout:

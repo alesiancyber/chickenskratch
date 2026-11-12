@@ -9,7 +9,7 @@ prompt: |
   Extract every actionable item from the text below. A task is something a person needs to do — not a decision already made, not a general topic, not something that already happened.
 
   Return ONLY a JSON object of this shape, nothing else:
-  {{"tasks": [{{"text": "...", "due": "YYYY-MM-DD or null", "scheduled": "YYYY-MM-DD or null", "priority": "highest|high|medium|low|lowest or null", "owed_by": "name or null"}}]}}
+  {{"tasks": [{{"text": "...", "due": "YYYY-MM-DD or null", "scheduled": "YYYY-MM-DD or null", "priority": "highest|high|medium|low|lowest or null", "owed_by": "name or null", "depth": 0}}]}}
 
   Rules:
   - due is a HARD deadline: a specific date only when the text states or
@@ -34,6 +34,10 @@ prompt: |
     actionable parts instead of flattening them into one task — but never
     decompose a single action into its steps.
   - text: the task itself, imperative mood, without repeating the date or priority word.
+  - depth: 0 for a task of its own. 1 when the text nests it under the
+    task listed just before it — an indented sub-item, or a step the
+    text itself lists under a larger task. Keep the text's order so a
+    depth-1 task follows its parent. Otherwise 0.
   - A decision already made, or a plan someone reviewed or approved, is NOT a task unless the text asks someone to carry it out. But a suggestion for future work ("we should...", "someday...") IS a task, with due and priority null unless stated.
   - No tasks found -> {{"tasks": []}}.
   {hedges}
@@ -53,6 +57,8 @@ hedges: |
     week" is {next_sunday} even when {this_sunday} is today; never
     substitute a date you computed yourself.
   - When the text truly states no due, scheduled, or priority, use null.
+  - Use depth 1 ONLY when the text itself indents the line under another
+    task; never invent sub-steps. When unsure, 0.
 schema:
   type: object
   required:
@@ -90,3 +96,9 @@ schema:
             type:
             - string
             - 'null'
+          depth:
+            type:
+            - integer
+            - 'null'
+            minimum: 0
+            maximum: 3

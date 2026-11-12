@@ -261,15 +261,47 @@ function PullIn({ groups, onAdd, adding }) {
   );
 }
 
-function TaskRow({ r, right, onDone, done }) {
+/* A task row, and beneath it the subtasks that ride with it: the
+   model attaches a parent's open, undated children (each with its own
+   checkbox — the done verb needs only the note and the text) and how
+   many of its children are already done. A subtask with a date of its
+   own is its own row elsewhere, labeled with its parent (`r.parent`)
+   so it never reads as an orphan. */
+function TaskRow({ r, right, onDone, done, doneKeys }) {
+  const subs = r.subtasks ?? [];
+  const total = r.subtasks_total ?? 0;
   return (
-    <NoteRow note={r.note} target={r.text} className={done ? "task-done" : ""}>
-      <button className={"box" + (done ? " on" : "")}
-              aria-label="Mark done"
-              onClick={(e) => { e.stopPropagation(); if (!done) onDone(r); }} />
-      <span className="grow">{r.text}</span>
-      {right}
-    </NoteRow>
+    <>
+      <NoteRow note={r.note} target={r.text} className={done ? "task-done" : ""}>
+        <button className={"box" + (done ? " on" : "")}
+                aria-label="Mark done"
+                onClick={(e) => { e.stopPropagation(); if (!done) onDone(r); }} />
+        <span className="grow">
+          {r.parent && <span className="ghost small">{r.parent} › </span>}
+          {r.text}
+        </span>
+        {total > 0 && (
+          <span className="chip" title="subtasks done">
+            {r.subtasks_done}/{total}
+          </span>
+        )}
+        {right}
+      </NoteRow>
+      {subs.map((s) => {
+        const sub = { note: r.note, text: s.text };
+        const subDone = doneKeys?.has(doneKey(sub));
+        return (
+          <NoteRow key={s.text} note={r.note} target={s.text}
+                   className={"subtask" + (subDone ? " task-done" : "")}>
+            <button className={"box" + (subDone ? " on" : "")}
+                    aria-label="Mark subtask done"
+                    onClick={(e) => { e.stopPropagation(); if (!subDone) onDone(sub); }} />
+            <span className="grow">{s.text}</span>
+            {s.owner && <span className="chip">👤 {s.owner}</span>}
+          </NoteRow>
+        );
+      })}
+    </>
   );
 }
 
@@ -291,13 +323,13 @@ function DoToday({ due, planned, meetings, onDone, doneKeys, chips }) {
       <Rows
         items={rows}
         render={(r, i) => (
-          <TaskRow key={i} r={r} onDone={onDone}
+          <TaskRow key={i} r={r} onDone={onDone} doneKeys={doneKeys}
                    done={doneKeys.has(doneKey(r))}
                    right={<span className={`small ${r.cls}`}>{r.when}</span>} />
         )}
       />
       {planned.map((r, i) => (
-        <TaskRow key={`p${i}`} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
+        <TaskRow doneKeys={doneKeys} key={`p${i}`} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
                  right={<>
                    <span className="small ghost">
                      {r.slipped ? `planned · carried ${r.slipped}d` : "planned"}
@@ -351,7 +383,7 @@ function WeekPane({ today, onDone, doneKeys, chips }) {
       {today.this_week.length > 0 && (
         <Section id="this-week" label="What lands this week?" verb="do">
           <Rows items={today.this_week} render={(r, i) => (
-            <TaskRow key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
+            <TaskRow doneKeys={doneKeys} key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
                      right={<>{whenChip(r)}{chips(r)}</>} />
           )} />
         </Section>
@@ -359,7 +391,7 @@ function WeekPane({ today, onDone, doneKeys, chips }) {
       {today.next_week.length > 0 && (
         <Section id="next-week" label="What's lined up for next week?" verb="prep">
           <Rows items={today.next_week} render={(r, i) => (
-            <TaskRow key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
+            <TaskRow doneKeys={doneKeys} key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
                      right={<>{whenChip(r)}{chips(r)}</>} />
           )} />
         </Section>
@@ -367,7 +399,7 @@ function WeekPane({ today, onDone, doneKeys, chips }) {
       {today.later.length > 0 && (
         <Section id="later" label="Later — has a date, not this fortnight">
           <Rows items={today.later} fold={5} render={(r, i) => (
-            <TaskRow key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
+            <TaskRow doneKeys={doneKeys} key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
                      right={<>
                        {r.owner && <span className="chip">👤 {r.owner}</span>}
                        <span className="small ghost">{r.kind === "due"
@@ -381,7 +413,7 @@ function WeekPane({ today, onDone, doneKeys, chips }) {
       {today.backlog.length > 0 && (
         <Section id="backlog" label="Long-term queue — no week attached" verb="judge">
           <Rows items={today.backlog} fold={8} label="queued" render={(r, i) => (
-            <TaskRow key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
+            <TaskRow doneKeys={doneKeys} key={i} r={r} onDone={onDone} done={doneKeys.has(doneKey(r))}
                      right={<>
                        {r.priority && <span className="chip">{r.priority}</span>}
                        {r.age_days != null && (
@@ -1166,7 +1198,7 @@ export default function App() {
       {today.due.soon.length > 0 && (
         <Section id="soon" label="What lands soon?" verb="start">
           <Rows items={today.due.soon} render={(r, i) => (
-            <TaskRow key={i} r={r} onDone={taskDone} done={doneKeys.has(doneKey(r))}
+            <TaskRow doneKeys={doneKeys} key={i} r={r} onDone={taskDone} done={doneKeys.has(doneKey(r))}
                      right={<>
                        <span className="small meta">in {r.days}d</span>
                        {planChips(r)}
@@ -1182,7 +1214,7 @@ export default function App() {
           <Rows items={[...today.waiting].sort(
                   (a, b) => (b.waiting_days ?? 0) - (a.waiting_days ?? 0))}
                 render={(r, i) => (
-            <TaskRow key={i} r={r} onDone={taskDone}
+            <TaskRow doneKeys={doneKeys} key={i} r={r} onDone={taskDone}
                      done={doneKeys.has(doneKey(r))}
                      right={<>
                        {r.owner && <span className="chip">👤 {r.owner}</span>}

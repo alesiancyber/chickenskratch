@@ -240,12 +240,21 @@ def _verbatim_callout(dump: str, stamp: str) -> list[str]:
 
 def _record_task_lines(tasks: list[dict]) -> list[str]:
     """Extracted tasks as stamped checkbox lines — the record's live
-    half. Owed items carry 👤 (owed-ness is a field now, not a folder)."""
+    half. Owed items carry 👤 (owed-ness is a field now, not a folder).
+    A task's `depth` (the worker's, or the dump's own indentation) is
+    kept as indentation: a subtask in the dump is a subtask in the
+    record. Depths are re-normalized HERE, per list, because the
+    own/owed split can file a child away from its parent — an owed
+    step under the user's own task starts over at the top of the
+    waiting list rather than dangling under nothing."""
+    depths = tk.normalize_depths([t.get("depth") or 0 for t in tasks])
     return [
-        tk.format_task(t["text"], t.get("due"), t.get("priority"),
-                       block_id=ids.stamp_id("t"), scheduled=t.get("scheduled"),
-                       owner=t.get("owed_by"))
-        for t in tasks
+        tk.indent_line(
+            tk.format_task(t["text"], t.get("due"), t.get("priority"),
+                           block_id=ids.stamp_id("t"), scheduled=t.get("scheduled"),
+                           owner=t.get("owed_by")),
+            depth)
+        for t, depth in zip(tasks, depths, strict=True)
     ]
 
 
@@ -955,7 +964,7 @@ def scan_overlap(w: Watcher) -> list[dict]:
     pool: list[tuple] = []  # (Task, rel)
     for rel, text in w.pass_notes().items():
         for t in tk.iter_tasks(text):
-            if t.done or t.raw.lstrip() != t.raw or not t.block_id:
+            if t.done or t.depth or not t.block_id:
                 continue
             pool.append((t, rel))
     if len(pool) < 2:
@@ -1153,7 +1162,7 @@ def scan_plan(w: Watcher) -> list[dict]:
     pool: list[tuple] = []  # (Task, rel)
     for rel, text in w.pass_notes().items():
         for t in tk.iter_tasks(text):
-            if (not t.done and t.raw.lstrip() == t.raw and not t.due
+            if (not t.done and not t.depth and not t.due
                     and not t.scheduled and not t.owner and t.block_id):
                 pool.append((t, rel))
     if not pool:

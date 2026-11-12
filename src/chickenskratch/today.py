@@ -76,8 +76,8 @@ def collect(v: Vault, cfg, pending_decisions: int, today: dt.date | None = None)
     the full sets."""
     today = today or dt.date.today()
     surface_dirs = cfg.surface_dirs
-    open_tasks, owed_tasks, boards = _walk(v, surface_dirs)
-    due, planned, this_week, next_week, later = _time_model(open_tasks, owed_tasks, today)
+    open_tasks, owed_tasks, boards, kids = _walk(v, surface_dirs)
+    due, planned, this_week, next_week, later = _time_model(open_tasks, owed_tasks, today, kids)
     return {
         "date": today.isoformat(),
         "pending_decisions": pending_decisions,
@@ -93,22 +93,55 @@ def collect(v: Vault, cfg, pending_decisions: int, today: dt.date | None = None)
         "this_week": this_week,
         "next_week": next_week,
         "later": later,
-        "backlog": _backlog(open_tasks, today),
+        "backlog": _backlog(open_tasks, today, kids),
         # What an EMPTY Today can pull in without going hunting. Always
         # computed (it is three passes over a list already in hand); the
         # dashboard shows it only when there is nothing else, because the
         # empty state is the success condition and must stay one.
         "groups": _task_groups(open_tasks, today),
-        "waiting": _waiting_rows(owed_tasks, today),
-        "stranded": _stranded(open_tasks, today),
+        "waiting": _waiting_rows(owed_tasks, today, kids),
+        "stranded": _stranded(open_tasks, today, kids),
         "meetings": _meetings_today(v, cfg.meetings_dir, today),
         "in_flight": _in_flight(boards),
         "activity": _activity_since_midnight(v, today, surface_dirs),
     }
 
 
+# Subtasks on a row. A subtask is indentation in the note (tasks.py);
+# on the dashboard it rides with its parent: the parent's row carries
+# its open, undated children as `subtasks` (each completable — the
+# row's own note and text are all the done verb needs), plus how many
+# of its children are already done. A child with a date of its OWN
+# files itself, wherever the date puts it, and its row says which task
+# it belongs to (`parent`) so it never reads as an orphan. A child
+# with no date and an undated parent has no row: the parent is the
+# backlog's business, and the children are the parent's. One task,
+# one row, still — a child is on its parent's row or on its own, never
+# both. Completing a parent never touches its children: the harness
+# writes what you said, not what it inferred.
+Kids = dict[tuple[str, int], list[tk.Task]]   # (note, parent line) → children
+
+
+def _subtasks(task: tk.Task, rel: str, kids: Kids) -> dict:
+    """The row fields for a task's children, or {} when it has none."""
+    children = kids.get((rel, task.line_no), [])
+    if not children:
+        return {}
+    rows = [{"text": c.text, "owner": c.owner or ""}
+            for c in children if not c.done and not (c.due or c.scheduled)]
+    return {"subtasks": rows,
+            "subtasks_done": sum(1 for c in children if c.done),
+            "subtasks_total": len(children)}
+
+
+def _under(task: tk.Task) -> dict:
+    """A dated child's context: which task it is a step of."""
+    return {"parent": task.parent_text} if task.depth else {}
+
+
 def _time_model(open_tasks: list[tuple[tk.Task, str]],
-                owed_tasks: list[tuple[tk.Task, str]], today: dt.date):
+                owed_tasks: list[tuple[tk.Task, str]], today: dt.date,
+                kids: Kids | None = None):
     """(due buckets, planned, this_week, next_week, later). Bucketed so
     old debt can never crowd out the present: overdue is ordered
     freshest-first (ancient overdue is the least actionable).
@@ -131,6 +164,7 @@ def _time_model(open_tasks: list[tuple[tk.Task, str]],
     the one thing a waiting view must never do. The owner rides on the
     row so no renderer can dress somebody else's debt as the user's
     own plan."""
+    kids = kids or {}
     horizon = today + dt.timedelta(days=SOON_DAYS)
     this_sunday = week_end(today)
     next_sunday = this_sunday + dt.timedelta(days=7)
@@ -146,7 +180,8 @@ def _time_model(open_tasks: list[tuple[tk.Task, str]],
         d = _safe_date(task.due) if task.due else None
         s = _safe_date(task.scheduled) if task.scheduled else None
         row = {"text": task.text, "due": task.due or "",
-               "scheduled": task.scheduled or "", "note": rel}
+               "scheduled": task.scheduled or "", "note": rel,
+               **_under(task), **_subtasks(task, rel, kids)}
         if task.due and d is None:
             due["broken"].append(row)
         elif d is not None and d < today:
@@ -180,7 +215,8 @@ def _time_model(open_tasks: list[tuple[tk.Task, str]],
         week_row = {"text": task.text, "due": task.due or "",
                     "scheduled": task.scheduled or "", "note": rel,
                     "owner": task.owner or "", "when": s.isoformat(),
-                    "kind": "chase", "days": (s - today).days}
+                    "kind": "chase", "days": (s - today).days,
+                    **_under(task), **_subtasks(task, rel, kids)}
         if s <= this_sunday:
             this_week.append(week_row)
         elif s <= next_sunday:
@@ -196,24 +232,25 @@ def _time_model(open_tasks: list[tuple[tk.Task, str]],
 
 
 def _backlog(open_tasks: list[tuple[tk.Task, str]],
-             today: dt.date, cap: int = 100) -> list[dict]:
+             today: dt.date, kids: Kids | None = None, cap: int = 100) -> list[dict]:
     """The judgment pool: every open, top-level task with neither a 📅
     nor a ⏳ — nothing the time model can place, wherever it lives (a
     record's action items are as plannable as anything else). Oldest
     first (age is the strongest deterministic surfacing signal we
     have), bounded so a neglected vault costs one big list, not an
     unbounded one."""
+    kids = kids or {}
     rows = []
     for task, rel in open_tasks:
         if task.due or task.scheduled:
             continue
-        if task.raw.lstrip() != task.raw:
+        if task.depth:
             continue  # subtasks ride with their parent
         born = _safe_date(task.created) if task.created else None
         rows.append({"text": task.text, "note": rel,
                      "priority": task.priority or "",
                      "age_days": (today - born).days if born else None,
-                     "id": task.block_id or ""})
+                     "id": task.block_id or "", **_subtasks(task, rel, kids)})
     rows.sort(key=lambda r: -(r["age_days"] or -1))
     return rows[:cap]
 
@@ -256,7 +293,7 @@ def _task_groups(open_tasks: list[tuple[tk.Task, str]], today: dt.date,
     """
     pool = [(t, rel) for t, rel in open_tasks
             if not t.due and not t.scheduled
-            and t.raw.lstrip() == t.raw and t.block_id]
+            and not t.depth and t.block_id]
     if not pool:
         return []
 
@@ -326,6 +363,7 @@ def _walk(v: Vault, surface_dirs: frozenset[str]):
     open_tasks: list[tuple[tk.Task, str]] = []
     owed_tasks: list[tuple[tk.Task, str]] = []
     boards: list[tuple[str, kb.Board]] = []
+    kids: Kids = {}  # every subtask, done or not, by its parent line
     for p, rel in v.iter_knowledge_notes(surface_dirs):
         text = read_lossy(p)
         fm, _body = md.split_frontmatter(text)
@@ -336,18 +374,21 @@ def _walk(v: Vault, surface_dirs: frozenset[str]):
                 pass  # a malformed board never breaks the dashboard
             continue
         for task in tk.iter_tasks(text):
+            if task.depth:
+                kids.setdefault((rel, task.parent_line), []).append(task)
             if not task.done:
                 (owed_tasks if task.owner else open_tasks).append((task, rel))
-    return open_tasks, owed_tasks, boards
+    return open_tasks, owed_tasks, boards, kids
 
 
 def _waiting_rows(owed_tasks: list[tuple[tk.Task, str]],
-                  today: dt.date) -> list[dict]:
+                  today: dt.date, kids: Kids | None = None) -> list[dict]:
     """The waiting view: a filter over the walk — owed-ness is the 👤
     field, and the row links to the record the commitment was made in.
     An owed item whose ⏳ is in the future is snoozed: "chase this then"
     is the same field as "work on this then", no new mechanism.
     Longest-waiting first."""
+    kids = kids or {}
     rows = []
     for task, rel in owed_tasks:
         s = _safe_date(task.scheduled) if task.scheduled else None
@@ -355,6 +396,7 @@ def _waiting_rows(owed_tasks: list[tuple[tk.Task, str]],
             continue  # snoozed until its ⏳ arrives
         born = _safe_date(task.created) if task.created else None
         rows.append({
+            **_under(task), **_subtasks(task, rel, kids),
             "text": task.text,
             "owner": task.owner or "",
             "due": task.due or "",
@@ -379,7 +421,7 @@ def _filename_date(rel: str) -> dt.date | None:
 
 
 def _stranded(open_tasks: list[tuple[tk.Task, str]], today: dt.date,
-              max_age_days: int = 7) -> list[dict]:
+              kids: Kids | None = None, max_age_days: int = 7) -> list[dict]:
     """The attention engine, v1: open, undated, unplanned tasks older
     than N days, WHEREVER they live — invisible to Due and Planned,
     rotting quietly. Was a meetings-only feature aging by filename; now
@@ -390,14 +432,18 @@ def _stranded(open_tasks: list[tuple[tk.Task, str]], today: dt.date,
     Oldest first, stated rather than inherited: the section only folds
     the first few rows into view, so the order IS which items you get
     told about."""
+    kids = kids or {}
     rows = []
     for task, rel in open_tasks:
         if task.due or task.scheduled:
             continue
+        if task.depth:
+            continue  # rots with its parent, which is the row
         born = (_safe_date(task.created) if task.created else None) or _filename_date(rel)
         if born is None or (today - born).days < max_age_days:
             continue
-        rows.append({"text": task.text, "age_days": (today - born).days, "note": rel})
+        rows.append({"text": task.text, "age_days": (today - born).days, "note": rel,
+                     **_subtasks(task, rel, kids)})
     rows.sort(key=lambda r: -r["age_days"])
     return rows
 

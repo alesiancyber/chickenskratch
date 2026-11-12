@@ -1,4 +1,4 @@
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
@@ -201,6 +201,9 @@ export default function NoteEditor({ path, target, seq, planDates, visible = tru
                 runLineRef.current(line);
                 return true;
               } },
+            // Tab indents the line (a subtask is an indented task),
+            // Shift-Tab outdents; Escape then Tab leaves the editor
+            indentWithTab,
             ...defaultKeymap, ...historyKeymap,
           ]),
           markdown(),

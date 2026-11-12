@@ -286,7 +286,10 @@ def list_tasks(folder: str = "", status: str = "open", task_type: str = "",
     questions. status: "open", "done", or "all". task_type narrows to one
     type. Date filters (both YYYY-MM-DD): due_on = tasks due exactly that
     date ("what's due tomorrow?" -> due_on=tomorrow's date); due_before =
-    tasks due strictly before that date (for overdue checks).
+    tasks due strictly before that date (for overdue checks). A subtask
+    (an indented task line) carries `depth`, `parent_text`, and — when
+    the parent has a ^ref — `parent`; top-level tasks carry none of
+    these.
 
     Example: list_tasks(status="open") ->
       {"filter": {"status": "open"}, "total": 22,
@@ -334,18 +337,25 @@ def list_tasks(folder: str = "", status: str = "open", task_type: str = "",
 
 @mcp.tool()
 def add_task(path: str, text: str, due: str = "", priority: str = "",
-             section: str = "", scheduled: str = "") -> dict:
+             section: str = "", scheduled: str = "", under: str = "") -> dict:
     """Add a checkbox task to a note. due (YYYY-MM-DD) is a HARD deadline;
     scheduled (YYYY-MM-DD) is the ⏳ plan date — "this week" / "next week"
     plans stamp the week's Sunday. priority is one of
     highest/high/medium/low/lowest. If `section` is given the task is added
     at the end of that heading's section, otherwise at the end of the note.
+    `under` makes it a SUBTASK: the text of an existing task in the note
+    (exact or unique substring, like set_task_status); the new line is
+    indented beneath that task, after any subtasks it already has, and
+    `section` is ignored.
 
     Example: add_task(path="Captures/2026-07-25", text="Renew domain", due="2026-07-25", priority="high")
+    Example: add_task(path="Projects/Wiki", text="Export the space", under="Migrate the wiki")
     """
     _writable(path)
     line = tk.format_task(text, due or None, priority or None,
                           block_id=ids.stamp_id("t"), scheduled=scheduled or None)
+    if under:
+        return _add_subtask(path, line, under)
     if section:
         return append_to_note(path, line, section)
     # No section: append as a LIST CONTINUATION — a task after a task gets
@@ -367,6 +377,42 @@ def add_task(path: str, text: str, due: str = "", priority: str = "",
         v.write(path, md.join_frontmatter(fm, body))
         v.snapshot_after(f"add task to {v.rel(p)}")
     return {"updated": v.rel(p)}
+
+
+def _add_subtask(path: str, line: str, under: str) -> dict:
+    """Insert `line` as the last child of the task matching `under`:
+    one level deeper than the parent (its existing children's indent
+    when it has any, so a tab-indented note stays tab-indented), after
+    the parent's whole block — every following deeper-indented task
+    line and the blank-or-indented content between them."""
+    v = get_vault()
+    with v.locked():
+        text = v.read(path)
+        parent = _locate_task(text, under, path)
+        lines = text.splitlines()
+        # The block: every following line that is blank, indented
+        # deeper than the parent, or a deeper task — the parent's
+        # content, kanban's rule. Trailing blanks stay behind.
+        end = parent.line_no + 1
+        while end < len(lines):
+            ln = lines[end]
+            if ln.strip() and (not ln[0].isspace()
+                               or len(ln[:len(ln) - len(ln.lstrip())].expandtabs(tk.TAB_WIDTH))
+                               <= parent.indent):
+                break
+            end += 1
+        while end > parent.line_no + 1 and not lines[end - 1].strip():
+            end -= 1
+        children = [t for t in tk.iter_tasks(text)
+                    if t.parent_line == parent.line_no]
+        prefix = (children[-1].raw[:len(children[-1].raw) - len(children[-1].raw.lstrip())]
+                  if children else
+                  parent.raw[:len(parent.raw) - len(parent.raw.lstrip())] + tk.INDENT)
+        v.snapshot_before("add_task")
+        lines.insert(end, prefix + line)
+        v.write(path, "\n".join(lines) + "\n")
+        v.snapshot_after(f"add subtask to {v.rel(v.resolve(path))}")
+    return {"updated": v.rel(v.resolve(path)), "under": parent.text}
 
 
 def _locate_task(text: str, task_text: str, path: str) -> tk.Task:
@@ -494,7 +540,7 @@ def archive_done_tasks(path: str, archive_path: str = "") -> dict:
     with v.locked():
         text = v.read(path)
         fm, body = md.split_frontmatter(text)
-        done = [t for t in tk.iter_tasks(body) if t.done and t.raw.lstrip() == t.raw]
+        done = [t for t in tk.iter_tasks(body) if t.done and not t.indent]
         if not done:
             return {"archived": 0, "archive": archive}
         v.snapshot_before("archive_done_tasks")

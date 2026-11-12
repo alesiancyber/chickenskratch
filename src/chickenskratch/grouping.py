@@ -44,7 +44,7 @@ def note_candidate(text: str) -> dict | None:
         tasks = [tk.parse_task_line(ln) for ln in section_lines]
         if any(t is None for t in tasks):
             continue  # prose or sub-headings: not a flat task list
-        if any(t.raw != t.raw.lstrip() for t in tasks):
+        if any(t.indent for t in tasks):
             continue  # nested tasks: structure we must not flatten
         if any(t.block_id is None for t in tasks):
             continue  # unstamped: conformance first, grouping unlocked after

@@ -24,7 +24,7 @@ export default [
         requestAnimationFrame: "readonly", cancelAnimationFrame: "readonly",
         setTimeout: "readonly", clearTimeout: "readonly",
         setInterval: "readonly", clearInterval: "readonly",
-        AbortController: "readonly", CustomEvent: "readonly",
+        AbortController: "readonly", CustomEvent: "readonly", Event: "readonly",
         getComputedStyle: "readonly", location: "readonly", history: "readonly",
       },
     },

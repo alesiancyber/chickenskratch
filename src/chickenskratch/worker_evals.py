@@ -67,7 +67,7 @@ def score(case: dict, tasks: list[dict], subs: dict[str, str]) -> list[str]:
 
         def mismatches(t: dict, want: dict = want, pattern: str = pattern) -> list[str]:
             out = []
-            for field in ("due", "scheduled", "priority", "owed_by"):
+            for field in ("due", "scheduled", "priority", "owed_by", "depth"):
                 if field not in want:
                     continue  # absent key = unchecked; explicit null = must be null
                 want_val = fill(want[field], subs) if isinstance(want[field], str) else want[field]

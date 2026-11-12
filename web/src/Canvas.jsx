@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { postJSON } from "./api.js";
+import { listKey } from "./indent.js";
 import { findFences } from "./mermaid.js";
 import { Diagram, linkifyBlock } from "./text.jsx";
 
@@ -194,7 +195,17 @@ export default function Canvas({ seed, onSeedConsumed, onIngested, onOpenNote })
             if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
               e.preventDefault();
               submit();
+              return;
             }
+            /* List keys: Tab indents (a subtask is an indented task —
+               a plain textarea would move focus instead), Shift-Tab
+               outdents, Enter continues the list. Escape then Tab
+               still leaves the box for keyboard users. */
+            if (e.key === "Escape") {
+              e.currentTarget.blur();
+              return;
+            }
+            if (listKey(e.currentTarget, e)) e.preventDefault();
           }}
         />
         {preview.length > 0 && (
@@ -203,7 +214,7 @@ export default function Canvas({ seed, onSeedConsumed, onIngested, onOpenNote })
           </div>
         )}
         <div className="ghost small canvas-hint">
-          {busy ? "…" : "⌘↩ to submit · //ask and //azure run instantly"}
+          {busy ? "…" : "⌘↩ to submit · Tab indents a subtask · //ask and //azure run instantly"}
         </div>
       </div>
       <div className="dump-history">

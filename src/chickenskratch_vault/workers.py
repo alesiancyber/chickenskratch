@@ -486,9 +486,13 @@ def _real_date_or_none(value) -> str | None:
 def _shape_tasks(raw_tasks: list[dict]) -> list[dict]:
     """The worker's task rows, sanitized the one way every extractor
     shares: real dates or None, dropped impossible dates surfaced as
-    `dropped_due` (drafters turn that into a forced checkbox)."""
+    `dropped_due` (drafters turn that into a forced checkbox), and
+    `depth` made well-formed (first task 0, no level skipped — the
+    only nesting a list of indented lines can express; a model that
+    omits the field gets a flat list, exactly as before)."""
     out = []
-    for t in raw_tasks:
+    depths = tk.normalize_depths([_int_or_zero(t.get("depth")) for t in raw_tasks])
+    for t, depth in zip(raw_tasks, depths, strict=True):
         due = _real_date_or_none(t.get("due"))
         scheduled = _real_date_or_none(t.get("scheduled"))
         task = {
@@ -497,6 +501,7 @@ def _shape_tasks(raw_tasks: list[dict]) -> list[dict]:
             "scheduled": scheduled,
             "priority": t.get("priority") or None,
             "owed_by": (t.get("owed_by") or "").strip() or None,
+            "depth": depth,
         }
         if t.get("due") and due is None:
             # Surfaced, not swallowed: drafters turn this into a forced
@@ -507,6 +512,12 @@ def _shape_tasks(raw_tasks: list[dict]) -> list[dict]:
             task["dropped_due"] = str(t["scheduled"])  # same forced-review lever
         out.append(task)
     return out
+
+
+def _int_or_zero(value) -> int:
+    """A depth the schema let through as a number, or 0 for anything
+    else (null, a string, a bool)."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 def _week_anchors(today: str) -> dict:
