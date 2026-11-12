@@ -95,5 +95,12 @@ properties:
         type: string
       minItems: 2
       maxItems: 2
+  folders:
+    # spec_drift proposals: the top-level folders offered for the map.
+    # A rejected proposal's folders are the dismissal memory — the scan
+    # stops offering them while the file lives (queue retention)
+    type: array
+    items:
+      type: string
   resolved:
     type: ["object", "null"]

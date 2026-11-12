@@ -691,12 +691,42 @@ def verify_schema_fix(w: Watcher, item: dict, proposal: dict) -> list[str]:
 # ---- spec_drift: the vault moved, the spec didn't -> spec proposal ----
 
 
+_DRIFT_ISSUE_RE = re.compile(r"^top-level folder '(.+)' is not in the vault spec$")
+
+
+def _dismissed_folders(w: Watcher) -> set[str]:
+    """Folders a human already declined to map: never re-ask. The queue
+    is the memory, the same way overlap remembers its pairs — a rejected
+    spec_drift proposal carries the folders it offered, and queue
+    retention (30d) is the natural expiry of the dismissal. Without this
+    the scan re-drafted the identical proposal on the very next pass, so
+    a reject looked like it hadn't taken: the row was back on the
+    dashboard before the page finished refreshing. Proposals drafted
+    before `folders` was recorded are read back off their issue lines,
+    which name the folders one per line."""
+    dismissed = set()
+    for p in proposals.load_all(w.proposals_dir):
+        if p.get("kind") != "spec_drift" or p.get("status") != "rejected":
+            continue
+        if p.get("folders"):
+            dismissed.update(p["folders"])
+            continue
+        for issue in p.get("issues", []):
+            m = _DRIFT_ISSUE_RE.match(issue)
+            if m:
+                dismissed.add(m.group(1))
+    return dismissed
+
+
 def scan_spec_drift(w: Watcher) -> list[dict]:
     """Top-level folders holding notes that the vault spec doesn't know.
     One work item covers them all — the spec note is one note, and the
-    queue allows one pending proposal per note."""
+    queue allows one pending proposal per note. A folder the user has
+    already rejected mapping stays out (_dismissed_folders): rejecting
+    is an answer, not a request to be asked again next pass."""
     cfg = get_config(w.vault_path)
     known = set(cfg.folder_types) | set(cfg.exclude) | set(cfg.surface_dirs)
+    known |= _dismissed_folders(w)
     new = []
     for child in sorted(pathlib.Path(w.vault_path).iterdir()):
         if not child.is_dir() or child.name.startswith(".") or child.name in known:
@@ -726,7 +756,7 @@ async def draft_spec_drift(w: Watcher, item: dict) -> dict | None:
     cfg = get_config(w.vault_path)
     merged = {**cfg.folder_types, **dict.fromkeys(item["folders"], "other")}
     names = ", ".join(item["folders"])
-    return proposals.new_proposal(
+    p = proposals.new_proposal(
         kind="spec_drift",
         note=item["note"],
         vault_sha=item["vault_sha"],
@@ -740,6 +770,8 @@ async def draft_spec_drift(w: Watcher, item: dict) -> dict | None:
             "value": yaml.safe_dump(merged, default_flow_style=False, sort_keys=True),
         }}],
     )
+    p["folders"] = list(item["folders"])  # the queue's dismissal memory (_dismissed_folders)
+    return p
 
 
 # ---- schema_fix: nonconforming entities -> minimal-fix proposal ----

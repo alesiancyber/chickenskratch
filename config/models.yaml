@@ -7,7 +7,7 @@
 # bake it into a Modelfile.
 
 default: gemini-3.1-pro   # cloud is the deliberate default; local profiles below still work via -m
-worker: qwen35-moe        # profile the background workers run on (WORKER_* env still overrides)
+worker: qwen36-moe-ollama # profile the background workers run on (WORKER_* env still overrides)
 # Worker prompts are written for a capable model; `worker_adapt: small`
 # on a profile splices in the conservative hedge rules when THAT profile
 # runs the workers. With no worker profile at all, the built-in 4B
@@ -138,6 +138,17 @@ models:
     api_key_env: B70_API_KEY
     worker_adapt: small
     worker_timeout_s: 300.0
+
+  # Same Qwen3.6-35B-A3B weights, served by the LOCAL Ollama instead of
+  # the homelab box (added at setup 2026-09-15: 10.0.0.85 was unreachable
+  # from this machine). Raise the context with OLLAMA_CONTEXT_LENGTH if
+  # long worker prompts get truncated.
+  qwen36-moe-ollama:
+    model: qwen3.6-unsloth:latest
+    base_url: http://localhost:11434/v1
+    worker_adapt: small
+    worker_timeout_s: 300.0
+    worker_max_tokens: 8000
 
   # Example future entry for the 32GB network server:
   # homelab-70b:

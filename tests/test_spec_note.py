@@ -173,3 +173,45 @@ def test_empty_or_known_folders_are_not_drift(vault, make_watcher):
     (vault / "Scaffolding").mkdir()  # no notes inside: not drift
     run(w)
     assert proposals.pending(w.proposals_dir) == []
+
+
+def test_a_rejected_folder_is_not_offered_again(vault, make_watcher):
+    """Rejecting a spec_drift proposal must be remembered: the folder is
+    still there next pass, and the scan re-drafted the identical
+    proposal, so on the dashboard a reject looked like it reset on
+    refresh. The queue is the memory (as for overlap pairs)."""
+    w = make_watcher(vault, drafter=no_worker, registry=(SPEC_DRIFT,))
+    run(w)
+    (vault / "Detections").mkdir()
+    (vault / "Detections/suspicious-logins.md").write_text("# a note\n")
+    run(w)
+    (p,) = proposals.pending(w.proposals_dir)
+    assert p["folders"] == ["Detections"]
+
+    summary = asyncio.run(w.run_once(decisions=[(p["id"], "reject")]))
+    assert summary["rejected"] == 1
+    run(w)
+    assert proposals.pending(w.proposals_dir) == []  # not re-asked
+
+    # a DIFFERENT new folder is still drift — only the answered one is quiet
+    (vault / "Playbooks").mkdir()
+    (vault / "Playbooks/triage.md").write_text("# triage\n")
+    run(w)
+    (p2,) = proposals.pending(w.proposals_dir)
+    assert p2["folders"] == ["Playbooks"]
+    assert "Detections" not in p2["title"]
+
+
+def test_a_legacy_rejection_without_folders_still_counts(vault, make_watcher):
+    """Proposals drafted before `folders` was recorded carry the folder
+    names only in their issue lines; those rejections must hold too."""
+    w = make_watcher(vault, drafter=no_worker, registry=(SPEC_DRIFT,))
+    run(w)
+    (vault / "Detections").mkdir()
+    (vault / "Detections/suspicious-logins.md").write_text("# a note\n")
+    run(w)
+    (p,) = proposals.pending(w.proposals_dir)
+    del p["folders"]
+    proposals.resolve(p, "rejected", w.proposals_dir)
+    run(w)
+    assert proposals.pending(w.proposals_dir) == []

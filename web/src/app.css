@@ -559,6 +559,9 @@ section { margin-bottom: var(--s5); }
 }
 .canvas-input::placeholder { color: var(--ink-3); }
 .canvas-hint { margin-bottom: var(--s5); }
+/* the canvas's live preview: every closed ```mermaid fence in the dump,
+   drawn under the textarea while you type (Canvas.jsx usePreviewDiagrams) */
+.canvas-preview { margin: var(--s2) 0 var(--s3); }
 
 .dump-history { display: flex; flex-direction: column; gap: var(--s4); }
 

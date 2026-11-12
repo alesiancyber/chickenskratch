@@ -95,7 +95,7 @@ export function linkify(text, onOpenNote) {
    decorations; here there is no editor, so the node mounts directly —
    but both go through mountDiagram, so a diagram looks the same and
    fails the same wherever it is read. */
-function Diagram({ code }) {
+export function Diagram({ code }) {
   const ref = useRef(null);
   useEffect(() => (ref.current ? mountDiagram(ref.current, code) : undefined), [code]);
   return <div className="diagram" ref={ref} />;

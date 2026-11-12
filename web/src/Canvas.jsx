@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { postJSON } from "./api.js";
-import { linkifyBlock } from "./text.jsx";
+import { findFences } from "./mermaid.js";
+import { Diagram, linkifyBlock } from "./text.jsx";
 
 /* The canvas: dump anything in. One beautifully typographed input
    (V1 uses NO editor engine — nothing fights us inside a text buffer).
@@ -93,11 +94,38 @@ function Receipt({ last, onOpenNote }) {
   );
 }
 
+
+/* The dump's diagrams, drawn while you type. The input stays a plain
+   textarea (nothing fights the buffer), so a diagram is shown BESIDE
+   the text rather than in place of it, and what counts as a diagram is
+   the editor's rule — findFences: a closed ```mermaid block. An
+   unclosed one is still being typed and draws nothing. Debounced,
+   because mermaid re-parses the whole block per change and a diagram
+   redrawn on every keystroke flickers through its own syntax errors.
+   Preview only: the dump is filed exactly as typed. */
+const PREVIEW_DEBOUNCE_MS = 400;
+function usePreviewDiagrams(text) {
+  const [codes, setCodes] = useState([]);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const lines = text.split("\n");
+      setCodes(text.includes("```")
+        ? findFences(lines)
+            .map(({ start, end }) => lines.slice(start + 1, end).join("\n"))
+            .filter((code) => code.trim())
+        : []);
+    }, PREVIEW_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [text]);
+  return codes;
+}
+
 export default function Canvas({ seed, onSeedConsumed, onIngested, onOpenNote }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [last, setLast] = useState(null);
   const taRef = useRef(null);
+  const preview = usePreviewDiagrams(text);
 
   useEffect(() => {
     if (seed) {
@@ -169,6 +197,11 @@ export default function Canvas({ seed, onSeedConsumed, onIngested, onOpenNote })
             }
           }}
         />
+        {preview.length > 0 && (
+          <div className="canvas-preview">
+            {preview.map((code, i) => <Diagram key={i} code={code} />)}
+          </div>
+        )}
         <div className="ghost small canvas-hint">
           {busy ? "…" : "⌘↩ to submit · //ask and //azure run instantly"}
         </div>
